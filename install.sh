@@ -162,5 +162,5 @@ case ":${PATH:-}:" in
         fi
         ;;
 esac
-echo "Tip: run '$CMD_NAME init' in any repo to initialize TODO.md, TODO_PLAN.md, and TODO_ARCHIVE.md."
+echo "Tip: run '$CMD_NAME init' in any repo to initialize TODO.md and TODO_ARCHIVE.md."
 echo "============================================================"

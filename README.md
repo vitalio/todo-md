@@ -29,7 +29,7 @@ todo_md init
 todo_md
 ```
 
-Create, update, and transition tasks via the CLI (inside a Git repository, mutating commands automatically validate and commit `TODO*.md`; pass `--no-commit` to skip committing):
+Create, update, and transition tasks via the CLI (mutating commands automatically validate and status-order `TODO.md`; pass `-c` / `--commit` to also git-commit `TODO*.md`):
 
 ```bash
 todo_md add F "Implement feature X" --next -b "Goal and acceptance criteria."

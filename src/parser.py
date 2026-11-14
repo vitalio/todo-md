@@ -127,13 +127,15 @@ def format_ids_summary(top: dict[str, int]) -> str:
 def _format_task_for_summary(task: dict[str, object], full: bool = False) -> str:
     sec = str(task["section"]).rstrip()
     status = str(task["status"])
-    if full or status in ("WIP", "NEXT"):
+    if full or status in ("WIP", "NEXT", "QUESTION"):
         return sec
     lines = sec.splitlines()
     heading = lines[0]
     body_non_empty = [l for l in lines[1:] if l.strip()]
-    if len(body_non_empty) <= 2:
-        return sec
+    if not body_non_empty:
+        return heading
+    if len(body_non_empty) == 1:
+        return f"{heading}\n\n{body_non_empty[0]}"
     tid = str(task["id"])
     extra = len(body_non_empty) - 1
     return f"{heading}\n\n{body_non_empty[0]}\n*(+{extra} more line{'s' if extra != 1 else ''} — run `{prog_name()} {tid}` to view full task)*"
@@ -150,10 +152,14 @@ def cmd_summary(base_dir: Path, full: bool = False) -> int:
     top = highest_ids_in_use(base_dir)
 
     if active_tasks:
-        if full or len(active_tasks) <= 5:
+        if full:
             sys.stdout.write(todo_text + "\n\n")
         else:
-            rendered = [_format_task_for_summary(t, full=False) for t in active_tasks]
+            ordered = sorted(
+                enumerate(active_tasks),
+                key=lambda iv: (ACTIVE_STATUS_ORDER.get(str(iv[1]["status"]), 99), iv[0]),
+            )
+            rendered = [_format_task_for_summary(t, full=False) for _, t in ordered]
             sys.stdout.write("\n\n".join(rendered) + "\n\n")
 
     if not active_tasks:

@@ -21,16 +21,17 @@
   {prog} -V | --version                      Print version and exit 0
   {prog} -h | --help                         Print this usage and exit 0
 
-Mutating commands automatically validate and git-commit TODO*.md when inside a Git repository
-(pass --no-commit to skip committing).
+Mutating commands automatically validate and status-order TODO.md (pass -c / --commit to also
+git-commit TODO*.md when inside a Git repository; --no-commit is accepted as a no-op alias).
 
 Manages structured Markdown task files in a repository:
-  - TODO.md          All open tasks (🔵 [WIP], 🎯 [NEXT], ⚪ [NEW], ⏸️ [HOLD], ❓ [QUESTION])
-  - TODO_ARCHIVE.md  Completed (✅ [DONE]) and dropped (❌ [CANCELED]) tasks
+  - TODO.md          All open tasks ordered by status (🔵 [WIP], 🎯 [NEXT], ❓ [QUESTION], ⚪ [NEW], ⏸️ [HOLD])
+  - TODO_ARCHIVE.md  Completed (✅ [DONE]) and dropped (❌ [CANCELED]) tasks (newest at top)
 
 Environment variables:
   TODO_MD_CWD          Override target directory (default: current directory or Git root)
-  TODO_MD_NO_COMMIT    Set to 1 to disable automatic git commits on mutating commands
+  TODO_MD_COMMIT       Set to 1 to git-commit TODO*.md automatically on mutating commands
+  TODO_MD_NO_COMMIT    Set to 1 to suppress git commits even when --commit / TODO_MD_COMMIT is set
   TODO_MD_UPDATE_URL   Override raw script URL for update / check-update
 """
 from __future__ import annotations
@@ -55,11 +56,19 @@ FENCE = chr(96) * 3
 VALID_STATUSES: dict[str, str] = {
     "WIP": "🔵",
     "NEXT": "🎯",
+    "QUESTION": "❓",
     "NEW": "⚪",
     "HOLD": "⏸️",
-    "QUESTION": "❓",
     "DONE": "✅",
     "CANCELED": "❌",
+}
+
+ACTIVE_STATUS_ORDER: dict[str, int] = {
+    "WIP": 0,
+    "NEXT": 1,
+    "QUESTION": 2,
+    "NEW": 3,
+    "HOLD": 4,
 }
 
 TASK_FILES = ("TODO.md", "TODO_ARCHIVE.md")

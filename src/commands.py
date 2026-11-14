@@ -72,24 +72,64 @@ def _git_commit_todo(base_dir: Path, commit_msg: str) -> None:
     sys.stdout.write(f"{prog_name()}: committed {', '.join(changed)}{sha}: {commit_msg}\n")
 
 
-def _finalize_mutation(base_dir: Path, commit_msg: str, no_commit: bool = False) -> int:
+def _sort_todo_file(todo_path: Path, promote_id: str | None = None) -> None:
+    if not todo_path.is_file():
+        return
+    raw = todo_path.read_text(encoding="utf-8")
+    if not raw.strip():
+        return
+    tasks = parse_tasks_in_text(raw, "TODO.md")
+    if not tasks:
+        return
+    target = promote_id.strip().upper() if promote_id else None
+    ordered = sorted(
+        enumerate(tasks),
+        key=lambda iv: (
+            ACTIVE_STATUS_ORDER.get(str(iv[1]["status"]), 99),
+            0 if (target and str(iv[1]["id"]).upper() == target) else 1,
+            iv[0],
+        ),
+    )
+    sections = [str(t["section"]).rstrip() for _, t in ordered]
+    new_text = "\n\n".join(sections) + "\n"
+    if new_text != raw:
+        todo_path.write_text(new_text, encoding="utf-8")
+
+
+def _finalize_mutation(
+    base_dir: Path,
+    commit_msg: str,
+    commit: bool = False,
+    no_commit: bool = False,
+    promote_id: str | None = None,
+) -> int:
+    _sort_todo_file(base_dir / "TODO.md", promote_id=promote_id)
     errors, _ = validate_all(base_dir)
     if errors:
         for e in errors:
             sys.stderr.write(f"ERROR: {e}\n")
         return 1
+    env_commit = os.environ.get("TODO_MD_COMMIT", "").strip().lower() in ("1", "true", "yes")
     env_no_commit = os.environ.get("TODO_MD_NO_COMMIT", "").strip().lower() in ("1", "true", "yes")
-    if not no_commit and not env_no_commit:
+    if (commit or env_commit) and not no_commit and not env_no_commit:
         _git_commit_todo(base_dir, commit_msg)
     return 0
 
 
-def cmd_init(base_dir: Path, argv: list[str] | None = None, force: bool = False, no_commit: bool = False) -> int:
+def cmd_init(
+    base_dir: Path,
+    argv: list[str] | None = None,
+    force: bool = False,
+    commit: bool = False,
+    no_commit: bool = False,
+) -> int:
     prog = prog_name()
     pos: list[str] = []
     for a in argv or []:
         if a == "--force":
             force = True
+        elif a in ("--commit", "-c"):
+            commit = True
         elif a == "--no-commit":
             no_commit = True
         elif a.startswith("-"):
@@ -115,7 +155,7 @@ def cmd_init(base_dir: Path, argv: list[str] | None = None, force: bool = False,
         sys.stdout.write(f"{prog}: TODO*.md files already exist in {base_dir} (use --force to overwrite)\n")
         return 0
     sys.stdout.write(f"{prog}: initialized {', '.join(created)} in {base_dir}\n")
-    return _finalize_mutation(base_dir, f"Initialize {' and '.join(created)}", no_commit=no_commit)
+    return _finalize_mutation(base_dir, f"Initialize {' and '.join(created)}", commit=commit, no_commit=no_commit)
 
 
 def _extract_and_remove_task(text: str, target_id: str) -> tuple[dict[str, object] | None, str]:
@@ -173,6 +213,11 @@ def _insert_task_section(file_path: Path, section_lines: list[str], default_head
     if not prepend:
         file_path.write_text(existing.rstrip() + "\n\n" + "\n".join(section_lines) + "\n", encoding="utf-8")
         return
+    if file_path.name == "TODO_ARCHIVE.md":
+        updated = section_lines + [""] + existing.splitlines()
+        new_text = re.sub(r"\n{3,}", "\n\n", "\n".join(updated).rstrip()) + "\n"
+        file_path.write_text(new_text, encoding="utf-8")
+        return
     lines = existing.splitlines()
     in_fence = False
     insert_idx: int | None = None
@@ -225,6 +270,7 @@ def cmd_transition(
     dest_file: str | None = None,
     note: str | None = None,
     promote_top: bool = False,
+    commit: bool = False,
     no_commit: bool = False,
 ) -> int:
     target = task_id.strip().upper()
@@ -292,7 +338,7 @@ def cmd_transition(
                     break
         src_path.write_text("\n".join(orig_lines) + "\n", encoding="utf-8")
         sys.stdout.write(f"{prog_name()}: updated {target} -> [{final_status}] in {source_file}\n")
-        return _finalize_mutation(base_dir, commit_msg, no_commit=no_commit)
+        return _finalize_mutation(base_dir, commit_msg, commit=commit, no_commit=no_commit)
 
     (base_dir / source_file).write_text(updated_source_text, encoding="utf-8")
     default_hdrs = {
@@ -303,16 +349,22 @@ def cmd_transition(
         base_dir / dest_file,
         sec_lines,
         default_hdrs[dest_file],
-        prepend=(promote_top and dest_file == "TODO.md"),
+        prepend=(dest_file == "TODO_ARCHIVE.md" or (promote_top and dest_file == "TODO.md")),
     )
     if dest_file == source_file:
         sys.stdout.write(f"{prog_name()}: promoted {target} ([{final_status}]) to top of {dest_file}\n")
     else:
         sys.stdout.write(f"{prog_name()}: moved {target} ([{final_status}]) from {source_file} -> {dest_file}\n")
-    return _finalize_mutation(base_dir, commit_msg, no_commit=no_commit)
+    return _finalize_mutation(
+        base_dir,
+        commit_msg,
+        commit=commit,
+        no_commit=no_commit,
+        promote_id=(target if promote_top and dest_file == "TODO.md" else None),
+    )
 
 
-def cmd_add(base_dir: Path, argv: list[str], no_commit: bool = False) -> int:
+def cmd_add(base_dir: Path, argv: list[str], commit: bool = False, no_commit: bool = False) -> int:
     prog = prog_name()
     status = "NEW"
     prepend = False
@@ -323,7 +375,10 @@ def cmd_add(base_dir: Path, argv: list[str], no_commit: bool = False) -> int:
     i = 0
     while i < len(argv):
         a = argv[i]
-        if a == "--no-commit":
+        if a in ("--commit", "-c"):
+            commit = True
+            i += 1
+        elif a == "--no-commit":
             no_commit = True
             i += 1
         elif a in ("--next", "-n", "--top"):
@@ -399,10 +454,16 @@ def cmd_add(base_dir: Path, argv: list[str], no_commit: bool = False) -> int:
     _insert_task_section(base_dir / "TODO.md", sec_lines, _default_todo_header(base_dir), prepend=prepend)
     sys.stdout.write(f"{prog}: added {tid} ([{status}]) to TODO.md\n")
     base_title, _ = _strip_heading_note(title)
-    return _finalize_mutation(base_dir, f"Add task {tid}: {base_title}", no_commit=no_commit)
+    return _finalize_mutation(
+        base_dir,
+        f"Add task {tid}: {base_title}",
+        commit=commit,
+        no_commit=no_commit,
+        promote_id=(tid if prepend else None),
+    )
 
 
-def cmd_edit(base_dir: Path, argv: list[str], no_commit: bool = False) -> int:
+def cmd_edit(base_dir: Path, argv: list[str], commit: bool = False, no_commit: bool = False) -> int:
     prog = prog_name()
     new_title: str | None = None
     note: str | None = None
@@ -412,7 +473,10 @@ def cmd_edit(base_dir: Path, argv: list[str], no_commit: bool = False) -> int:
     i = 0
     while i < len(argv):
         a = argv[i]
-        if a == "--no-commit":
+        if a in ("--commit", "-c"):
+            commit = True
+            i += 1
+        elif a == "--no-commit":
             no_commit = True
             i += 1
         elif a in ("-t", "--title"):
@@ -491,20 +555,23 @@ def cmd_edit(base_dir: Path, argv: list[str], no_commit: bool = False) -> int:
         new_text = re.sub(r"\n{3,}", "\n\n", "\n".join(updated_lines).rstrip()) + "\n"
         p.write_text(new_text, encoding="utf-8")
         sys.stdout.write(f"{prog}: updated task {tid} in {fname}\n")
-        return _finalize_mutation(base_dir, f"Update task {tid}: {final_title}", no_commit=no_commit)
+        return _finalize_mutation(base_dir, f"Update task {tid}: {final_title}", commit=commit, no_commit=no_commit)
 
     sys.stderr.write(f"{prog}: task {target!r} not found in TODO*.md under {base_dir}\n")
     return 1
 
 
-def cmd_append(base_dir: Path, argv: list[str], no_commit: bool = False) -> int:
+def cmd_append(base_dir: Path, argv: list[str], commit: bool = False, no_commit: bool = False) -> int:
     prog = prog_name()
     body: str | None = None
     pos: list[str] = []
     i = 0
     while i < len(argv):
         a = argv[i]
-        if a == "--no-commit":
+        if a in ("--commit", "-c"):
+            commit = True
+            i += 1
+        elif a == "--no-commit":
             no_commit = True
             i += 1
         elif a in ("-b", "--body", "-m", "--note"):
@@ -559,7 +626,7 @@ def cmd_append(base_dir: Path, argv: list[str], no_commit: bool = False) -> int:
         p.write_text(new_text, encoding="utf-8")
         sys.stdout.write(f"{prog}: appended to {target} in {fname}\n")
         base_title, _ = _strip_heading_note(matched_title)
-        return _finalize_mutation(base_dir, f"Append to task {target}: {base_title}", no_commit=no_commit)
+        return _finalize_mutation(base_dir, f"Append to task {target}: {base_title}", commit=commit, no_commit=no_commit)
 
     sys.stderr.write(f"{prog}: task {target!r} not found in TODO*.md under {base_dir}\n")
     return 1
