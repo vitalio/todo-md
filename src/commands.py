@@ -118,23 +118,6 @@ def cmd_init(base_dir: Path, argv: list[str] | None = None, force: bool = False,
     return _finalize_mutation(base_dir, f"Initialize {' and '.join(created)}", no_commit=no_commit)
 
 
-def agents_markdown(prog: str | None = None) -> str:
-    cmd = prog or prog_name()
-    lines = [
-        f"## Task management (`{cmd}`: `TODO.md`, `TODO_ARCHIVE.md`)",
-        "",
-        f"Always inspect and modify `TODO.md` and `TODO_ARCHIVE.md` via `{cmd}` (never via `cat` or manual file edits). Repository scope only: record only tasks belonging to the current repository.",
-        "",
-        f"- Inspect: `{cmd} [--full]` (overview: full `WIP`/`NEXT` + compact backlog), `{cmd} <ID>`, `{cmd} list [active|archive|all|<STATUS>]`, `{cmd} archive`, `{cmd} ids`",
-        f'- Create: `{cmd} add [<PREFIX>] "<title>" [-p <PREFIX>] [--next] [--status WIP|NEXT|NEW|HOLD|QUESTION] [-m "<note>"] [-b "<body_md>"]` (auto-assigns `<ID>`, default prefix `F`; pass body via `-b` or `stdin`; `{cmd} init "<idea>"` bootstraps a new `TODO.md`)',
-        f'- Update: `{cmd} edit <ID> [-t "<title>"] [-m "<note>"] [-b "<body_md>"]`, `{cmd} append <ID> [-b "<text>"]`',
-        f'- Transition: `{cmd} status <ID> <WIP|NEXT|NEW|HOLD|QUESTION> [-m "<note>"]`, `{cmd} next <ID> [-m "<note>"]` (promote to `🎯 [NEXT]`)',
-        f'- Close (moves to `TODO_ARCHIVE.md`): `{cmd} done <ID> [-m "<commit_sha>"]`, `{cmd} cancel <ID> [-m "<reason>"]`',
-        f"- Auto-commit & validate: mutating commands automatically validate and git-commit `TODO*.md` (pass `--no-commit` on earlier commands when batching multiple updates in one block; run `{cmd} check` to validate manually)",
-    ]
-    return "\n".join(lines)
-
-
 def _extract_and_remove_task(text: str, target_id: str) -> tuple[dict[str, object] | None, str]:
     lines = text.splitlines()
     in_fence = False

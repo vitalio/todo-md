@@ -78,7 +78,6 @@ KNOWN_SUBCOMMANDS = (
     "init",
     "list",
     "show",
-    "agents",
     "update",
     "check-update",
     "help",
@@ -94,9 +93,6 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if "-V" in args or "--version" in args or (args and args[0] == "version"):
         sys.stdout.write(f"{prog} {VERSION}\n")
-        return 0
-    if args and args[0] in ("agents", "--agents", "--agents-md"):
-        sys.stdout.write(agents_markdown(prog) + "\n")
         return 0
     if args and args[0] in ("check-update", "--check-update"):
         return cmd_check_update()

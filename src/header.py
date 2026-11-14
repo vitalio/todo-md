@@ -16,7 +16,6 @@
   {prog} ids                                 Print highest task IDs in use and next available ID per prefix
   {prog} check                               Validate layout, headings, status badges, and unique IDs
   {prog} init [TEXT] [--force]               Create starter TODO.md (with optional project idea from TEXT/stdin) and TODO_ARCHIVE.md
-  {prog} --agents | agents                   Print Markdown instructions for AI agents
   {prog} update [--force]                    Self-update {prog} from GitHub (vitalio/todo_md)
   {prog} check-update                        Check if a newer version is available on GitHub
   {prog} -V | --version                      Print version and exit 0

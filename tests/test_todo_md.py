@@ -39,13 +39,14 @@ class TestTodoMd(unittest.TestCase):
         ver = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
         self.assertEqual(rv.stdout.strip(), f"todo_md {ver}")
 
-        ra = subprocess.run([str(SCRIPT), "agents"], capture_output=True, text=True, check=False)
-        self.assertEqual(ra.returncode, 0)
-        self.assertIn("Repository scope only", ra.stdout)
-        self.assertIn("🎯 [NEXT]", ra.stdout)
-        self.assertIn("TODO_ARCHIVE.md", ra.stdout)
-        self.assertNotIn("TODO_PLAN.md", ra.stdout)
-        self.assertNotIn("Resume", ra.stdout)
+        self.assertNotIn("--agents", rh.stdout)
+        rule_txt = (ROOT / "src/rules/todo_md.md").read_text(encoding="utf-8")
+        self.assertIn("Repository scope only", rule_txt)
+        self.assertIn("🎯 [NEXT]", rule_txt)
+        self.assertIn("TODO_ARCHIVE.md", rule_txt)
+        bundle_txt = (ROOT / "src/bundles/todo_md.bundle").read_text(encoding="utf-8")
+        self.assertIn("rule vitalio/todo_md:todo_md", bundle_txt)
+        self.assertNotIn("task=next", bundle_txt)
 
     def test_init_summary_priority_smart_truncation_and_check(self):
         r_init = subprocess.run([str(SCRIPT), "init"], cwd=str(self.tmp), capture_output=True, text=True, check=False)

@@ -1,0 +1,26 @@
+# Description: On-demand todo_md task management rules and role/task workflow prompts
+rule vitalio/todo_md:todo_md
+[if role=design]
+    [if task=] $ todo_md
+    [if task!=] $ todo_md {task:}
+    prompt Mode: DESIGN. Explore requirements and architecture; once agreed, update AGENTS.md and .agents_bundle as needed, and record the design specification in TODO.md via todo_md.
+[/if]
+[if role=plan]
+    [if task=] $ todo_md
+    [if task!=] $ todo_md {task:}
+    prompt Mode: PLANNING. Decompose and prioritize flat, self-contained tasks in TODO.md via todo_md; once task <ID> is agreed, initialize a new session bundle with role=execute task=<ID>.
+[/if]
+[if role=execute]
+    [if task=]
+        $ todo_md
+        prompt Mode: EXECUTION. Inspect the relevant files, state a brief implementation plan for the top [WIP] or [NEXT] task in TODO.md, deliver verified code and commits, and mark the task done via todo_md done <ID> --no-commit before the final commit so task completion is included in the commit.
+    [/if]
+    [if task!=]
+        $ todo_md {task:}
+        prompt Mode: EXECUTION (task={task:}). Inspect the relevant files, state a brief implementation plan for task {task:}, deliver verified code and commits, and mark the task done via todo_md done {task:} --no-commit before the final commit so task completion is included in the commit.
+    [/if]
+[/if]
+[if role=audit]
+    $ todo_md
+    prompt Mode: AUDIT. Audit the requested scope against active rules (checking TODO.md to avoid duplicates), report findings in chat, and after user agreement record remediation tasks in TODO.md via todo_md add.
+[/if]

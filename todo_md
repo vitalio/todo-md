@@ -16,7 +16,6 @@
   {prog} ids                                 Print highest task IDs in use and next available ID per prefix
   {prog} check                               Validate layout, headings, status badges, and unique IDs
   {prog} init [TEXT] [--force]               Create starter TODO.md (with optional project idea from TEXT/stdin) and TODO_ARCHIVE.md
-  {prog} --agents | agents                   Print Markdown instructions for AI agents
   {prog} update [--force]                    Self-update {prog} from GitHub (vitalio/todo_md)
   {prog} check-update                        Check if a newer version is available on GitHub
   {prog} -V | --version                      Print version and exit 0
@@ -48,7 +47,7 @@ import urllib.request
 from datetime import date
 from pathlib import Path
 
-VERSION = "0.5.0"
+VERSION = "0.6.0"
 REPO_MARKER = "todo_md-repo: vitalio/todo_md"
 DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/vitalio/todo_md/main/todo_md"
 FENCE = chr(96) * 3
@@ -456,23 +455,6 @@ def cmd_init(base_dir: Path, argv: list[str] | None = None, force: bool = False,
         return 0
     sys.stdout.write(f"{prog}: initialized {', '.join(created)} in {base_dir}\n")
     return _finalize_mutation(base_dir, f"Initialize {' and '.join(created)}", no_commit=no_commit)
-
-
-def agents_markdown(prog: str | None = None) -> str:
-    cmd = prog or prog_name()
-    lines = [
-        f"## Task management (`{cmd}`: `TODO.md`, `TODO_ARCHIVE.md`)",
-        "",
-        f"Always inspect and modify `TODO.md` and `TODO_ARCHIVE.md` via `{cmd}` (never via `cat` or manual file edits). Repository scope only: record only tasks belonging to the current repository.",
-        "",
-        f"- Inspect: `{cmd} [--full]` (overview: full `WIP`/`NEXT` + compact backlog), `{cmd} <ID>`, `{cmd} list [active|archive|all|<STATUS>]`, `{cmd} archive`, `{cmd} ids`",
-        f'- Create: `{cmd} add [<PREFIX>] "<title>" [-p <PREFIX>] [--next] [--status WIP|NEXT|NEW|HOLD|QUESTION] [-m "<note>"] [-b "<body_md>"]` (auto-assigns `<ID>`, default prefix `F`; pass body via `-b` or `stdin`; `{cmd} init "<idea>"` bootstraps a new `TODO.md`)',
-        f'- Update: `{cmd} edit <ID> [-t "<title>"] [-m "<note>"] [-b "<body_md>"]`, `{cmd} append <ID> [-b "<text>"]`',
-        f'- Transition: `{cmd} status <ID> <WIP|NEXT|NEW|HOLD|QUESTION> [-m "<note>"]`, `{cmd} next <ID> [-m "<note>"]` (promote to `🎯 [NEXT]`)',
-        f'- Close (moves to `TODO_ARCHIVE.md`): `{cmd} done <ID> [-m "<commit_sha>"]`, `{cmd} cancel <ID> [-m "<reason>"]`',
-        f"- Auto-commit & validate: mutating commands automatically validate and git-commit `TODO*.md` (pass `--no-commit` on earlier commands when batching multiple updates in one block; run `{cmd} check` to validate manually)",
-    ]
-    return "\n".join(lines)
 
 
 def _extract_and_remove_task(text: str, target_id: str) -> tuple[dict[str, object] | None, str]:
@@ -1002,7 +984,6 @@ KNOWN_SUBCOMMANDS = (
     "init",
     "list",
     "show",
-    "agents",
     "update",
     "check-update",
     "help",
@@ -1018,9 +999,6 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if "-V" in args or "--version" in args or (args and args[0] == "version"):
         sys.stdout.write(f"{prog} {VERSION}\n")
-        return 0
-    if args and args[0] in ("agents", "--agents", "--agents-md"):
-        sys.stdout.write(agents_markdown(prog) + "\n")
         return 0
     if args and args[0] in ("check-update", "--check-update"):
         return cmd_check_update()
