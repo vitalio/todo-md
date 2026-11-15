@@ -11,16 +11,16 @@ rule vitalio/todo_md:todo_md
     prompt Mode: PLANNING. Decompose work into flat, self-contained tasks in TODO.md (default status NEW), record target repository file paths in backticks in each task body, promote ready prioritized tasks via todo_md next <ID>, and commit TODO*.md once backlog updates are finished; once task <ID> is agreed, initialize a new session bundle via todo_md <ID> | agents_bundle role=execute | run_block (or agents_bundle role=execute task=<ID> | run_block).
 [/if]
 [if role=execute]
-    var task=$(todo_md next-id)
+    [if task=] var task=$(todo_md next-id)
     [if task=]
         $ todo_md
-        prompt Mode: EXECUTION. No active [WIP] or [NEXT] task found in TODO.md; ask the user which task to execute.
+        prompt Mode: EXECUTION. No [WIP] or [NEXT] task was resolved automatically; if the user supplied a task ID in the prompt, execute that task (starting with todo_md status <ID> WIP and a batched read of its target files in step 1), otherwise propose the top task shown in the todo_md overview above and ask for confirmation before editing.
     [/if]
     [if task!=]
         $ todo_md status {task:} WIP
         $ todo_md {task:}
         include $(todo_md files {task:})
-        prompt Mode: EXECUTION (task={task:}). If all target files for task {task:} are already preloaded in this bundle, proceed directly to edit, test, and diff in step 1; otherwise inspect any missing target files in one batched step first, deliver verified code and commits, and mark the task done via todo_md done {task:} before the final commit so task completion is committed atomically with code changes.
+        prompt Mode: EXECUTION (task={task:}). Emit your first run_block in this very first reply without restating the plan in chat: if all target files for task {task:} are already preloaded above, apply edits, run tests, and print the diff in step 1; otherwise run a single batched read step for any missing target files first. Deliver verified code, synced docs, and tests, mark the task done via todo_md done {task:} before the final commit, and commit atomically.
     [/if]
 [/if]
 [if role=audit]
