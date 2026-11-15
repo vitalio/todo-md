@@ -32,6 +32,13 @@
   - Close (prepends to `TODO_ARCHIVE.md`): `{cmd:todo_md} done <ID> [-m "<note>"] [-c|--commit]`,
     `{cmd:todo_md} cancel <ID> [-m "<reason>"] [-c|--commit]`
   - Validation & commits: mutating commands automatically validate and reorder
-    `TODO.md` without git-committing by default (pass `-c` / `--commit` for a
-    standalone `TODO*.md` commit, or stage `TODO*.md` into the final commit;
-    run `{cmd:todo_md} check` to validate manually)
+    `TODO.md` without git-committing by default (run `{cmd:todo_md} check` to
+    validate manually):
+    - `role=execute`: do not pass `-c` / `--commit`; stage `TODO.md` and
+      `TODO_ARCHIVE.md` into the final code commit so `done` is atomic with
+      implementation.
+    - `role=plan`, `role=design`, and `role=audit`: batch `{cmd:todo_md}`
+      mutations without `-c` and commit `TODO*.md` in a single commit once
+      backlog updates are finished (via `-c` / `--commit` on the final
+      `{cmd:todo_md}` command or `git add TODO*.md && git commit`) before
+      starting `role=execute`.
