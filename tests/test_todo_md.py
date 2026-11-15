@@ -48,6 +48,8 @@ class TestTodoMd(unittest.TestCase):
         self.assertIn("rule vitalio/todo_md:todo_md", bundle_txt)
         self.assertNotIn("task=next", bundle_txt)
         self.assertIn("$ todo_md status {task:} WIP", bundle_txt)
+        self.assertIn("todo_md next-id", bundle_txt)
+        self.assertIn("todo_md files <ID>", bundle_txt)
 
     def test_init_summary_priority_smart_truncation_and_check(self):
         r_init = subprocess.run([str(SCRIPT), "init"], cwd=str(self.tmp), capture_output=True, text=True, check=False)
@@ -234,6 +236,44 @@ class TestTodoMd(unittest.TestCase):
 
         r_log = subprocess.run(["git", "log", "--oneline"], cwd=str(self.tmp), capture_output=True, text=True, check=True)
         self.assertEqual(len(r_log.stdout.strip().splitlines()), 2)
+
+    def test_next_id_files_and_pipe_output(self):
+        subprocess.run([str(SCRIPT), "init"], cwd=str(self.tmp), check=True)
+        r_empty = subprocess.run([str(SCRIPT), "next-id"], cwd=str(self.tmp), capture_output=True, text=True, check=False)
+        self.assertEqual(r_empty.returncode, 1)
+        self.assertIn("no active WIP or NEXT task", r_empty.stderr)
+
+        (self.tmp / "src").mkdir()
+        (self.tmp / "src" / "app.py").write_text("print('hi')\n", encoding="utf-8")
+        (self.tmp / "README.md").write_text("# Demo\n", encoding="utf-8")
+        body = (
+            "- Update `src/app.py:10` and `README.md` (and `src/app.py` again).\n"
+            "- Ignore missing `src/missing.py` and external `../outside.py`.\n"
+            "```text\n"
+            "Ignore fenced `build.py`\n"
+            "```\n"
+        )
+        (self.tmp / "build.py").write_text("# fenced\n", encoding="utf-8")
+        subprocess.run([str(SCRIPT), "add", "Next task", "--next", "-b", body], cwd=str(self.tmp), check=True)
+        subprocess.run([str(SCRIPT), "add", "Wip task", "--status", "WIP", "-b", "Touch `README.md`."], cwd=str(self.tmp), check=True)
+
+        for flag in ("next-id", "--next-id", "--top"):
+            r_tid = subprocess.run([str(SCRIPT), flag], cwd=str(self.tmp), capture_output=True, text=True, check=False)
+            self.assertEqual(r_tid.returncode, 0, r_tid.stderr)
+            self.assertEqual(r_tid.stdout.strip(), "F2")
+
+        r_files = subprocess.run([str(SCRIPT), "files", "F1"], cwd=str(self.tmp), capture_output=True, text=True, check=False)
+        self.assertEqual(r_files.returncode, 0, r_files.stderr)
+        self.assertEqual(r_files.stdout.splitlines(), ["src/app.py", "README.md"])
+
+        r_files_top = subprocess.run([str(SCRIPT), "--files"], cwd=str(self.tmp), capture_output=True, text=True, check=False)
+        self.assertEqual(r_files_top.returncode, 0, r_files_top.stderr)
+        self.assertEqual(r_files_top.stdout.splitlines(), ["README.md"])
+
+        r_pipe = subprocess.run([str(SCRIPT), "F1"], cwd=str(self.tmp), capture_output=True, text=True, check=False)
+        self.assertEqual(r_pipe.returncode, 0)
+        self.assertIn("# 🎯 [NEXT] F1: Next task", r_pipe.stdout)
+        self.assertEqual(r_pipe.stderr, "")
 
     def test_install_sh(self):
         bin_dir = self.tmp / "bin"

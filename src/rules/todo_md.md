@@ -16,7 +16,9 @@
   - Inspect: `{cmd:todo_md} [--full]` (overview: full `WIP`/`NEXT`/`QUESTION` +
     compact `NEW`/`HOLD` backlog), `{cmd:todo_md} <ID>`,
     `{cmd:todo_md} list [active|archive|all|<STATUS>]`,
-    `{cmd:todo_md} archive`, `{cmd:todo_md} ids`
+    `{cmd:todo_md} archive`, `{cmd:todo_md} ids`,
+    `{cmd:todo_md} next-id` (`--top`, top `WIP`/`NEXT` ID),
+    `{cmd:todo_md} files [<ID>]` (existing backtick-referenced repo files)
   - Create: `{cmd:todo_md} add [<PREFIX>] "<title>" [-p <PREFIX>] [--next] [--status WIP|NEXT|NEW|HOLD|QUESTION] [-m "<note>"] [-b "<body_md>"] [-c|--commit]`
     (auto-assigns `<ID>`, default prefix `F`; pass body via `-b` or `stdin`;
     `{cmd:todo_md} init "<idea>"` bootstraps a new `TODO.md`)

@@ -73,6 +73,8 @@ KNOWN_SUBCOMMANDS = (
     "status",
     "next",
     "top",
+    "next-id",
+    "files",
     "ids",
     "check",
     "init",
@@ -148,8 +150,18 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit(f"{prog}: usage: {prog} status <ID> <STATUS> [-m NOTE]")
         st_up = pos[1].upper()
         return cmd_transition(base_dir, pos[0], new_status=st_up, dest_file=None, note=note, promote_top=(st_up in ("WIP", "NEXT")), commit=commit, no_commit=no_commit)
+    if args[0] in ("next-id", "--next-id"):
+        if len(args) != 1:
+            raise SystemExit(f"{prog}: usage: {prog} next-id")
+        return cmd_next_id(base_dir)
+    if args[0] in ("files", "--files"):
+        if len(args) > 2:
+            raise SystemExit(f"{prog}: usage: {prog} files [<ID>]")
+        return cmd_files(base_dir, args[1] if len(args) == 2 else None)
     if args[0] in ("next", "top", "--next", "--top"):
         pos, note = _parse_note_arg(args[1:])
+        if args[0] == "--top" and not pos and note is None:
+            return cmd_next_id(base_dir)
         if len(pos) != 1:
             raise SystemExit(f"{prog}: usage: {prog} next <ID> [-m NOTE]")
         return cmd_transition(base_dir, pos[0], new_status="NEXT", dest_file="TODO.md", note=note, promote_top=True, commit=commit, no_commit=no_commit)

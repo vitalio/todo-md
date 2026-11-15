@@ -630,3 +630,72 @@ def cmd_append(base_dir: Path, argv: list[str], commit: bool = False, no_commit:
 
     sys.stderr.write(f"{prog}: task {target!r} not found in TODO*.md under {base_dir}\n")
     return 1
+
+
+def resolve_top_task_id(base_dir: Path) -> str | None:
+    todo_path = base_dir / "TODO.md"
+    if not todo_path.is_file():
+        return None
+    active_tasks = parse_tasks_in_text(read_if_exists(todo_path), "TODO.md")
+    for wanted in ("WIP", "NEXT"):
+        for t in active_tasks:
+            if str(t["status"]) == wanted:
+                return str(t["id"]).upper()
+    return None
+
+
+def cmd_next_id(base_dir: Path) -> int:
+    tid = resolve_top_task_id(base_dir)
+    if not tid:
+        sys.stderr.write(f"{prog_name()}: no active WIP or NEXT task found in TODO.md under {base_dir}\n")
+        return 1
+    sys.stdout.write(f"{tid}\n")
+    return 0
+
+
+def extract_task_files(base_dir: Path, section_text: str) -> list[str]:
+    repo_root = base_dir.resolve()
+    found: list[str] = []
+    seen: set[str] = set()
+    in_fence = False
+    for line in section_text.splitlines():
+        if line.lstrip().startswith(FENCE):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        for raw in BACKTICK_TOKEN_RE.findall(line):
+            cand = raw.strip()
+            if not cand or any(ch.isspace() for ch in cand) or "://" in cand:
+                continue
+            if cand.startswith("-") or any(ch in cand for ch in "<>*?{}"):
+                continue
+            cand = re.sub(r"(?::\d+(?::\d+)?|#L\d+(?:-L\d+)?)$", "", cand)
+            if not cand:
+                continue
+            p_cand = Path(cand)
+            target = p_cand.resolve() if p_cand.is_absolute() else (repo_root / cand).resolve()
+            try:
+                rel_posix = target.relative_to(repo_root).as_posix()
+            except ValueError:
+                continue
+            if rel_posix == "." or not target.is_file():
+                continue
+            if rel_posix not in seen:
+                seen.add(rel_posix)
+                found.append(rel_posix)
+    return found
+
+
+def cmd_files(base_dir: Path, task_id: str | None = None) -> int:
+    target = task_id.strip().upper() if task_id else resolve_top_task_id(base_dir)
+    if not target:
+        sys.stderr.write(f"{prog_name()}: no active WIP or NEXT task found in TODO.md under {base_dir}\n")
+        return 1
+    for t in collect_all_tasks(base_dir):
+        if str(t["id"]).upper() == target:
+            for rel_path in extract_task_files(base_dir, str(t["section"])):
+                sys.stdout.write(f"{rel_path}\n")
+            return 0
+    sys.stderr.write(f"{prog_name()}: task {target!r} not found in TODO*.md under {base_dir}\n")
+    return 1

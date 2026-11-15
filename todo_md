@@ -14,6 +14,8 @@
   {prog} done <ID> [-m SHA_OR_NOTE]          Mark task <ID> as DONE and move it to TODO_ARCHIVE.md
   {prog} cancel <ID> [-m REASON]             Mark task <ID> as CANCELED and move it to TODO_ARCHIVE.md
   {prog} ids                                 Print highest task IDs in use and next available ID per prefix
+  {prog} next-id | --next-id | --top         Print the top WIP or NEXT task ID in TODO.md
+  {prog} files [<ID>] | --files [<ID>]       List existing repository file paths referenced in backticks in task <ID>
   {prog} check                               Validate layout, headings, status badges, and unique IDs
   {prog} init [TEXT] [--force]               Create starter TODO.md (with optional project idea from TEXT/stdin) and TODO_ARCHIVE.md
   {prog} update [--force]                    Self-update {prog} from GitHub (vitalio/todo_md)
@@ -48,7 +50,7 @@ import urllib.request
 from datetime import date
 from pathlib import Path
 
-VERSION = "0.7.0"
+VERSION = "0.8.0"
 REPO_MARKER = "todo_md-repo: vitalio/todo_md"
 DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/vitalio/todo_md/main/todo_md"
 FENCE = chr(96) * 3
@@ -80,6 +82,7 @@ STATUS_TOKEN_PAT = r"(?:(?:🔵|🎯|⚪|⏸️?|❓|✅|❌)\s+)?`?\[(?:WIP|NEX
 ANY_ID_RE = re.compile(
     rf"^(?:#\s+(?:{STATUS_TOKEN_PAT}\s+|[-*o?+c]\s+)?|(?:- \[[ xX~]\]\s+(?:{STATUS_TOKEN_PAT}\s+)?|- |[*o?+c] ))([A-Z]\d+)\b"
 )
+BACKTICK_TOKEN_RE = re.compile(r"`([^`\n]+)`")
 
 
 def prog_name() -> str:
@@ -986,6 +989,75 @@ def cmd_append(base_dir: Path, argv: list[str], commit: bool = False, no_commit:
     return 1
 
 
+def resolve_top_task_id(base_dir: Path) -> str | None:
+    todo_path = base_dir / "TODO.md"
+    if not todo_path.is_file():
+        return None
+    active_tasks = parse_tasks_in_text(read_if_exists(todo_path), "TODO.md")
+    for wanted in ("WIP", "NEXT"):
+        for t in active_tasks:
+            if str(t["status"]) == wanted:
+                return str(t["id"]).upper()
+    return None
+
+
+def cmd_next_id(base_dir: Path) -> int:
+    tid = resolve_top_task_id(base_dir)
+    if not tid:
+        sys.stderr.write(f"{prog_name()}: no active WIP or NEXT task found in TODO.md under {base_dir}\n")
+        return 1
+    sys.stdout.write(f"{tid}\n")
+    return 0
+
+
+def extract_task_files(base_dir: Path, section_text: str) -> list[str]:
+    repo_root = base_dir.resolve()
+    found: list[str] = []
+    seen: set[str] = set()
+    in_fence = False
+    for line in section_text.splitlines():
+        if line.lstrip().startswith(FENCE):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        for raw in BACKTICK_TOKEN_RE.findall(line):
+            cand = raw.strip()
+            if not cand or any(ch.isspace() for ch in cand) or "://" in cand:
+                continue
+            if cand.startswith("-") or any(ch in cand for ch in "<>*?{}"):
+                continue
+            cand = re.sub(r"(?::\d+(?::\d+)?|#L\d+(?:-L\d+)?)$", "", cand)
+            if not cand:
+                continue
+            p_cand = Path(cand)
+            target = p_cand.resolve() if p_cand.is_absolute() else (repo_root / cand).resolve()
+            try:
+                rel_posix = target.relative_to(repo_root).as_posix()
+            except ValueError:
+                continue
+            if rel_posix == "." or not target.is_file():
+                continue
+            if rel_posix not in seen:
+                seen.add(rel_posix)
+                found.append(rel_posix)
+    return found
+
+
+def cmd_files(base_dir: Path, task_id: str | None = None) -> int:
+    target = task_id.strip().upper() if task_id else resolve_top_task_id(base_dir)
+    if not target:
+        sys.stderr.write(f"{prog_name()}: no active WIP or NEXT task found in TODO.md under {base_dir}\n")
+        return 1
+    for t in collect_all_tasks(base_dir):
+        if str(t["id"]).upper() == target:
+            for rel_path in extract_task_files(base_dir, str(t["section"])):
+                sys.stdout.write(f"{rel_path}\n")
+            return 0
+    sys.stderr.write(f"{prog_name()}: task {target!r} not found in TODO*.md under {base_dir}\n")
+    return 1
+
+
 def parse_version_from_source(source: str) -> str | None:
     m = re.search(r'^VERSION\s*=\s*["\x27]([^"\x27]+)["\x27]', source, flags=re.MULTILINE)
     return m.group(1) if m else None
@@ -1061,6 +1133,8 @@ KNOWN_SUBCOMMANDS = (
     "status",
     "next",
     "top",
+    "next-id",
+    "files",
     "ids",
     "check",
     "init",
@@ -1136,8 +1210,18 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit(f"{prog}: usage: {prog} status <ID> <STATUS> [-m NOTE]")
         st_up = pos[1].upper()
         return cmd_transition(base_dir, pos[0], new_status=st_up, dest_file=None, note=note, promote_top=(st_up in ("WIP", "NEXT")), commit=commit, no_commit=no_commit)
+    if args[0] in ("next-id", "--next-id"):
+        if len(args) != 1:
+            raise SystemExit(f"{prog}: usage: {prog} next-id")
+        return cmd_next_id(base_dir)
+    if args[0] in ("files", "--files"):
+        if len(args) > 2:
+            raise SystemExit(f"{prog}: usage: {prog} files [<ID>]")
+        return cmd_files(base_dir, args[1] if len(args) == 2 else None)
     if args[0] in ("next", "top", "--next", "--top"):
         pos, note = _parse_note_arg(args[1:])
+        if args[0] == "--top" and not pos and note is None:
+            return cmd_next_id(base_dir)
         if len(pos) != 1:
             raise SystemExit(f"{prog}: usage: {prog} next <ID> [-m NOTE]")
         return cmd_transition(base_dir, pos[0], new_status="NEXT", dest_file="TODO.md", note=note, promote_top=True, commit=commit, no_commit=no_commit)

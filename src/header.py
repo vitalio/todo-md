@@ -14,6 +14,8 @@
   {prog} done <ID> [-m SHA_OR_NOTE]          Mark task <ID> as DONE and move it to TODO_ARCHIVE.md
   {prog} cancel <ID> [-m REASON]             Mark task <ID> as CANCELED and move it to TODO_ARCHIVE.md
   {prog} ids                                 Print highest task IDs in use and next available ID per prefix
+  {prog} next-id | --next-id | --top         Print the top WIP or NEXT task ID in TODO.md
+  {prog} files [<ID>] | --files [<ID>]       List existing repository file paths referenced in backticks in task <ID>
   {prog} check                               Validate layout, headings, status badges, and unique IDs
   {prog} init [TEXT] [--force]               Create starter TODO.md (with optional project idea from TEXT/stdin) and TODO_ARCHIVE.md
   {prog} update [--force]                    Self-update {prog} from GitHub (vitalio/todo_md)
@@ -80,6 +82,7 @@ STATUS_TOKEN_PAT = r"(?:(?:🔵|🎯|⚪|⏸️?|❓|✅|❌)\s+)?`?\[(?:WIP|NEX
 ANY_ID_RE = re.compile(
     rf"^(?:#\s+(?:{STATUS_TOKEN_PAT}\s+|[-*o?+c]\s+)?|(?:- \[[ xX~]\]\s+(?:{STATUS_TOKEN_PAT}\s+)?|- |[*o?+c] ))([A-Z]\d+)\b"
 )
+BACKTICK_TOKEN_RE = re.compile(r"`([^`\n]+)`")
 
 
 def prog_name() -> str:
