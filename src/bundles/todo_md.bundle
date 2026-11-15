@@ -8,16 +8,18 @@ rule vitalio/todo_md:todo_md
 [if role=plan]
     [if task=] $ todo_md
     [if task!=] $ todo_md {task:}
-    prompt Mode: PLANNING. Decompose work into flat, self-contained tasks in TODO.md (default status NEW), record target repository file paths in backticks in each task body, and promote ready prioritized tasks via todo_md next <ID>; once task <ID> is agreed, initialize a new session bundle with role=execute task=<ID> $(todo_md files <ID>) | run_block (or pass target files explicitly).
+    prompt Mode: PLANNING. Decompose work into flat, self-contained tasks in TODO.md (default status NEW), record target repository file paths in backticks in each task body, and promote ready prioritized tasks via todo_md next <ID>; once task <ID> is agreed, initialize a new session bundle via todo_md <ID> | agents_bundle role=execute | run_block (or agents_bundle role=execute task=<ID> | run_block).
 [/if]
 [if role=execute]
+    var task=$(todo_md next-id)
     [if task=]
-        $tid=$(todo_md next-id) && todo_md status "$tid" WIP && todo_md "$tid"
-        prompt Mode: EXECUTION. Auto-resolved the top [WIP] or [NEXT] task in TODO.md and transitioned it to [WIP]. If all target files for the task are already preloaded in this bundle, proceed directly to edit, test, and diff in step 1; otherwise inspect any missing target files in one batched step first, deliver verified code and commits, and mark the task done via todo_md done <ID> before the final commit so task completion is committed atomically with code changes.
+        $ todo_md
+        prompt Mode: EXECUTION. No active [WIP] or [NEXT] task found in TODO.md; ask the user which task to execute.
     [/if]
     [if task!=]
         $ todo_md status {task:} WIP
         $ todo_md {task:}
+        include $(todo_md files {task:})
         prompt Mode: EXECUTION (task={task:}). If all target files for task {task:} are already preloaded in this bundle, proceed directly to edit, test, and diff in step 1; otherwise inspect any missing target files in one batched step first, deliver verified code and commits, and mark the task done via todo_md done {task:} before the final commit so task completion is committed atomically with code changes.
     [/if]
 [/if]

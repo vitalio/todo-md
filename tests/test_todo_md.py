@@ -49,7 +49,8 @@ class TestTodoMd(unittest.TestCase):
         self.assertNotIn("task=next", bundle_txt)
         self.assertIn("$ todo_md status {task:} WIP", bundle_txt)
         self.assertIn("todo_md next-id", bundle_txt)
-        self.assertIn("todo_md files <ID>", bundle_txt)
+        self.assertIn("var task=$(todo_md next-id)", bundle_txt)
+        self.assertIn("include $(todo_md files {task:})", bundle_txt)
 
     def test_init_summary_priority_smart_truncation_and_check(self):
         r_init = subprocess.run([str(SCRIPT), "init"], cwd=str(self.tmp), capture_output=True, text=True, check=False)
