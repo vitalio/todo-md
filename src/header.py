@@ -2,8 +2,10 @@
 # todo_md-repo: vitalio/todo_md
 """Usage:
   {prog} [dir] [--full]                      Print TODO.md overview (full WIP/NEXT tasks + compact backlog + IDs)
-  {prog} <ID> | show <ID>                    Show full section for task <ID> across TODO.md and TODO_ARCHIVE.md
-  {prog} list [filter]                       Compact task table (active | archive | all | <STATUS>)
+  {prog} <ID> | show <ID|last>               Show full section for task <ID> (or last [<STATUS|archive>]) across TODO*.md
+  {prog} last [<STATUS|archive>]           Show full section for last task in status/archive (default: NEW)
+  {prog} last-id [<STATUS|archive>]        Print ID of last task in status/archive (default: NEW)
+  {prog} list [filter] [--limit N] [--full]  List tasks (active | archive | all | <STATUS>)
   {prog} archive [<ID>] [-m NOTE]            Print TODO_ARCHIVE.md, or archive task <ID>
   {prog} add [<PREFIX>] <TITLE> [opts]       Add a new task with auto-assigned ID (reads body from -b TEXT or stdin)
                                              Opts: -p PREFIX (default: F), --next, --status STATUS, -m NOTE, -b BODY

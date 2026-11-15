@@ -44,8 +44,10 @@ todo_md check
 | Command | Description |
 | :--- | :--- |
 | `todo_md [--full]` | Print `TODO.md` overview (full `WIP`/`NEXT` tasks + compact backlog + `IDs in use`) |
-| `todo_md <ID>` / `todo_md show <ID>` | Show full Markdown section for task `<ID>` across `TODO*.md` |
-| `todo_md list [filter]` | List tasks (`active`, `archive`, `all`, or status like `WIP`, `NEXT`, `HOLD`) |
+| `todo_md <ID>` / `todo_md show <ID\|last>` | Show full Markdown section for task `<ID>` (or `last [<STATUS\|archive>]`) across `TODO*.md` |
+| `todo_md last [<STATUS\|archive>]` | Show full Markdown section for last task in status/archive (default: `NEW`) |
+| `todo_md last-id [<STATUS\|archive>]` | Print ID of last task in status/archive (default: `NEW`) |
+| `todo_md list [filter] [--limit N] [--full]` | List tasks (`active`, `archive`, `all`, or `<STATUS>`) with optional limit and full sections |
 | `todo_md archive [<ID>] [-m NOTE]` | Print `TODO_ARCHIVE.md`, or archive task `<ID>` to `TODO_ARCHIVE.md` |
 | `todo_md add [<PREFIX>] <TITLE> [opts]` | Add a new task with auto-assigned ID (`-p PREFIX`, `--next`, `--status STATUS`, `-m NOTE`, `-b BODY` or `stdin`) |
 | `todo_md edit <ID> [opts]` | Update task title, note, or body (`-t TITLE`, `-m NOTE`, `-b BODY` or `stdin`) |

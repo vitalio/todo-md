@@ -51,6 +51,8 @@ class TestTodoMd(unittest.TestCase):
         self.assertIn("todo_md next-id", bundle_txt)
         self.assertIn("var task=$(todo_md next-id)", bundle_txt)
         self.assertIn("include $(todo_md files {task:})", bundle_txt)
+        self.assertIn("[if task=last] var task=$(todo_md last-id DONE)", bundle_txt)
+        self.assertIn("[if task=DONE] var task=$(todo_md last-id DONE)", bundle_txt)
 
     def test_init_summary_priority_smart_truncation_and_check(self):
         r_init = subprocess.run([str(SCRIPT), "init"], cwd=str(self.tmp), capture_output=True, text=True, check=False)
@@ -275,6 +277,92 @@ class TestTodoMd(unittest.TestCase):
         self.assertEqual(r_pipe.returncode, 0)
         self.assertIn("# 🎯 [NEXT] F1: Next task", r_pipe.stdout)
         self.assertEqual(r_pipe.stderr, "")
+
+    def test_last_last_id_and_list_options(self):
+        subprocess.run([str(SCRIPT), "init"], cwd=str(self.tmp), check=True)
+        for status, title, body in [
+            ("WIP", "Wip one", "Body W1"),
+            ("WIP", "Wip two", "Body W2"),
+            ("NEXT", "Next one", "Body N1"),
+            ("NEXT", "Next two", "Body N2"),
+            ("QUESTION", "Question one", "Body Q1"),
+            ("QUESTION", "Question two", "Body Q2"),
+            ("NEW", "New one", "Body U1"),
+            ("NEW", "New two", "Body U2"),
+            ("HOLD", "Hold one", "Body H1"),
+            ("HOLD", "Hold two", "Body H2"),
+        ]:
+            subprocess.run(
+                [str(SCRIPT), "add", title, "--status", status, "-b", body],
+                cwd=str(self.tmp),
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+
+        # Add two archived tasks (F11 done first, F12 canceled second -> F12 is top of TODO_ARCHIVE.md)
+        subprocess.run([str(SCRIPT), "add", "Done task", "-b", "Body D1"], cwd=str(self.tmp), check=True)
+        subprocess.run([str(SCRIPT), "done", "F11", "-m", "done1"], cwd=str(self.tmp), check=True)
+        subprocess.run([str(SCRIPT), "add", "Canceled task", "-b", "Body C1"], cwd=str(self.tmp), check=True)
+        subprocess.run([str(SCRIPT), "cancel", "F12", "-m", "drop1"], cwd=str(self.tmp), check=True)
+
+        # Default last-id resolves to bottom-most NEW task (F8)
+        r_def = subprocess.run([str(SCRIPT), "last-id"], cwd=str(self.tmp), capture_output=True, text=True, check=False)
+        self.assertEqual(r_def.returncode, 0, r_def.stderr)
+        self.assertEqual(r_def.stdout.strip(), "F8")
+
+        # Group-specific last-id resolution
+        # add --status WIP/NEXT prepends to top of group (F2 above F1, F4 above F3)
+        expected_ids = {
+            "WIP": "F2",
+            "NEXT": "F4",
+            "QUESTION": "F6",
+            "NEW": "F8",
+            "HOLD": "F10",
+            "DONE": "F11",
+            "CANCELED": "F12",
+            "archive": "F12",
+        }
+        for filt, exp in expected_ids.items():
+            r = subprocess.run([str(SCRIPT), "last-id", filt], cwd=str(self.tmp), capture_output=True, text=True, check=False)
+            self.assertEqual(r.returncode, 0, f"{filt}: {r.stderr}")
+            self.assertEqual(r.stdout.strip(), exp, f"last-id {filt}")
+
+        # last and show last render full section for resolved task
+        r_last = subprocess.run([str(SCRIPT), "last", "DONE"], cwd=str(self.tmp), capture_output=True, text=True, check=False)
+        self.assertEqual(r_last.returncode, 0, r_last.stderr)
+        self.assertIn("# TODO_ARCHIVE.md:", r_last.stdout)
+        self.assertIn("# ✅ [DONE] F11: Done task", r_last.stdout)
+        self.assertIn("Body D1", r_last.stdout)
+        self.assertIn("IDs in use:", r_last.stdout)
+
+        r_show_last = subprocess.run([str(SCRIPT), "show", "last"], cwd=str(self.tmp), capture_output=True, text=True, check=False)
+        self.assertEqual(r_show_last.returncode, 0, r_show_last.stderr)
+        self.assertIn("# TODO.md:", r_show_last.stdout)
+        self.assertIn("# ⚪ [NEW] F8: New two", r_show_last.stdout)
+        self.assertIn("Body U2", r_show_last.stdout)
+
+        # list orders NEW/HOLD/QUESTION newest-first while keeping WIP/NEXT priority order
+        r_list_new = subprocess.run([str(SCRIPT), "list", "NEW"], cwd=str(self.tmp), capture_output=True, text=True, check=True)
+        self.assertLess(r_list_new.stdout.index("F8"), r_list_new.stdout.index("F7"))
+
+        r_list_act = subprocess.run([str(SCRIPT), "list", "active"], cwd=str(self.tmp), capture_output=True, text=True, check=True)
+        out = r_list_act.stdout
+        self.assertLess(out.index("F2"), out.index("F1"))
+        self.assertLess(out.index("F4"), out.index("F3"))
+        self.assertLess(out.index("F6"), out.index("F5"))
+        self.assertLess(out.index("F8"), out.index("F7"))
+        self.assertLess(out.index("F10"), out.index("F9"))
+
+        # list --limit N and --full
+        r_lim = subprocess.run([str(SCRIPT), "list", "NEW", "--limit", "1", "--full"], cwd=str(self.tmp), capture_output=True, text=True, check=True)
+        self.assertIn("# ⚪ [NEW] F8: New two", r_lim.stdout)
+        self.assertIn("Body U2", r_lim.stdout)
+        self.assertNotIn("F7", r_lim.stdout)
+
+        r_lim_short = subprocess.run([str(SCRIPT), "list", "archive", "-n", "1"], cwd=str(self.tmp), capture_output=True, text=True, check=True)
+        self.assertIn("F12", r_lim_short.stdout)
+        self.assertNotIn("F11", r_lim_short.stdout)
 
     def test_install_sh(self):
         bin_dir = self.tmp / "bin"

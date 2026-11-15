@@ -176,6 +176,54 @@ def cmd_ids(base_dir: Path) -> int:
     return 0
 
 
+def resolve_last_task_id(base_dir: Path, filt: str | None = None) -> str | None:
+    mode = (filt or "NEW").strip().upper()
+    if mode != "ARCHIVE" and mode not in VALID_STATUSES:
+        raise SystemExit(
+            f"{prog_name()}: unknown status or filter {filt!r}; expected {', '.join(VALID_STATUSES)}, or archive"
+        )
+    if mode in ("ARCHIVE", "DONE", "CANCELED"):
+        arch_path = base_dir / "TODO_ARCHIVE.md"
+        if not arch_path.is_file():
+            return None
+        arch_tasks = parse_tasks_in_text(read_if_exists(arch_path), "TODO_ARCHIVE.md")
+        if mode == "ARCHIVE":
+            return str(arch_tasks[0]["id"]).upper() if arch_tasks else None
+        for t in arch_tasks:
+            if str(t["status"]) == mode:
+                return str(t["id"]).upper()
+        return None
+    todo_path = base_dir / "TODO.md"
+    if not todo_path.is_file():
+        return None
+    active_tasks = parse_tasks_in_text(read_if_exists(todo_path), "TODO.md")
+    matching = [t for t in active_tasks if str(t["status"]) == mode]
+    if not matching:
+        return None
+    if mode in ("WIP", "NEXT"):
+        return str(matching[0]["id"]).upper()
+    return str(matching[-1]["id"]).upper()
+
+
+def cmd_last_id(base_dir: Path, filt: str | None = None) -> int:
+    tid = resolve_last_task_id(base_dir, filt)
+    if not tid:
+        label = (filt or "NEW").strip()
+        sys.stderr.write(f"{prog_name()}: no matching task found for {label!r} under {base_dir}\n")
+        return 1
+    sys.stdout.write(f"{tid}\n")
+    return 0
+
+
+def cmd_last(base_dir: Path, filt: str | None = None) -> int:
+    tid = resolve_last_task_id(base_dir, filt)
+    if not tid:
+        label = (filt or "NEW").strip()
+        sys.stderr.write(f"{prog_name()}: no matching task found for {label!r} under {base_dir}\n")
+        return 1
+    return cmd_show(base_dir, tid)
+
+
 def cmd_show(base_dir: Path, task_id: str) -> int:
     target = task_id.strip().upper()
     top = highest_ids_in_use(base_dir)
@@ -187,22 +235,58 @@ def cmd_show(base_dir: Path, task_id: str) -> int:
     return 1
 
 
-def cmd_list(base_dir: Path, filt: str | None = None) -> int:
+def _order_active_tasks_for_list(active_tasks: list[dict[str, object]]) -> list[dict[str, object]]:
+    grouped: dict[str, list[dict[str, object]]] = {}
+    for t in active_tasks:
+        grouped.setdefault(str(t["status"]), []).append(t)
+    ordered: list[dict[str, object]] = []
+    seen_statuses: set[str] = set()
+    for st in sorted(ACTIVE_STATUS_ORDER, key=lambda s: ACTIVE_STATUS_ORDER[s]):
+        seen_statuses.add(st)
+        bucket = grouped.get(st, [])
+        if st in ("QUESTION", "NEW", "HOLD"):
+            ordered.extend(reversed(bucket))
+        else:
+            ordered.extend(bucket)
+    for st, bucket in grouped.items():
+        if st not in seen_statuses:
+            ordered.extend(bucket)
+    return ordered
+
+
+def cmd_list(
+    base_dir: Path,
+    filt: str | None = None,
+    limit: int | None = None,
+    full: bool = False,
+) -> int:
     mode = (filt or "active").strip().lower()
     tasks = collect_all_tasks(base_dir)
+    active_tasks = _order_active_tasks_for_list([t for t in tasks if t["file"] == "TODO.md"])
+    arch_tasks = [t for t in tasks if t["file"] == "TODO_ARCHIVE.md"]
     if mode in ("active", "open"):
-        shown = [t for t in tasks if t["file"] == "TODO.md"]
+        shown = active_tasks
     elif mode == "archive":
-        shown = [t for t in tasks if t["file"] == "TODO_ARCHIVE.md"]
+        shown = arch_tasks
     elif mode == "all":
-        shown = tasks
+        shown = active_tasks + arch_tasks
     elif mode.upper() in VALID_STATUSES:
-        shown = [t for t in tasks if t["status"] == mode.upper()]
+        st_up = mode.upper()
+        if st_up in ("DONE", "CANCELED"):
+            shown = [t for t in arch_tasks if t["status"] == st_up]
+        else:
+            shown = [t for t in active_tasks if t["status"] == st_up]
     else:
         raise SystemExit(f"{prog_name()}: unknown list filter {filt!r}; expected active, archive, all, or a status name")
 
+    if limit is not None:
+        shown = shown[:limit]
+
     if not shown:
         sys.stdout.write(f"No matching tasks ({mode}) in {base_dir}\n")
+    elif full:
+        sections = [str(t["section"]).rstrip() for t in shown]
+        sys.stdout.write("\n\n".join(sections) + "\n")
     else:
         for t in shown:
             badge = f"{t['emoji']} [{t['status']}]"

@@ -24,6 +24,15 @@ rule vitalio/todo_md:todo_md
     [/if]
 [/if]
 [if role=audit]
-    $ todo_md
-    prompt Mode: AUDIT. Audit the requested scope against active rules (checking TODO.md to avoid duplicates), report findings in chat, and after user agreement record remediation tasks in TODO.md via todo_md add.
+    [if task=last] var task=$(todo_md last-id DONE)
+    [if task=DONE] var task=$(todo_md last-id DONE)
+    [if task=]
+        $ todo_md
+        prompt Mode: AUDIT. Audit the requested scope against active rules (checking TODO.md to avoid duplicates), report findings in chat, and after user agreement record remediation tasks in TODO.md via todo_md add.
+    [/if]
+    [if task!=]
+        $ todo_md {task:}
+        include $(todo_md files {task:})
+        prompt Mode: AUDIT (task={task:}). Audit task {task:} implementation, diff/commits, tests, and docs against the task specification and active rules (checking TODO.md to avoid duplicates), report findings in chat, and after user agreement record remediation tasks in TODO.md via todo_md add.
+    [/if]
 [/if]

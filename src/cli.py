@@ -74,6 +74,8 @@ KNOWN_SUBCOMMANDS = (
     "next",
     "top",
     "next-id",
+    "last-id",
+    "last",
     "files",
     "ids",
     "check",
@@ -154,6 +156,14 @@ def main(argv: list[str] | None = None) -> int:
         if len(args) != 1:
             raise SystemExit(f"{prog}: usage: {prog} next-id")
         return cmd_next_id(base_dir)
+    if args[0] in ("last-id", "--last-id"):
+        if len(args) > 2:
+            raise SystemExit(f"{prog}: usage: {prog} last-id [<STATUS|archive>]")
+        return cmd_last_id(base_dir, args[1] if len(args) == 2 else None)
+    if args[0] in ("last", "--last"):
+        if len(args) > 2:
+            raise SystemExit(f"{prog}: usage: {prog} last [<STATUS|archive>]")
+        return cmd_last(base_dir, args[1] if len(args) == 2 else None)
     if args[0] in ("files", "--files"):
         if len(args) > 2:
             raise SystemExit(f"{prog}: usage: {prog} files [<ID>]")
@@ -172,9 +182,38 @@ def main(argv: list[str] | None = None) -> int:
     if args[0] in ("init", "--init"):
         return cmd_init(base_dir, argv=args[1:], commit=commit, no_commit=no_commit)
     if args[0] in ("list", "--list", "-l"):
-        filt = args[1] if len(args) > 1 else None
-        return cmd_list(base_dir, filt)
+        filt: str | None = None
+        limit: int | None = None
+        i = 1
+        while i < len(args):
+            a = args[i]
+            if a in ("--limit", "-n"):
+                if i + 1 >= len(args):
+                    raise SystemExit(f"{prog}: {a} requires an integer argument")
+                raw_lim = args[i + 1]
+                if not raw_lim.isdigit() or int(raw_lim) < 1:
+                    raise SystemExit(f"{prog}: invalid limit {raw_lim!r}; expected a positive integer")
+                limit = int(raw_lim)
+                i += 2
+            elif a.startswith("--limit="):
+                raw_lim = a.split("=", 1)[1]
+                if not raw_lim.isdigit() or int(raw_lim) < 1:
+                    raise SystemExit(f"{prog}: invalid limit {raw_lim!r}; expected a positive integer")
+                limit = int(raw_lim)
+                i += 1
+            elif a.startswith("-"):
+                raise SystemExit(f"{prog}: unknown option for list: {a}")
+            elif filt is None:
+                filt = a
+                i += 1
+            else:
+                raise SystemExit(f"{prog}: usage: {prog} list [filter] [--limit N] [--full]")
+        return cmd_list(base_dir, filt, limit=limit, full=full)
     if args[0] in ("show", "--show"):
+        if len(args) < 2 or len(args) > 3:
+            raise SystemExit(f"{prog}: usage: {prog} show <ID|last> [<STATUS|archive>]")
+        if args[1].lower() == "last":
+            return cmd_last(base_dir, args[2] if len(args) == 3 else None)
         if len(args) != 2:
             raise SystemExit(f"{prog}: usage: {prog} show <ID>")
         return cmd_show(base_dir, args[1])
