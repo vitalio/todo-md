@@ -159,7 +159,14 @@ def cmd_summary(base_dir: Path, full: bool = False) -> int:
                 enumerate(active_tasks),
                 key=lambda iv: (ACTIVE_STATUS_ORDER.get(str(iv[1]["status"]), 99), iv[0]),
             )
-            rendered = [_format_task_for_summary(t, full=False) for _, t in ordered]
+            has_expanded = any(
+                str(t["status"]) in ("WIP", "NEXT", "QUESTION")
+                for _, t in ordered
+            )
+            rendered = [
+                _format_task_for_summary(t, full=(not has_expanded and idx == 0))
+                for idx, (_, t) in enumerate(ordered)
+            ]
             sys.stdout.write("\n\n".join(rendered) + "\n\n")
 
     if not active_tasks:

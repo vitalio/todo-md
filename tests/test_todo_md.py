@@ -426,6 +426,57 @@ class TestTodoMd(unittest.TestCase):
                 self.assertNotEqual(r_tty.returncode, 0, msg=r_tty.stdout)
                 self.assertIn("requires non-TTY stdin", r_tty.stderr)
 
+    def test_summary_expands_first_task_when_only_new_or_hold(self):
+        self._run([str(SCRIPT), "init"], check=True)
+        self._run(
+            [str(SCRIPT), "add", "First new", "-b", "N1 line 1\nN1 line 2\nN1 line 3"],
+            check=True,
+        )
+        self._run(
+            [str(SCRIPT), "add", "Second new", "-b", "N2 line 1\nN2 line 2\nN2 line 3"],
+            check=True,
+        )
+        self._run(
+            [str(SCRIPT), "add", "First hold", "--status", "HOLD", "-b", "H1 line 1\nH1 line 2\nH1 line 3"],
+            check=True,
+        )
+
+        # No WIP/NEXT/QUESTION -> first ordered task (F1) is expanded, subsequent NEW/HOLD are compacted
+        r_only_new = self._run([str(SCRIPT)], check=True)
+        self.assertIn("N1 line 3", r_only_new.stdout)
+        self.assertIn("N2 line 1", r_only_new.stdout)
+        self.assertNotIn("N2 line 3", r_only_new.stdout)
+        self.assertIn("todo_md F2", r_only_new.stdout)
+        self.assertNotIn("H1 line 3", r_only_new.stdout)
+        self.assertIn("todo_md F3", r_only_new.stdout)
+
+        # Adding a WIP/NEXT/QUESTION task compacts all NEW/HOLD tasks including F1
+        self._run(
+            [str(SCRIPT), "add", "Active question", "--status", "QUESTION", "-b", "Q1 line 1\nQ1 line 2"],
+            check=True,
+        )
+        r_with_q = self._run([str(SCRIPT)], check=True)
+        self.assertIn("Q1 line 2", r_with_q.stdout)
+        self.assertIn("N1 line 1", r_with_q.stdout)
+        self.assertNotIn("N1 line 3", r_with_q.stdout)
+        self.assertIn("todo_md F1", r_with_q.stdout)
+
+        # When only HOLD tasks exist, the first HOLD task is expanded and later HOLD tasks stay compact
+        self._run([str(SCRIPT), "init", "--force"], check=True)
+        self._run(
+            [str(SCRIPT), "add", "Hold one", "--status", "HOLD", "-b", "H1 line 1\nH1 line 2\nH1 line 3"],
+            check=True,
+        )
+        self._run(
+            [str(SCRIPT), "add", "Hold two", "--status", "HOLD", "-b", "H2 line 1\nH2 line 2\nH2 line 3"],
+            check=True,
+        )
+        r_only_hold = self._run([str(SCRIPT)], check=True)
+        self.assertIn("H1 line 3", r_only_hold.stdout)
+        self.assertIn("H2 line 1", r_only_hold.stdout)
+        self.assertNotIn("H2 line 3", r_only_hold.stdout)
+        self.assertIn("todo_md F2", r_only_hold.stdout)
+
     def test_install_sh(self):
         bin_dir = self.tmp / "bin"
         bin_dir.mkdir()

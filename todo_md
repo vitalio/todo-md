@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # todo_md-repo: vitalio/todo_md
 """Usage:
-  {prog} [dir] [--full]                      Print TODO.md overview (full WIP/NEXT tasks + compact backlog + IDs)
+  {prog} [dir] [--full]                      Print TODO.md overview (full WIP/NEXT/QUESTION or first task + compact backlog)
   {prog} <ID> | show <ID|last>               Show full section for task <ID> (or last [<STATUS|archive>]) across TODO*.md
   {prog} last [<STATUS|archive>]           Show full section for last task in status/archive (default: NEW)
   {prog} last-id [<STATUS|archive>]        Print ID of last task in status/archive (default: NEW)
@@ -52,7 +52,7 @@ import urllib.request
 from datetime import date
 from pathlib import Path
 
-VERSION = "0.9.2"
+VERSION = "0.9.3"
 REPO_MARKER = "todo_md-repo: vitalio/todo_md"
 DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/vitalio/todo_md/main/todo_md"
 FENCE = chr(96) * 3
@@ -261,7 +261,14 @@ def cmd_summary(base_dir: Path, full: bool = False) -> int:
                 enumerate(active_tasks),
                 key=lambda iv: (ACTIVE_STATUS_ORDER.get(str(iv[1]["status"]), 99), iv[0]),
             )
-            rendered = [_format_task_for_summary(t, full=False) for _, t in ordered]
+            has_expanded = any(
+                str(t["status"]) in ("WIP", "NEXT", "QUESTION")
+                for _, t in ordered
+            )
+            rendered = [
+                _format_task_for_summary(t, full=(not has_expanded and idx == 0))
+                for idx, (_, t) in enumerate(ordered)
+            ]
             sys.stdout.write("\n\n".join(rendered) + "\n\n")
 
     if not active_tasks:

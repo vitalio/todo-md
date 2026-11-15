@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # todo_md-repo: vitalio/todo_md
 """Usage:
-  {prog} [dir] [--full]                      Print TODO.md overview (full WIP/NEXT tasks + compact backlog + IDs)
+  {prog} [dir] [--full]                      Print TODO.md overview (full WIP/NEXT/QUESTION or first task + compact backlog)
   {prog} <ID> | show <ID|last>               Show full section for task <ID> (or last [<STATUS|archive>]) across TODO*.md
   {prog} last [<STATUS|archive>]           Show full section for last task in status/archive (default: NEW)
   {prog} last-id [<STATUS|archive>]        Print ID of last task in status/archive (default: NEW)

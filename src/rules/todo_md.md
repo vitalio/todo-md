@@ -13,8 +13,8 @@
     automatically when starting `role=execute task=<ID>`, and `done` is run
     before the final commit in `role=execute` so backlog updates are committed
     atomically with code changes.
-  - Inspect: `{cmd:todo_md} [--full]` (overview: full `WIP`/`NEXT`/`QUESTION` +
-    compact `NEW`/`HOLD` backlog), `{cmd:todo_md} <ID>` /
+  - Inspect: `{cmd:todo_md} [--full]` (overview: full `WIP`/`NEXT`/`QUESTION`,
+    or first `NEW`/`HOLD` task when none exist, + compact backlog), `{cmd:todo_md} <ID>` /
     `{cmd:todo_md} show <ID|last> [<STATUS|archive>]`,
     `{cmd:todo_md} last [<STATUS|archive>]` (default: `NEW`),
     `{cmd:todo_md} last-id [<STATUS|archive>]` (default: `NEW`),
