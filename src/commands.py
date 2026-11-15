@@ -364,6 +364,16 @@ def cmd_transition(
     )
 
 
+def _resolve_body_arg(body: str | None) -> str | None:
+    if body == "-":
+        if sys.stdin.isatty():
+            raise SystemExit(f"{prog_name()}: -b - / --body - requires non-TTY stdin")
+        return sys.stdin.read()
+    if body is None:
+        return _read_stdin_if_piped()
+    return body
+
+
 def cmd_add(base_dir: Path, argv: list[str], commit: bool = False, no_commit: bool = False) -> int:
     prog = prog_name()
     status = "NEW"
@@ -443,8 +453,7 @@ def cmd_add(base_dir: Path, argv: list[str], commit: bool = False, no_commit: bo
     if not title:
         raise SystemExit(f"{prog}: task title cannot be empty")
 
-    if body is None:
-        body = _read_stdin_if_piped()
+    body = _resolve_body_arg(body)
 
     heading = _format_heading(status, tid, title, note=note)
     sec_lines = [heading]
@@ -505,8 +514,7 @@ def cmd_edit(base_dir: Path, argv: list[str], commit: bool = False, no_commit: b
     if len(pos) != 1:
         raise SystemExit(f"{prog}: usage: {prog} edit <ID> [-t TITLE] [-m NOTE] [-b BODY]")
     target = pos[0].strip().upper()
-    if body is None:
-        body = _read_stdin_if_piped()
+    body = _resolve_body_arg(body)
 
     if new_title is None and note is None and body is None:
         raise SystemExit(f"{prog}: edit requires at least one of -t TITLE, -m NOTE, -b BODY, or stdin")
@@ -588,8 +596,7 @@ def cmd_append(base_dir: Path, argv: list[str], commit: bool = False, no_commit:
     if len(pos) != 1:
         raise SystemExit(f"{prog}: usage: {prog} append <ID> [-b TEXT]")
     target = pos[0].strip().upper()
-    if body is None:
-        body = _read_stdin_if_piped()
+    body = _resolve_body_arg(body)
     if not body or not body.strip():
         raise SystemExit(f"{prog}: append requires non-empty text via -b TEXT or stdin")
 

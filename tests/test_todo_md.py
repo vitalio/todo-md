@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import pty
 import shutil
 import subprocess
 import tempfile
@@ -363,6 +364,106 @@ class TestTodoMd(unittest.TestCase):
         r_lim_short = subprocess.run([str(SCRIPT), "list", "archive", "-n", "1"], cwd=str(self.tmp), capture_output=True, text=True, check=True)
         self.assertIn("F12", r_lim_short.stdout)
         self.assertNotIn("F11", r_lim_short.stdout)
+
+    def test_body_dash_stdin_and_tty_error(self):
+        subprocess.run([str(SCRIPT), "init"], cwd=str(self.tmp), check=True)
+
+        # add with -b - and --body - from piped stdin
+        r_add = subprocess.run(
+            [str(SCRIPT), "add", "Dash body task", "-b", "-"],
+            input="Line from dash\n",
+            cwd=str(self.tmp),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(r_add.returncode, 0, r_add.stderr)
+        self.assertIn("Line from dash", (self.tmp / "TODO.md").read_text(encoding="utf-8"))
+
+        # add with --body - and empty stdin creates task without body
+        r_add_empty = subprocess.run(
+            [str(SCRIPT), "add", "Empty dash body", "--body", "-"],
+            input="   \n",
+            cwd=str(self.tmp),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(r_add_empty.returncode, 0, r_add_empty.stderr)
+        self.assertIn("# ⚪ [NEW] F2: Empty dash body", (self.tmp / "TODO.md").read_text(encoding="utf-8"))
+
+        # append with --body - from piped stdin, and empty stdin rejection
+        r_app = subprocess.run(
+            [str(SCRIPT), "append", "F1", "--body", "-"],
+            input="- [x] Appended via dash\n",
+            cwd=str(self.tmp),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(r_app.returncode, 0, r_app.stderr)
+        self.assertIn("Appended via dash", (self.tmp / "TODO.md").read_text(encoding="utf-8"))
+
+        r_app_empty = subprocess.run(
+            [str(SCRIPT), "append", "F1", "-b", "-"],
+            input="  \n",
+            cwd=str(self.tmp),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertNotEqual(r_app_empty.returncode, 0)
+        self.assertIn("requires non-empty text", r_app_empty.stderr)
+
+        # edit with --body - updates body, and empty stdin clears body like -b ""
+        r_ed = subprocess.run(
+            [str(SCRIPT), "edit", "F1", "--body", "-"],
+            input="Replaced via dash\n",
+            cwd=str(self.tmp),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(r_ed.returncode, 0, r_ed.stderr)
+        todo_txt = (self.tmp / "TODO.md").read_text(encoding="utf-8")
+        self.assertIn("Replaced via dash", todo_txt)
+        self.assertNotIn("Line from dash", todo_txt)
+
+        r_ed_clear = subprocess.run(
+            [str(SCRIPT), "edit", "F1", "-b", "-"],
+            input="",
+            cwd=str(self.tmp),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(r_ed_clear.returncode, 0, r_ed_clear.stderr)
+        self.assertNotIn("Replaced via dash", (self.tmp / "TODO.md").read_text(encoding="utf-8"))
+
+        # TTY stdin fails fast for add, edit, and append with -b - / --body -
+        cases = [
+            (["add", "TTY task", "-b", "-"], "-b -"),
+            (["edit", "F1", "--body", "-"], "--body -"),
+            (["append", "F1", "-b", "-"], "-b -"),
+        ]
+        for args, label in cases:
+            with self.subTest(cmd=args[0], flag=label):
+                master_fd, slave_fd = pty.openpty()
+                try:
+                    r_tty = subprocess.run(
+                        [str(SCRIPT), *args],
+                        stdin=slave_fd,
+                        cwd=str(self.tmp),
+                        capture_output=True,
+                        text=True,
+                        timeout=5,
+                        check=False,
+                    )
+                finally:
+                    os.close(slave_fd)
+                    os.close(master_fd)
+                self.assertNotEqual(r_tty.returncode, 0, msg=r_tty.stdout)
+                self.assertIn("requires non-TTY stdin", r_tty.stderr)
 
     def test_install_sh(self):
         bin_dir = self.tmp / "bin"

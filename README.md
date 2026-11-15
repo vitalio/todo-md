@@ -49,9 +49,9 @@ todo_md check
 | `todo_md last-id [<STATUS\|archive>]` | Print ID of last task in status/archive (default: `NEW`) |
 | `todo_md list [filter] [--limit N] [--full]` | List tasks (`active`, `archive`, `all`, or `<STATUS>`) with optional limit and full sections |
 | `todo_md archive [<ID>] [-m NOTE]` | Print `TODO_ARCHIVE.md`, or archive task `<ID>` to `TODO_ARCHIVE.md` |
-| `todo_md add [<PREFIX>] <TITLE> [opts]` | Add a new task with auto-assigned ID (`-p PREFIX`, `--next`, `--status STATUS`, `-m NOTE`, `-b BODY` or `stdin`) |
-| `todo_md edit <ID> [opts]` | Update task title, note, or body (`-t TITLE`, `-m NOTE`, `-b BODY` or `stdin`) |
-| `todo_md append <ID> [-b TEXT]` | Append progress/notes to task `<ID>` body (`-b TEXT` or `stdin`) |
+| `todo_md add [<PREFIX>] <TITLE> [opts]` | Add a new task with auto-assigned ID (`-p PREFIX`, `--next`, `--status STATUS`, `-m NOTE`, `-b BODY\|-` or `stdin`) |
+| `todo_md edit <ID> [opts]` | Update task title, note, or body (`-t TITLE`, `-m NOTE`, `-b BODY\|-` or `stdin`) |
+| `todo_md append <ID> [-b TEXT\|-]` | Append progress/notes to task `<ID>` body (`-b TEXT\|-` or `stdin`) |
 | `todo_md status <ID> <STATUS> [-m N]` | Update task status (`WIP`, `NEXT`, `NEW`, `HOLD`, `QUESTION`, `DONE`, `CANCELED`) |
 | `todo_md next <ID> [-m NOTE]` | Promote task `<ID>` to `🎯 [NEXT]` priority at the top of `TODO.md` |
 | `todo_md done <ID> [-m NOTE]` | Mark task `<ID>` as `✅ [DONE]` and move it to `TODO_ARCHIVE.md` |

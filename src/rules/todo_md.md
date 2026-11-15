@@ -22,11 +22,11 @@
     `{cmd:todo_md} archive`, `{cmd:todo_md} ids`,
     `{cmd:todo_md} next-id` (`--top`, top `WIP`/`NEXT` ID),
     `{cmd:todo_md} files [<ID>]` (existing backtick-referenced repo files)
-  - Create: `{cmd:todo_md} add [<PREFIX>] "<title>" [-p <PREFIX>] [--next] [--status WIP|NEXT|NEW|HOLD|QUESTION] [-m "<note>"] [-b "<body_md>"] [-c|--commit]`
-    (auto-assigns `<ID>`, default prefix `F`; pass body via `-b` or `stdin`;
+  - Create: `{cmd:todo_md} add [<PREFIX>] "<title>" [-p <PREFIX>] [--next] [--status WIP|NEXT|NEW|HOLD|QUESTION] [-m "<note>"] [-b "<body_md>"|-] [-c|--commit]`
+    (auto-assigns `<ID>`, default prefix `F`; pass body via `-b`, `-b -` for `stdin`, or piped `stdin`;
     `{cmd:todo_md} init "<idea>"` bootstraps a new `TODO.md`)
-  - Update: `{cmd:todo_md} edit <ID> [-t "<title>"] [-m "<note>"] [-b "<body_md>"] [-c|--commit]`,
-    `{cmd:todo_md} append <ID> [-b "<text>"] [-c|--commit]`
+  - Update: `{cmd:todo_md} edit <ID> [-t "<title>"] [-m "<note>"] [-b "<body_md>"|-] [-c|--commit]`,
+    `{cmd:todo_md} append <ID> [-b "<text>"|-] [-c|--commit]`
   - Transition: `{cmd:todo_md} status <ID> <WIP|NEXT|NEW|HOLD|QUESTION> [-m "<note>"] [-c|--commit]`,
     `{cmd:todo_md} next <ID> [-m "<note>"] [-c|--commit]` (promote to `🎯 [NEXT]`)
   - Close (prepends to `TODO_ARCHIVE.md`): `{cmd:todo_md} done <ID> [-m "<note>"] [-c|--commit]`,
