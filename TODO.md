@@ -26,3 +26,19 @@ Allow exporting parsed tasks as JSON for scripting.
 
 - Update the `Validation & commits` section in `src/rules/todo_md.md` to explicitly state that in `role=plan`, `role=design`, and `role=audit`, `todo_md` mutations can be batched and committed in the same execution block (via `-c` on the final `todo_md` command or `git add TODO*.md && git commit`) without waiting for a separate diff-review turn.
 - Rebuild and reinstall `todo_md` (and keep any synced docs/tests in `tests/` green) so exported rules reflect the updated wording.
+
+# ⚪ [NEW] F15: Limit todo_md files preloading by line and byte budget
+
+- Add optional per-file and total budget flags to `todo_md files [<ID>]`
+  (e.g., `--max-lines N`, `--max-total-lines N`, `--max-bytes N`) in
+  `src/commands.py` (`cmd_files`), `src/cli.py`, and `src/header.py`, keeping
+  bare `todo_md files [<ID>]` backward-compatible with no cap by default.
+- Update `src/bundles/todo_md.bundle` (`role=execute` and `role=audit`) to
+  pass sensible size limits to `todo_md files {task:}` so small target files
+  are preloaded while large files are left for selective `grep`/`sed` reads.
+- Clarify in `src/bundles/todo_md.bundle` (`role=plan`) and
+  `src/rules/todo_md.md` that task bodies should reference target file paths
+  and key symbol names (functions/classes) in backticks rather than brittle
+  line ranges.
+- Sync `README.md` and add unit tests in `tests/test_todo_md.py` covering
+  per-file and total budget filtering.
