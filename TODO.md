@@ -1,3 +1,14 @@
+# 🎯 [NEXT] F19: Print Workdir header for explicit project task references
+
+- In `src/parser.py` (`cmd_show`) and `src/cli.py`, when a task is addressed
+  with an explicit `<project>:<ID>` reference, print `Workdir: <absolute
+  project path>` followed by a blank line before the usual `# TODO.md:<line>`
+  output. Without an explicit project the output stays unchanged.
+- Resolve the path through `resolve_project_task_ref` so `.todo_projects`
+  filtering and workspace escape checks still apply.
+- Keep `README.md`, `src/header.py` (`--help`), `src/rules/todo_md.md`, and
+  `tests/test_*.py` in sync.
+
 # ⚪ [NEW] P1: JSON output mode (`--json`)
 
 Allow exporting parsed tasks as JSON for scripting.
@@ -45,14 +56,3 @@ Allow exporting parsed tasks as JSON for scripting.
 - Document standard task ID prefixes in `src/rules/todo_md.md`: `F` (feature / default), `B` (bugfix / defect), and `D` (design / architectural exploration / raw idea routed to `role=design` before decomposition into `F` tasks).
 - Update `src/bundles/todo_md.bundle` (`[if role=design]`) so design tasks (`D*`) are closed via `todo_md done <ID>` once architectural invariants are persisted in `AGENTS.md` and follow-up `F*` implementation tasks are created.
 - Rebuild and reinstall `todo_md`, keep `README.md` and `tests/test_todo_md.py` in sync, and release a PATCH version.
-
-# ⚪ [NEW] F19: Print Workdir header for explicit project task references
-
-- In `src/parser.py` (`cmd_show`) and `src/cli.py`, when a task is addressed
-  with an explicit `<project>:<ID>` reference, print `Workdir: <absolute
-  project path>` followed by a blank line before the usual `# TODO.md:<line>`
-  output. Without an explicit project the output stays unchanged.
-- Resolve the path through `resolve_project_task_ref` so `.todo_projects`
-  filtering and workspace escape checks still apply.
-- Keep `README.md`, `src/header.py` (`--help`), `src/rules/todo_md.md`, and
-  `tests/test_*.py` in sync.
