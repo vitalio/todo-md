@@ -18,3 +18,20 @@ rules are loaded via `.agents_bundle`.
   and role/task workflow prompts for `bundle vitalio/todo_md`.
 - `src/cli.py` — CLI argument routing and self-update (`update`,
   `check-update`).
+
+## Dependency Graph & Sequencing Contract
+
+- Single source of truth: express both prerequisites and execution order in
+  `- Depends on:` lines (and `--depends`); do not duplicate order in a
+  separate `- Order:` field.
+- Syntax: `,` separates parallel items within a stage, `->` separates sequential
+  stages (`,` binds tighter than `->`, e.g. `A, B -> C`), and multiple
+  `- Depends on:` lines represent independent branches combined with AND.
+- Unified DAG: dependency resolution merges explicit `->` stage edges on the
+  target task with transitive `- Depends on:` edges inside referenced tasks
+  (preserving one-way cross-repo boundaries when orchestrators sequence child
+  tasks).
+- Validation & execution: `todo_md check` detects syntax errors, missing refs,
+  and transitive cycles; `DONE` unblocks while `CANCELED` or `MISSING` blocks;
+  `todo_md queue <ID>` shows the ordered queue and `todo_md next-id <ID>`
+  prints the first unblocked task ID for pipe composition.

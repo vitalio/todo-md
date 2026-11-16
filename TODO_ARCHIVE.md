@@ -1,3 +1,18 @@
+# ✅ [DONE] D1: Design dependency queue and next actionable task resolution — *2026-11-17, design agreed; spec recorded in AGENTS.md and F21*
+
+- Design CLI commands in `todo_md` to build an ordered execution queue for a
+  target task (for example, `todo_md queue <ID>`) and resolve the next
+  unblocked actionable task (for example, `todo_md resolve <ID>` or
+  `todo_md next-id <ID>`).
+- Traverse `Depends on:` edges recursively across intra-project and
+  `.todo_projects` workspace tasks, filter out `DONE` and `CANCELED` tasks,
+  and preserve declared `Depends on:` order so orchestrator tasks can sequence
+  cross-project steps without breaking the one-way dependency boundary.
+- Define output format, cycle and missing-reference error handling, and
+  composition with `todo_md show` / `agents_bundle` / `run_block` pipes.
+- Target files for implementation: `src/parser.py`, `src/cli.py`,
+  `src/header.py`, `README.md`, `src/rules/todo_md.md`, `tests/test_*.py`.
+
 # ✅ [DONE] F19: Print Workdir header for explicit project task references — *2026-11-17*
 
 - In `src/parser.py` (`cmd_show`) and `src/cli.py`, when a task is addressed
