@@ -46,18 +46,6 @@ Allow exporting parsed tasks as JSON for scripting.
 - Update `src/bundles/todo_md.bundle` (`[if role=design]`) so design tasks (`D*`) are closed via `todo_md done <ID>` once architectural invariants are persisted in `AGENTS.md` and follow-up `F*` implementation tasks are created.
 - Rebuild and reinstall `todo_md`, keep `README.md` and `tests/test_todo_md.py` in sync, and release a PATCH version.
 
-# ⚪ [NEW] F18: Connect python-stdlib and python-annotations rules in .agents_bundle
-
-- In `.agents_bundle`, remove `py_min=3.9` from `stack/python-cli` and add
-  `rule vitalio/agents-rules:stack/python-stdlib` and
-  `rule vitalio/agents-rules:stack/python-annotations py_min=3.9`, after the
-  python-cli split is released in agents-rules and the package cache is
-  refreshed.
-- Keep `from __future__ import annotations` only in `build.py` and
-  `src/header.py`; do not add it to modules under `src/`.
-- Run `python3 -m unittest discover -s tests`; if the progress line shows
-  stderr noise, capture it with `contextlib.redirect_stderr` in `tests/`.
-
 # ⚪ [NEW] F19: Print Workdir header for explicit project task references
 
 - In `src/parser.py` (`cmd_show`) and `src/cli.py`, when a task is addressed

@@ -1,3 +1,15 @@
+# ✅ [DONE] F18: Connect python-stdlib and python-annotations rules in .agents_bundle — *2026-11-16, Connect python-stdlib and python-annotations rules in .agents_bundle*
+
+- In `.agents_bundle`, remove `py_min=3.9` from `stack/python-cli` and add
+  `rule vitalio/agents-rules:stack/python-stdlib` and
+  `rule vitalio/agents-rules:stack/python-annotations py_min=3.9`, after the
+  python-cli split is released in agents-rules and the package cache is
+  refreshed.
+- Keep `from __future__ import annotations` only in `build.py` and
+  `src/header.py`; do not add it to modules under `src/`.
+- Run `python3 -m unittest discover -s tests`; if the progress line shows
+  stderr noise, capture it with `contextlib.redirect_stderr` in `tests/`.
+
 # ✅ [DONE] F7: Cross-project workspace discovery, <project>:<ID> addressing, and Depends on support — *2026-11-16*
 
 - Detect a todo_md-managed project by the presence of both TODO.md and TODO_ARCHIVE.md (without climbing to git rev-parse --show-toplevel when invoked in a subproject or a workspace directory without TODO.md).
