@@ -1,14 +1,3 @@
-# 🎯 [NEXT] F19: Print Workdir header for explicit project task references
-
-- In `src/parser.py` (`cmd_show`) and `src/cli.py`, when a task is addressed
-  with an explicit `<project>:<ID>` reference, print `Workdir: <absolute
-  project path>` followed by a blank line before the usual `# TODO.md:<line>`
-  output. Without an explicit project the output stays unchanged.
-- Resolve the path through `resolve_project_task_ref` so `.todo_projects`
-  filtering and workspace escape checks still apply.
-- Keep `README.md`, `src/header.py` (`--help`), `src/rules/todo_md.md`, and
-  `tests/test_*.py` in sync.
-
 # ⚪ [NEW] P1: JSON output mode (`--json`)
 
 Allow exporting parsed tasks as JSON for scripting.

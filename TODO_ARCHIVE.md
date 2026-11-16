@@ -1,3 +1,14 @@
+# ✅ [DONE] F19: Print Workdir header for explicit project task references — *2026-11-17*
+
+- In `src/parser.py` (`cmd_show`) and `src/cli.py`, when a task is addressed
+  with an explicit `<project>:<ID>` reference, print `Workdir: <absolute
+  project path>` followed by a blank line before the usual `# TODO.md:<line>`
+  output. Without an explicit project the output stays unchanged.
+- Resolve the path through `resolve_project_task_ref` so `.todo_projects`
+  filtering and workspace escape checks still apply.
+- Keep `README.md`, `src/header.py` (`--help`), `src/rules/todo_md.md`, and
+  `tests/test_*.py` in sync.
+
 # ✅ [DONE] F18: Connect python-stdlib and python-annotations rules in .agents_bundle — *2026-11-16, Connect python-stdlib and python-annotations rules in .agents_bundle*
 
 - In `.agents_bundle`, remove `py_min=3.9` from `stack/python-cli` and add
