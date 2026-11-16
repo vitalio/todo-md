@@ -1,4 +1,4 @@
-# 🎯 [NEXT] F7: Cross-project workspace discovery, <project>:<ID> addressing, and Depends on support
+# 🔵 [WIP] F7: Cross-project workspace discovery, <project>:<ID> addressing, and Depends on support
 
 - Detect a todo_md-managed project by the presence of both TODO.md and TODO_ARCHIVE.md (without climbing to git rev-parse --show-toplevel when invoked in a subproject or a workspace directory without TODO.md).
 - When invoked in a directory without TODO.md + TODO_ARCHIVE.md (or when -w / --workspace is passed), scan subdirectories up to a bounded depth (e.g. 3 levels, skipping hidden directories '.*' and build/vendor directories) without stopping at intermediate projects so both root projects (e.g. chrome) and nested subprojects (e.g. chrome/canary) are discovered as separate project namespaces.
@@ -19,9 +19,7 @@ Allow exporting parsed tasks as JSON for scripting.
 # ⚪ [NEW] F6: Move exported rules and bundles from src/ to agents/
 
 - Depends on: agents_bundle:F7, agents_bundle:F15
-printf '%s\n' '__RB_STEP__:48'
 - Move `src/rules/todo_md.md` and `src/bundles/todo_md.bundle` to `agents/` using the unified logical bundle/rule layout once `agents_bundle` supports it.
-printf '%s\n' '__RB_STEP__:49'
 - Update `AGENTS.md`, `README.md`, and tests to reference the new paths under `agents/`.
 
 # ⚪ [NEW] F14: Clarify in todo_md rule that backlog-only commits in plan/design/audit run in the same block without a separate diff-review turn
@@ -48,15 +46,11 @@ printf '%s\n' '__RB_STEP__:49'
 # ⚪ [NEW] F16: Migrate workflow bundle and docs from role=execute and role=audit to role=work and role=review
 
 - Depends on: agents-rules:F9, agents-rules:F16
-printf '%s\n' '__RB_STEP__:51'
 - Update `src/bundles/todo_md.bundle`, `src/rules/todo_md.md`, `README.md`, and unit tests in `tests/test_todo_md.py` to use `role=work` and `role=review` instead of `role=execute` and `role=audit` (preserving legacy aliases only if needed during transition).
-printf '%s\n' '__RB_STEP__:52'
 - Rebuild and reinstall `todo_md` and release a PATCH version.
 
 # ⚪ [NEW] F17: Document task prefix conventions (F, B, D) and design-task lifecycle in todo_md rule and bundle
 
 - Document standard task ID prefixes in `src/rules/todo_md.md`: `F` (feature / default), `B` (bugfix / defect), and `D` (design / architectural exploration / raw idea routed to `role=design` before decomposition into `F` tasks).
-printf '%s\n' '__RB_STEP__:21'
 - Update `src/bundles/todo_md.bundle` (`[if role=design]`) so design tasks (`D*`) are closed via `todo_md done <ID>` once architectural invariants are persisted in `AGENTS.md` and follow-up `F*` implementation tasks are created.
-printf '%s\n' '__RB_STEP__:22'
 - Rebuild and reinstall `todo_md`, keep `README.md` and `tests/test_todo_md.py` in sync, and release a PATCH version.
