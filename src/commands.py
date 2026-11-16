@@ -1,4 +1,7 @@
 def cmd_check(base_dir: Path) -> int:
+    if not (base_dir / "TODO.md").is_file():
+        sys.stderr.write(f"{prog_name()}: no TODO.md found in {base_dir} (run '{prog_name()} init' to create one)\n")
+        return 1
     errors, count = validate_all(base_dir)
     if errors:
         for e in errors:
@@ -374,13 +377,63 @@ def _resolve_body_arg(body: str | None) -> str | None:
     return body
 
 
-def cmd_add(base_dir: Path, argv: list[str], commit: bool = False, no_commit: bool = False) -> int:
+def _normalize_depends_refs(raw_items: list[str]) -> list[str]:
+    refs: list[str] = []
+    seen: set[str] = set()
+    for item in raw_items:
+        for part in item.split(","):
+            tok = part.strip()
+            if not tok:
+                continue
+            pm = PROJECT_TASK_RE.match(tok)
+            if pm:
+                proj_part = pm.group(1).strip().replace("\\", "/").strip("/")
+                norm = f"{proj_part}:{pm.group(2).upper()}"
+            elif re.fullmatch(r"[A-Za-z]\d+", tok):
+                norm = tok.upper()
+            else:
+                raise SystemExit(f"{prog_name()}: invalid dependency reference {tok!r}; expected <ID> or <project>:<ID>")
+            if norm not in seen:
+                seen.add(norm)
+                refs.append(norm)
+    return refs
+
+
+def _apply_depends_to_body_lines(lines: list[str], depends_refs: list[str] | None) -> list[str]:
+    if depends_refs is None:
+        return lines
+    filtered: list[str] = []
+    in_fence = False
+    for line in lines:
+        if line.lstrip().startswith(FENCE):
+            in_fence = not in_fence
+        if not in_fence and DEPENDS_LINE_RE.match(line):
+            continue
+        filtered.append(line)
+    while filtered and not filtered[0].strip():
+        filtered.pop(0)
+    while filtered and not filtered[-1].strip():
+        filtered.pop()
+    if not depends_refs:
+        return filtered
+    dep_line = f"- Depends on: {', '.join(depends_refs)}"
+    return [dep_line, *filtered] if filtered else [dep_line]
+
+
+def cmd_add(
+    base_dir: Path,
+    argv: list[str],
+    commit: bool = False,
+    no_commit: bool = False,
+    explicit_dir: str | None = None,
+) -> int:
     prog = prog_name()
     status = "NEW"
     prepend = False
     prefix: str | None = None
     note: str | None = None
     body: str | None = None
+    depends_raw: list[str] = []
     pos: list[str] = []
     i = 0
     while i < len(argv):
@@ -419,6 +472,11 @@ def cmd_add(base_dir: Path, argv: list[str], commit: bool = False, no_commit: bo
                 raise SystemExit(f"{prog}: {a} requires an argument")
             body = argv[i + 1]
             i += 2
+        elif a in ("--depends", "-d"):
+            if i + 1 >= len(argv):
+                raise SystemExit(f"{prog}: {a} requires an argument")
+            depends_raw.append(argv[i + 1])
+            i += 2
         elif a.startswith("-"):
             raise SystemExit(f"{prog}: unknown option for add: {a}")
         else:
@@ -427,6 +485,14 @@ def cmd_add(base_dir: Path, argv: list[str], commit: bool = False, no_commit: bo
 
     if status not in ("WIP", "NEXT", "NEW", "HOLD", "QUESTION"):
         raise SystemExit(f"{prog}: add status must be WIP, NEXT, NEW, HOLD, or QUESTION (got {status!r})")
+
+    if len(pos) >= 2 and not re.fullmatch(r"[A-Za-z](?:\d+)?", pos[0].strip()):
+        cand_proj = pos[0].strip().replace("\\", "/").strip("/")
+        ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
+        cand_dir = (ws_root / cand_proj).resolve()
+        if cand_proj and ".." not in cand_proj.split("/") and is_todo_project(cand_dir):
+            base_dir = cand_dir
+            pos = pos[1:]
 
     if len(pos) == 1:
         tid = next_free_id(base_dir, prefix or "F")
@@ -454,11 +520,14 @@ def cmd_add(base_dir: Path, argv: list[str], commit: bool = False, no_commit: bo
         raise SystemExit(f"{prog}: task title cannot be empty")
 
     body = _resolve_body_arg(body)
+    depends_refs = _normalize_depends_refs(depends_raw) if depends_raw else None
+    body_lines = body.strip().splitlines() if body and body.strip() else []
+    body_lines = _apply_depends_to_body_lines(body_lines, depends_refs)
 
     heading = _format_heading(status, tid, title, note=note)
     sec_lines = [heading]
-    if body and body.strip():
-        sec_lines.extend(["", body.strip()])
+    if body_lines:
+        sec_lines.extend(["", *body_lines])
 
     _insert_task_section(base_dir / "TODO.md", sec_lines, _default_todo_header(base_dir), prepend=prepend)
     sys.stdout.write(f"{prog}: added {tid} ([{status}]) to TODO.md\n")
@@ -472,12 +541,19 @@ def cmd_add(base_dir: Path, argv: list[str], commit: bool = False, no_commit: bo
     )
 
 
-def cmd_edit(base_dir: Path, argv: list[str], commit: bool = False, no_commit: bool = False) -> int:
+def cmd_edit(
+    base_dir: Path,
+    argv: list[str],
+    commit: bool = False,
+    no_commit: bool = False,
+    explicit_dir: str | None = None,
+) -> int:
     prog = prog_name()
     new_title: str | None = None
     note: str | None = None
     clear_note = False
     body: str | None = None
+    depends_raw: list[str] | None = None
     pos: list[str] = []
     i = 0
     while i < len(argv):
@@ -505,6 +581,13 @@ def cmd_edit(base_dir: Path, argv: list[str], commit: bool = False, no_commit: b
                 raise SystemExit(f"{prog}: {a} requires an argument")
             body = argv[i + 1]
             i += 2
+        elif a in ("--depends", "-d"):
+            if i + 1 >= len(argv):
+                raise SystemExit(f"{prog}: {a} requires an argument")
+            if depends_raw is None:
+                depends_raw = []
+            depends_raw.append(argv[i + 1])
+            i += 2
         elif a.startswith("-"):
             raise SystemExit(f"{prog}: unknown option for edit: {a}")
         else:
@@ -512,12 +595,14 @@ def cmd_edit(base_dir: Path, argv: list[str], commit: bool = False, no_commit: b
             i += 1
 
     if len(pos) != 1:
-        raise SystemExit(f"{prog}: usage: {prog} edit <ID> [-t TITLE] [-m NOTE] [-b BODY]")
-    target = pos[0].strip().upper()
+        raise SystemExit(f"{prog}: usage: {prog} edit <ID> [-t TITLE] [-m NOTE] [-b BODY] [--depends REF[,REF...]]")
+    base_dir, resolved_id = resolve_project_task_ref(base_dir, pos[0], explicit_dir=explicit_dir)
+    target = resolved_id.upper()
     body = _resolve_body_arg(body)
+    depends_refs = _normalize_depends_refs(depends_raw) if depends_raw is not None else None
 
-    if new_title is None and note is None and body is None:
-        raise SystemExit(f"{prog}: edit requires at least one of -t TITLE, -m NOTE, -b BODY, or stdin")
+    if new_title is None and note is None and body is None and depends_refs is None:
+        raise SystemExit(f"{prog}: edit requires at least one of -t TITLE, -m NOTE, -b BODY, --depends, or stdin")
 
     for fname in TASK_FILES:
         p = base_dir / fname
@@ -550,14 +635,19 @@ def cmd_edit(base_dir: Path, argv: list[str], commit: bool = False, no_commit: b
         heading = _format_heading(status, tid, final_title, note=final_note)
 
         if body is not None:
+            body_lines = _apply_depends_to_body_lines(body.strip().splitlines() if body.strip() else [], depends_refs)
             new_sec = [heading]
-            if body.strip():
-                new_sec.extend(["", body.strip()])
+            if body_lines:
+                new_sec.extend(["", *body_lines])
             new_sec.append("")
         else:
             old_sec = lines[start_idx:end_idx]
-            old_sec[0] = heading
-            new_sec = old_sec
+            if depends_refs is not None:
+                body_lines = _apply_depends_to_body_lines(old_sec[1:], depends_refs)
+                new_sec = [heading, *(["", *body_lines] if body_lines else []), ""]
+            else:
+                old_sec[0] = heading
+                new_sec = old_sec
 
         updated_lines = lines[:start_idx] + new_sec + lines[end_idx:]
         new_text = re.sub(r"\n{3,}", "\n\n", "\n".join(updated_lines).rstrip()) + "\n"

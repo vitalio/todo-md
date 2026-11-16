@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 # todo_md-repo: vitalio/todo_md
 """Usage:
-  {prog} [dir] [--full]                      Print TODO.md overview (full WIP/NEXT/QUESTION or first task + compact backlog)
-  {prog} <ID> | show <ID|last>               Show full section for task <ID> (or last [<STATUS|archive>]) across TODO*.md
+  {prog} [dir|project] [--full] [-w]         Print TODO.md or workspace overview (full WIP/NEXT/QUESTION or first task + compact)
+  {prog} projects                            List discovered workspace projects and open task counts
+  {prog} <ID> | show <ID|last>               Show full section for task <ID> (or last [<STATUS|archive>], supports <project>:<ID>)
   {prog} last [<STATUS|archive>]           Show full section for last task in status/archive (default: NEW)
   {prog} last-id [<STATUS|archive>]        Print ID of last task in status/archive (default: NEW)
   {prog} list [filter] [--limit N] [--full]  List tasks (active | archive | all | <STATUS>)
   {prog} archive [<ID>] [-m NOTE]            Print TODO_ARCHIVE.md, or archive task <ID>
-  {prog} add [<PREFIX>] <TITLE> [opts]       Add a new task with auto-assigned ID (reads body from -b TEXT|- or stdin)
-                                             Opts: -p PREFIX (default: F), --next, --status STATUS, -m NOTE, -b BODY|-
-  {prog} edit <ID> [opts]                    Update task title, note, or body (-t TITLE, -m NOTE, -b BODY|- or stdin)
+  {prog} add [<PROJ>] [<PREFIX>] <TITLE>     Add a new task with auto-assigned ID (reads body from -b TEXT|- or stdin)
+                                             Opts: -p PREFIX (default: F), --next, --status STATUS, -m NOTE, -b BODY|-, --depends REF[,REF...]
+  {prog} edit <ID> [opts]                    Update task title, note, body, or deps (-t TITLE, -m NOTE, -b BODY|-, --depends REF[,REF...])
   {prog} append <ID> [-b TEXT|-]             Append text to task <ID> body (from -b TEXT|- or stdin)
   {prog} status <ID> <STATUS> [-m NOTE]      Update status of <ID> (WIP|NEXT|NEW|HOLD|QUESTION|DONE|CANCELED)
   {prog} next <ID> [-m NOTE]                 Promote task <ID> to 🎯 [NEXT] priority at the top of TODO.md
@@ -33,7 +34,8 @@ Manages structured Markdown task files in a repository:
   - TODO_ARCHIVE.md  Completed (✅ [DONE]) and dropped (❌ [CANCELED]) tasks (newest at top)
 
 Environment variables:
-  TODO_MD_CWD          Override target directory (default: current directory or Git root)
+  TODO_MD_CWD          Override target directory (default: current directory)
+  TODO_MD_WORKSPACE    Override workspace root directory for project discovery and <project>:<ID>
   TODO_MD_COMMIT       Set to 1 to git-commit TODO*.md automatically on mutating commands
   TODO_MD_NO_COMMIT    Set to 1 to suppress git commits even when --commit / TODO_MD_COMMIT is set
   TODO_MD_UPDATE_URL   Override raw script URL for update / check-update
@@ -85,6 +87,21 @@ ANY_ID_RE = re.compile(
     rf"^(?:#\s+(?:{STATUS_TOKEN_PAT}\s+|[-*o?+c]\s+)?|(?:- \[[ xX~]\]\s+(?:{STATUS_TOKEN_PAT}\s+)?|- |[*o?+c] ))([A-Z]\d+)\b"
 )
 BACKTICK_TOKEN_RE = re.compile(r"`([^`\n]+)`")
+PROJECT_TASK_RE = re.compile(r"^(.+?):([A-Za-z]\d+)$")
+DEPENDS_LINE_RE = re.compile(r"^\s*[-*]\s*Depends on:\s*(.+?)\s*$", re.IGNORECASE)
+WORKSPACE_SKIP_DIRS = frozenset({
+    "node_modules",
+    "vendor",
+    "dist",
+    "build",
+    "target",
+    "__pycache__",
+    "venv",
+    "env",
+    "Pods",
+    "DerivedData",
+})
+WORKSPACE_MAX_DEPTH = 3
 
 
 def prog_name() -> str:

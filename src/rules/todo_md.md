@@ -13,8 +13,10 @@
     automatically when starting `role=execute task=<ID>`, and `done` is run
     before the final commit in `role=execute` so backlog updates are committed
     atomically with code changes.
-  - Inspect: `{cmd:todo_md} [--full]` (overview: full `WIP`/`NEXT`/`QUESTION`,
-    or first `NEW`/`HOLD` task when none exist, + compact backlog), `{cmd:todo_md} <ID>` /
+  - Inspect: `{cmd:todo_md} [--full] [-w]` (overview or cross-project workspace
+    overview: full `WIP`/`NEXT`/`QUESTION`, or first `NEW`/`HOLD` task when none
+    exist, + compact backlog; supports `<project>:<ID>` and `<project>` addressing),
+    `{cmd:todo_md} projects` (list workspace projects and open counts), `{cmd:todo_md} <ID>` /
     `{cmd:todo_md} show <ID|last> [<STATUS|archive>]`,
     `{cmd:todo_md} last [<STATUS|archive>]` (default: `NEW`),
     `{cmd:todo_md} last-id [<STATUS|archive>]` (default: `NEW`),
@@ -22,10 +24,10 @@
     `{cmd:todo_md} archive`, `{cmd:todo_md} ids`,
     `{cmd:todo_md} next-id` (`--top`, top `WIP`/`NEXT` ID),
     `{cmd:todo_md} files [<ID>]` (existing backtick-referenced repo files)
-  - Create: `{cmd:todo_md} add [<PREFIX>] "<title>" [-p <PREFIX>] [--next] [--status WIP|NEXT|NEW|HOLD|QUESTION] [-m "<note>"] [-b "<body_md>"|-] [-c|--commit]`
+  - Create: `{cmd:todo_md} add [<PROJECT>] [<PREFIX>] "<title>" [-p <PREFIX>] [--next] [--status WIP|NEXT|NEW|HOLD|QUESTION] [-m "<note>"] [-b "<body_md>"|-] [--depends <ref>[,<ref>...]] [-c|--commit]`
     (auto-assigns `<ID>`, default prefix `F`; pass body via `-b`, `-b -` for `stdin`, or piped `stdin`;
     `{cmd:todo_md} init "<idea>"` bootstraps a new `TODO.md`)
-  - Update: `{cmd:todo_md} edit <ID> [-t "<title>"] [-m "<note>"] [-b "<body_md>"|-] [-c|--commit]`,
+  - Update: `{cmd:todo_md} edit <ID> [-t "<title>"] [-m "<note>"] [-b "<body_md>"|-] [--depends <ref>[,<ref>...]] [-c|--commit]`,
     `{cmd:todo_md} append <ID> [-b "<text>"|-] [-c|--commit]`
   - Transition: `{cmd:todo_md} status <ID> <WIP|NEXT|NEW|HOLD|QUESTION> [-m "<note>"] [-c|--commit]`,
     `{cmd:todo_md} next <ID> [-m "<note>"] [-c|--commit]` (promote to `🎯 [NEXT]`)

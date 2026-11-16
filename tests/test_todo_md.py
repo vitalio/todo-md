@@ -479,6 +479,75 @@ class TestTodoMd(unittest.TestCase):
         self.assertNotIn("H2 line 3", r_only_hold.stdout)
         self.assertIn("todo_md F2", r_only_hold.stdout)
 
+    def test_workspace_discovery_addressing_and_depends(self):
+        ws = self.tmp / "ws"
+        ws.mkdir()
+        proj_a = ws / "proj_a"
+        proj_b = ws / "parent_proj"
+        proj_c = ws / "parent_proj" / "sub_proj"
+        hidden = ws / ".hidden_proj"
+        vendor = ws / "node_modules" / "pkg"
+        for d in (proj_a, proj_b, proj_c, hidden, vendor):
+            d.mkdir(parents=True)
+            self._run([str(SCRIPT), str(d), "init"], check=True)
+
+        # Nested subproject without TODO.md does NOT climb to parent git root
+        sub_no_todo = proj_b / "sub_empty"
+        sub_no_todo.mkdir()
+        self._run(["git", "init"], cwd=str(proj_b), check=True)
+        r_sub_chk = self._run([str(SCRIPT), "check"], cwd=str(sub_no_todo))
+        self.assertNotEqual(r_sub_chk.returncode, 0)
+
+        # Add tasks in projects
+        self._run([str(SCRIPT), "add", "proj_a", "Base rule", "--next"], cwd=str(ws), check=True)
+        self._run([str(SCRIPT), "add", "Base parent task"], cwd=str(proj_b), check=True)
+
+        # Missing dependency fails validation immediately on add
+        r_bad_dep = self._run(
+            [str(SCRIPT), "add", "Sub feature", "--depends", "proj_a:F1,F99"],
+            cwd=str(proj_c),
+        )
+        self.assertNotEqual(r_bad_dep.returncode, 0)
+        self.assertIn("missing task 'F99'", r_bad_dep.stderr)
+
+        # Edit F1 in proj_c to depend only on proj_a:F1 (cross-project)
+        self._run(
+            [str(SCRIPT), "edit", "parent_proj/sub_proj:F1", "--depends", "proj_a:F1"],
+            cwd=str(ws),
+            check=True,
+        )
+        self._run([str(SCRIPT), "check"], cwd=str(proj_c), check=True)
+
+        # Show surfaces blocked dependency status, then DONE after proj_a:F1 is completed
+        r_show_blocked = self._run([str(SCRIPT), "parent_proj/sub_proj:F1"], cwd=str(ws), check=True)
+        self.assertIn("Dependencies (blocked): proj_a:F1", r_show_blocked.stdout)
+        self._run([str(SCRIPT), "done", "proj_a:F1", "-m", "done"], cwd=str(ws), check=True)
+        r_show_ready = self._run([str(SCRIPT), "parent_proj/sub_proj:F1"], cwd=str(ws), check=True)
+        self.assertIn("Dependencies (ready): proj_a:F1 ✅ [DONE]", r_show_ready.stdout)
+
+        # Workspace projects listing skips .hidden_proj and node_modules, includes parent_proj and parent_proj/sub_proj
+        r_projs = self._run([str(SCRIPT), "projects"], cwd=str(ws), check=True)
+        self.assertIn("proj_a", r_projs.stdout)
+        self.assertIn("parent_proj", r_projs.stdout)
+        self.assertIn("parent_proj/sub_proj", r_projs.stdout)
+        self.assertNotIn(".hidden_proj", r_projs.stdout)
+        self.assertNotIn("node_modules", r_projs.stdout)
+
+        # Workspace overview (-w from inside a project, and auto-workspace from ws root)
+        r_ws_flag = self._run([str(SCRIPT), "-w"], cwd=str(proj_b), check=True)
+        self.assertIn("parent_proj/sub_proj:F1", r_ws_flag.stdout)
+        r_ws_auto = self._run([str(SCRIPT)], cwd=str(ws), check=True)
+        self.assertIn("## parent_proj/sub_proj", r_ws_auto.stdout)
+
+        # Workspace list and check
+        r_ws_list = self._run([str(SCRIPT), "-w", "list", "active"], cwd=str(proj_b), check=True)
+        self.assertIn("parent_proj/sub_proj:F1", r_ws_list.stdout)
+        self._run([str(SCRIPT), "-w", "check"], cwd=str(proj_b), check=True)
+
+        # todo_md.bundle runs todo_md -w when workspace=1
+        bundle_txt = (ROOT / "src/bundles/todo_md.bundle").read_text(encoding="utf-8")
+        self.assertIn("[if workspace=1] $ todo_md -w", bundle_txt)
+
     def test_install_sh(self):
         bin_dir = self.tmp / "bin"
         bin_dir.mkdir()

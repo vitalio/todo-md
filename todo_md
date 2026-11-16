@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 # todo_md-repo: vitalio/todo_md
 """Usage:
-  {prog} [dir] [--full]                      Print TODO.md overview (full WIP/NEXT/QUESTION or first task + compact backlog)
-  {prog} <ID> | show <ID|last>               Show full section for task <ID> (or last [<STATUS|archive>]) across TODO*.md
+  {prog} [dir|project] [--full] [-w]         Print TODO.md or workspace overview (full WIP/NEXT/QUESTION or first task + compact)
+  {prog} projects                            List discovered workspace projects and open task counts
+  {prog} <ID> | show <ID|last>               Show full section for task <ID> (or last [<STATUS|archive>], supports <project>:<ID>)
   {prog} last [<STATUS|archive>]           Show full section for last task in status/archive (default: NEW)
   {prog} last-id [<STATUS|archive>]        Print ID of last task in status/archive (default: NEW)
   {prog} list [filter] [--limit N] [--full]  List tasks (active | archive | all | <STATUS>)
   {prog} archive [<ID>] [-m NOTE]            Print TODO_ARCHIVE.md, or archive task <ID>
-  {prog} add [<PREFIX>] <TITLE> [opts]       Add a new task with auto-assigned ID (reads body from -b TEXT|- or stdin)
-                                             Opts: -p PREFIX (default: F), --next, --status STATUS, -m NOTE, -b BODY|-
-  {prog} edit <ID> [opts]                    Update task title, note, or body (-t TITLE, -m NOTE, -b BODY|- or stdin)
+  {prog} add [<PROJ>] [<PREFIX>] <TITLE>     Add a new task with auto-assigned ID (reads body from -b TEXT|- or stdin)
+                                             Opts: -p PREFIX (default: F), --next, --status STATUS, -m NOTE, -b BODY|-, --depends REF[,REF...]
+  {prog} edit <ID> [opts]                    Update task title, note, body, or deps (-t TITLE, -m NOTE, -b BODY|-, --depends REF[,REF...])
   {prog} append <ID> [-b TEXT|-]             Append text to task <ID> body (from -b TEXT|- or stdin)
   {prog} status <ID> <STATUS> [-m NOTE]      Update status of <ID> (WIP|NEXT|NEW|HOLD|QUESTION|DONE|CANCELED)
   {prog} next <ID> [-m NOTE]                 Promote task <ID> to 🎯 [NEXT] priority at the top of TODO.md
@@ -33,7 +34,8 @@ Manages structured Markdown task files in a repository:
   - TODO_ARCHIVE.md  Completed (✅ [DONE]) and dropped (❌ [CANCELED]) tasks (newest at top)
 
 Environment variables:
-  TODO_MD_CWD          Override target directory (default: current directory or Git root)
+  TODO_MD_CWD          Override target directory (default: current directory)
+  TODO_MD_WORKSPACE    Override workspace root directory for project discovery and <project>:<ID>
   TODO_MD_COMMIT       Set to 1 to git-commit TODO*.md automatically on mutating commands
   TODO_MD_NO_COMMIT    Set to 1 to suppress git commits even when --commit / TODO_MD_COMMIT is set
   TODO_MD_UPDATE_URL   Override raw script URL for update / check-update
@@ -52,7 +54,7 @@ import urllib.request
 from datetime import date
 from pathlib import Path
 
-VERSION = "0.9.4"
+VERSION = "0.10.0"
 REPO_MARKER = "todo_md-repo: vitalio/todo_md"
 DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/vitalio/todo_md/main/todo_md"
 FENCE = chr(96) * 3
@@ -85,6 +87,21 @@ ANY_ID_RE = re.compile(
     rf"^(?:#\s+(?:{STATUS_TOKEN_PAT}\s+|[-*o?+c]\s+)?|(?:- \[[ xX~]\]\s+(?:{STATUS_TOKEN_PAT}\s+)?|- |[*o?+c] ))([A-Z]\d+)\b"
 )
 BACKTICK_TOKEN_RE = re.compile(r"`([^`\n]+)`")
+PROJECT_TASK_RE = re.compile(r"^(.+?):([A-Za-z]\d+)$")
+DEPENDS_LINE_RE = re.compile(r"^\s*[-*]\s*Depends on:\s*(.+?)\s*$", re.IGNORECASE)
+WORKSPACE_SKIP_DIRS = frozenset({
+    "node_modules",
+    "vendor",
+    "dist",
+    "build",
+    "target",
+    "__pycache__",
+    "venv",
+    "env",
+    "Pods",
+    "DerivedData",
+})
+WORKSPACE_MAX_DEPTH = 3
 
 
 def prog_name() -> str:
@@ -100,6 +117,10 @@ def usage_text() -> str:
     return (__doc__ or "").format(prog=prog_name())
 
 
+def is_todo_project(directory: Path) -> bool:
+    return (directory / "TODO.md").is_file() and (directory / "TODO_ARCHIVE.md").is_file()
+
+
 def resolve_target_dir(explicit: str | None = None) -> Path:
     if explicit:
         p = Path(explicit).expanduser().resolve()
@@ -109,25 +130,178 @@ def resolve_target_dir(explicit: str | None = None) -> Path:
     env_cwd = os.environ.get("TODO_MD_CWD", "").strip()
     if env_cwd:
         return Path(env_cwd).expanduser().resolve()
-    cwd = Path.cwd().resolve()
-    if (cwd / "TODO.md").is_file():
-        return cwd
+    return Path.cwd().resolve()
+
+
+def resolve_workspace_root(base_dir: Path, explicit_dir: str | None = None) -> Path:
+    if explicit_dir:
+        return base_dir
+    env_ws = os.environ.get("TODO_MD_WORKSPACE", "").strip()
+    if env_ws:
+        p = Path(env_ws).expanduser().resolve()
+        if not p.is_dir():
+            raise SystemExit(f"{prog_name()}: workspace directory not found: {env_ws}")
+        return p
+    if is_todo_project(base_dir):
+        cur = base_dir
+        while cur.parent != cur and is_todo_project(cur.parent):
+            cur = cur.parent
+        return cur.parent
+    return base_dir
+
+
+def discover_projects(
+    workspace_root: Path,
+    max_depth: int = WORKSPACE_MAX_DEPTH,
+) -> list[tuple[str, Path]]:
+    root = workspace_root.resolve()
+    if not root.is_dir():
+        return []
+    found: list[tuple[str, Path]] = []
+
+    def _walk(cur: Path, depth: int) -> None:
+        if depth > max_depth:
+            return
+        try:
+            entries = sorted(cur.iterdir(), key=lambda p: p.name.lower())
+        except OSError:
+            return
+        for entry in entries:
+            if not entry.is_dir() or entry.is_symlink():
+                continue
+            name = entry.name
+            if name.startswith(".") or name in WORKSPACE_SKIP_DIRS:
+                continue
+            if is_todo_project(entry):
+                rel = entry.relative_to(root).as_posix()
+                found.append((rel, entry))
+            if depth < max_depth:
+                _walk(entry, depth + 1)
+
+    _walk(root, 1)
+    found.sort(key=lambda item: item[0])
+    return found
+
+
+def resolve_project_dir(
+    base_dir: Path,
+    project_name: str,
+    explicit_dir: str | None = None,
+) -> Path:
+    norm = project_name.strip().replace("\\", "/").strip("/")
+    ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
+    if not norm or ".." in norm.split("/"):
+        raise SystemExit(f"{prog_name()}: invalid project reference {project_name!r}")
+    candidate = (ws_root / norm).resolve()
     try:
-        r = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            cwd=str(cwd),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            text=True,
-            check=False,
-        )
-        if r.returncode == 0 and r.stdout.strip():
-            groot = Path(r.stdout.strip()).resolve()
-            if (groot / "TODO.md").is_file():
-                return groot
-    except OSError:
-        pass
-    return cwd
+        candidate.relative_to(ws_root.resolve())
+    except ValueError:
+        raise SystemExit(f"{prog_name()}: project {project_name!r} escapes workspace {ws_root}")
+    if not is_todo_project(candidate):
+        raise SystemExit(f"{prog_name()}: project {norm!r} not found under workspace {ws_root}")
+    return candidate
+
+
+def resolve_project_task_ref(
+    base_dir: Path,
+    ref: str,
+    explicit_dir: str | None = None,
+) -> tuple[Path, str]:
+    m = PROJECT_TASK_RE.match(ref.strip())
+    if m:
+        proj_name, tid = m.group(1), m.group(2).upper()
+        return resolve_project_dir(base_dir, proj_name, explicit_dir=explicit_dir), tid
+    return base_dir, ref.strip()
+
+
+def parse_task_dependencies(section_text: str) -> list[str]:
+    refs: list[str] = []
+    seen: set[str] = set()
+    in_fence = False
+    for line in section_text.splitlines():
+        if line.lstrip().startswith(FENCE):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        m = DEPENDS_LINE_RE.match(line)
+        if not m:
+            continue
+        for raw in m.group(1).split(","):
+            tok = raw.strip()
+            if not tok:
+                continue
+            pm = PROJECT_TASK_RE.match(tok)
+            if pm:
+                proj_part = pm.group(1).strip().replace("\\", "/").strip("/")
+                norm = f"{proj_part}:{pm.group(2).upper()}"
+            elif re.fullmatch(r"[A-Za-z]\d+", tok):
+                norm = tok.upper()
+            else:
+                norm = tok
+            if norm not in seen:
+                seen.add(norm)
+                refs.append(norm)
+    return refs
+
+
+def resolve_dependency_statuses(
+    base_dir: Path,
+    deps: list[str],
+    explicit_dir: str | None = None,
+) -> list[tuple[str, str, str]]:
+    results: list[tuple[str, str, str]] = []
+    ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
+    cache: dict[Path, dict[str, str]] = {}
+
+    def _task_statuses(proj_dir: Path) -> dict[str, str]:
+        if proj_dir not in cache:
+            mapping: dict[str, str] = {}
+            for t in collect_all_tasks(proj_dir):
+                mapping[str(t["id"]).upper()] = str(t["status"])
+            cache[proj_dir] = mapping
+        return cache[proj_dir]
+
+    for ref in deps:
+        pm = PROJECT_TASK_RE.match(ref)
+        if pm:
+            proj_name, tid = pm.group(1).strip().replace("\\", "/").strip("/"), pm.group(2).upper()
+            target_dir = (ws_root / proj_name).resolve()
+            if not is_todo_project(target_dir):
+                results.append((ref, "MISSING", "project not found"))
+                continue
+        else:
+            target_dir = base_dir
+            tid = ref.upper()
+        statuses = _task_statuses(target_dir)
+        st = statuses.get(tid)
+        if st is None:
+            results.append((ref, "MISSING", "task not found"))
+        else:
+            results.append((ref, st, VALID_STATUSES.get(st, "")))
+    return results
+
+
+def format_dependency_summary(
+    base_dir: Path,
+    section_text: str,
+    explicit_dir: str | None = None,
+) -> str | None:
+    deps = parse_task_dependencies(section_text)
+    if not deps:
+        return None
+    resolved = resolve_dependency_statuses(base_dir, deps, explicit_dir=explicit_dir)
+    parts: list[str] = []
+    blocked = False
+    for ref, st, emoji in resolved:
+        if st == "DONE":
+            parts.append(f"{ref} {emoji} [DONE]".replace("  ", " "))
+        else:
+            blocked = True
+            label = f"{emoji} [{st}]".strip() if emoji else f"[{st}]"
+            parts.append(f"{ref} {label}")
+    state = "blocked" if blocked else "ready"
+    return f"Dependencies ({state}): " + ", ".join(parts)
 
 
 def read_if_exists(path: Path) -> str:
@@ -226,21 +400,35 @@ def format_ids_summary(top: dict[str, int]) -> str:
     return f"{used}  (next free: {nxt})"
 
 
-def _format_task_for_summary(task: dict[str, object], full: bool = False) -> str:
+def _format_task_for_summary(
+    task: dict[str, object],
+    full: bool = False,
+    base_dir: Path | None = None,
+    proj_prefix: str | None = None,
+) -> str:
     sec = str(task["section"]).rstrip()
+    if proj_prefix:
+        lines = sec.splitlines()
+        tid = str(task["id"])
+        lines[0] = lines[0].replace(f"] {tid}:", f"] {proj_prefix}:{tid}:", 1)
+        sec = "\n".join(lines)
+    dep_line = format_dependency_summary(base_dir, str(task["section"])) if base_dir else None
     status = str(task["status"])
     if full or status in ("WIP", "NEXT", "QUESTION"):
-        return sec
+        return f"{sec}\n{dep_line}" if dep_line else sec
     lines = sec.splitlines()
     heading = lines[0]
     body_non_empty = [l for l in lines[1:] if l.strip()]
     if not body_non_empty:
         return heading
     if len(body_non_empty) == 1:
-        return f"{heading}\n\n{body_non_empty[0]}"
+        out = f"{heading}\n\n{body_non_empty[0]}"
+        return f"{out}\n{dep_line}" if dep_line else out
     tid = str(task["id"])
+    ref_cmd = f"{proj_prefix}:{tid}" if proj_prefix else tid
     extra = len(body_non_empty) - 1
-    return f"{heading}\n\n{body_non_empty[0]}\n*(+{extra} more line{'s' if extra != 1 else ''} — run `{prog_name()} {tid}` to view full task)*"
+    out = f"{heading}\n\n{body_non_empty[0]}\n*(+{extra} more line{'s' if extra != 1 else ''} — run `{prog_name()} {ref_cmd}` to view full task)*"
+    return f"{out}\n{dep_line}" if dep_line else out
 
 
 def cmd_summary(base_dir: Path, full: bool = False) -> int:
@@ -266,7 +454,7 @@ def cmd_summary(base_dir: Path, full: bool = False) -> int:
                 for _, t in ordered
             )
             rendered = [
-                _format_task_for_summary(t, full=(not has_expanded and idx == 0))
+                _format_task_for_summary(t, full=(not has_expanded and idx == 0), base_dir=base_dir)
                 for idx, (_, t) in enumerate(ordered)
             ]
             sys.stdout.write("\n\n".join(rendered) + "\n\n")
@@ -338,7 +526,9 @@ def cmd_show(base_dir: Path, task_id: str) -> int:
     top = highest_ids_in_use(base_dir)
     for t in collect_all_tasks(base_dir):
         if str(t["id"]).upper() == target:
-            sys.stdout.write(f"# {t['file']}:{t['line']}\n{t['section']}\n\n---\nIDs in use: {format_ids_summary(top)}\n")
+            dep_line = format_dependency_summary(base_dir, str(t["section"]))
+            dep_block = f"\n{dep_line}" if dep_line else ""
+            sys.stdout.write(f"# {t['file']}:{t['line']}\n{t['section']}{dep_block}\n\n---\nIDs in use: {format_ids_summary(top)}\n")
             return 0
     sys.stderr.write(f"{prog_name()}: task {target!r} not found in TODO*.md under {base_dir}\n")
     return 1
@@ -400,7 +590,13 @@ def cmd_list(
         for t in shown:
             badge = f"{t['emoji']} [{t['status']}]"
             loc = str(t["file"])
-            sys.stdout.write(f"  {str(t['id']):<6}  {badge:<14}  {loc:<16}  {t['title']}\n")
+            deps = parse_task_dependencies(str(t["section"]))
+            dep_suffix = ""
+            if deps:
+                resolved = resolve_dependency_statuses(base_dir, deps)
+                blocked = [f"{r} ({st})" for r, st, _ in resolved if st != "DONE"]
+                dep_suffix = f" [blocked: {', '.join(blocked)}]" if blocked else " [deps: DONE]"
+            sys.stdout.write(f"  {str(t['id']):<6}  {badge:<14}  {loc:<16}  {t['title']}{dep_suffix}\n")
     top = highest_ids_in_use(base_dir)
     sys.stdout.write(f"\nIDs in use: {format_ids_summary(top)}\n")
     return 0
@@ -445,10 +641,180 @@ def validate_all(base_dir: Path) -> tuple[list[str], int]:
                 if fname == "TODO_ARCHIVE.md" and status not in ("DONE", "CANCELED"):
                     errors.append(f"{loc}: non-archived status [{status}] on task {tid} in TODO_ARCHIVE.md")
 
+    ws_root = resolve_workspace_root(base_dir)
+    local_ids = set(seen_ids.keys())
+    proj_task_cache: dict[Path, set[str]] = {}
+    todo_path = base_dir / "TODO.md"
+    if todo_path.is_file():
+        for t in parse_tasks_in_text(read_if_exists(todo_path), "TODO.md"):
+            tid = str(t["id"]).upper()
+            lineno = int(t["line"])
+            for ref in parse_task_dependencies(str(t["section"])):
+                pm = PROJECT_TASK_RE.match(ref)
+                if pm:
+                    proj_name = pm.group(1).strip().replace("\\", "/").strip("/")
+                    target_tid = pm.group(2).upper()
+                    if not proj_name or ".." in proj_name.split("/"):
+                        errors.append(f"TODO.md:{lineno}: task {tid} has invalid dependency reference {ref!r}")
+                        continue
+                    target_dir = (ws_root / proj_name).resolve()
+                    if not is_todo_project(target_dir):
+                        errors.append(f"TODO.md:{lineno}: task {tid} depends on unknown project in {ref!r}")
+                        continue
+                    if target_dir not in proj_task_cache:
+                        proj_task_cache[target_dir] = {
+                            str(pt["id"]).upper() for pt in collect_all_tasks(target_dir)
+                        }
+                    if target_tid not in proj_task_cache[target_dir]:
+                        errors.append(f"TODO.md:{lineno}: task {tid} depends on missing task {ref!r}")
+                    elif target_dir == base_dir.resolve() and target_tid == tid:
+                        errors.append(f"TODO.md:{lineno}: task {tid} cannot depend on itself")
+                elif re.fullmatch(r"[A-Za-z]\d+", ref):
+                    target_tid = ref.upper()
+                    if target_tid == tid:
+                        errors.append(f"TODO.md:{lineno}: task {tid} cannot depend on itself")
+                    elif target_tid not in local_ids:
+                        errors.append(f"TODO.md:{lineno}: task {tid} depends on missing task {ref!r}")
+                else:
+                    errors.append(f"TODO.md:{lineno}: task {tid} has invalid dependency reference {ref!r}")
+
     return errors, len(seen_ids)
 
 
+def cmd_projects(base_dir: Path, explicit_dir: str | None = None) -> int:
+    ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
+    projects = discover_projects(ws_root)
+    if not projects:
+        sys.stdout.write(f"No todo_md projects found under {ws_root}\n")
+        return 0
+    sys.stdout.write(f"Workspace: {ws_root} ({len(projects)} project(s))\n")
+    for name, proj_dir in projects:
+        active = parse_tasks_in_text(read_if_exists(proj_dir / "TODO.md"), "TODO.md")
+        counts: dict[str, int] = {}
+        for t in active:
+            st = str(t["status"])
+            counts[st] = counts.get(st, 0) + 1
+        highlights = [f"{st}: {counts[st]}" for st in ("WIP", "NEXT", "QUESTION") if counts.get(st)]
+        detail = f" ({', '.join(highlights)})" if highlights else ""
+        sys.stdout.write(f"  {name:<26}  {len(active):>3} open{detail}\n")
+    return 0
+
+
+def cmd_workspace_summary(workspace_root: Path, full: bool = False) -> int:
+    projects = discover_projects(workspace_root)
+    if not projects:
+        sys.stdout.write(f"No todo_md projects found under {workspace_root}\n")
+        return 0
+    total_open = 0
+    empty_projects: list[str] = []
+    blocks: list[str] = []
+    for name, proj_dir in projects:
+        active = parse_tasks_in_text(read_if_exists(proj_dir / "TODO.md"), "TODO.md")
+        if not active:
+            empty_projects.append(name)
+            continue
+        total_open += len(active)
+        ordered = sorted(
+            enumerate(active),
+            key=lambda iv: (ACTIVE_STATUS_ORDER.get(str(iv[1]["status"]), 99), iv[0]),
+        )
+        has_expanded = any(str(t["status"]) in ("WIP", "NEXT", "QUESTION") for _, t in ordered)
+        rendered = [
+            _format_task_for_summary(
+                t,
+                full=(full or (not has_expanded and idx == 0)),
+                base_dir=proj_dir,
+                proj_prefix=name,
+            )
+            for idx, (_, t) in enumerate(ordered)
+        ]
+        blocks.append(f"## {name} ({len(active)} open)\n\n" + "\n\n".join(rendered))
+
+    if blocks:
+        sys.stdout.write("\n\n".join(blocks) + "\n\n")
+    else:
+        sys.stdout.write("*(No open tasks across workspace projects)*\n\n")
+    sys.stdout.write("---\n")
+    sys.stdout.write(f"Workspace: {workspace_root} | Projects: {len(projects)} | Open tasks: {total_open}\n")
+    if empty_projects:
+        sys.stdout.write(f"No open tasks: {', '.join(empty_projects)}\n")
+    return 0
+
+
+def cmd_workspace_list(
+    workspace_root: Path,
+    filt: str | None = None,
+    limit: int | None = None,
+    full: bool = False,
+) -> int:
+    projects = discover_projects(workspace_root)
+    if not projects:
+        sys.stdout.write(f"No todo_md projects found under {workspace_root}\n")
+        return 0
+    mode = (filt or "active").strip().lower()
+    if mode not in ("active", "open", "archive", "all") and mode.upper() not in VALID_STATUSES:
+        raise SystemExit(f"{prog_name()}: unknown list filter {filt!r}; expected active, archive, all, or a status name")
+    items: list[tuple[str, Path, dict[str, object]]] = []
+    for name, proj_dir in projects:
+        tasks = collect_all_tasks(proj_dir)
+        active = _order_active_tasks_for_list([t for t in tasks if t["file"] == "TODO.md"])
+        arch = [t for t in tasks if t["file"] == "TODO_ARCHIVE.md"]
+        if mode in ("active", "open"):
+            matched = active
+        elif mode == "archive":
+            matched = arch
+        elif mode == "all":
+            matched = active + arch
+        else:
+            st_up = mode.upper()
+            matched = [t for t in (arch if st_up in ("DONE", "CANCELED") else active) if t["status"] == st_up]
+        for t in matched:
+            items.append((name, proj_dir, t))
+    if limit is not None:
+        items = items[:limit]
+    if not items:
+        sys.stdout.write(f"No matching tasks ({mode}) across workspace {workspace_root}\n")
+        return 0
+    if full:
+        sections: list[str] = []
+        for name, proj_dir, t in items:
+            lines = str(t["section"]).rstrip().splitlines()
+            tid = str(t["id"])
+            lines[0] = lines[0].replace(f"] {tid}:", f"] {name}:{tid}:", 1)
+            sections.append("\n".join(lines))
+        sys.stdout.write("\n\n".join(sections) + "\n")
+        return 0
+    for name, proj_dir, t in items:
+        ref = f"{name}:{t['id']}"
+        badge = f"{t['emoji']} [{t['status']}]"
+        sys.stdout.write(f"  {ref:<28}  {badge:<14}  {t['title']}\n")
+    return 0
+
+
+def cmd_workspace_check(workspace_root: Path) -> int:
+    projects = discover_projects(workspace_root)
+    if not projects:
+        sys.stdout.write(f"No todo_md projects found under {workspace_root}\n")
+        return 0
+    total_tasks = 0
+    had_error = False
+    for name, proj_dir in projects:
+        errors, count = validate_all(proj_dir)
+        total_tasks += count
+        if errors:
+            had_error = True
+            for e in errors:
+                sys.stderr.write(f"ERROR [{name}]: {e}\n")
+    if had_error:
+        return 1
+    sys.stdout.write(f"{prog_name()}: OK ({total_tasks} task(s) verified across {len(projects)} project(s))\n")
+    return 0
+
+
 def cmd_check(base_dir: Path) -> int:
+    if not (base_dir / "TODO.md").is_file():
+        sys.stderr.write(f"{prog_name()}: no TODO.md found in {base_dir} (run '{prog_name()} init' to create one)\n")
+        return 1
     errors, count = validate_all(base_dir)
     if errors:
         for e in errors:
@@ -824,13 +1190,63 @@ def _resolve_body_arg(body: str | None) -> str | None:
     return body
 
 
-def cmd_add(base_dir: Path, argv: list[str], commit: bool = False, no_commit: bool = False) -> int:
+def _normalize_depends_refs(raw_items: list[str]) -> list[str]:
+    refs: list[str] = []
+    seen: set[str] = set()
+    for item in raw_items:
+        for part in item.split(","):
+            tok = part.strip()
+            if not tok:
+                continue
+            pm = PROJECT_TASK_RE.match(tok)
+            if pm:
+                proj_part = pm.group(1).strip().replace("\\", "/").strip("/")
+                norm = f"{proj_part}:{pm.group(2).upper()}"
+            elif re.fullmatch(r"[A-Za-z]\d+", tok):
+                norm = tok.upper()
+            else:
+                raise SystemExit(f"{prog_name()}: invalid dependency reference {tok!r}; expected <ID> or <project>:<ID>")
+            if norm not in seen:
+                seen.add(norm)
+                refs.append(norm)
+    return refs
+
+
+def _apply_depends_to_body_lines(lines: list[str], depends_refs: list[str] | None) -> list[str]:
+    if depends_refs is None:
+        return lines
+    filtered: list[str] = []
+    in_fence = False
+    for line in lines:
+        if line.lstrip().startswith(FENCE):
+            in_fence = not in_fence
+        if not in_fence and DEPENDS_LINE_RE.match(line):
+            continue
+        filtered.append(line)
+    while filtered and not filtered[0].strip():
+        filtered.pop(0)
+    while filtered and not filtered[-1].strip():
+        filtered.pop()
+    if not depends_refs:
+        return filtered
+    dep_line = f"- Depends on: {', '.join(depends_refs)}"
+    return [dep_line, *filtered] if filtered else [dep_line]
+
+
+def cmd_add(
+    base_dir: Path,
+    argv: list[str],
+    commit: bool = False,
+    no_commit: bool = False,
+    explicit_dir: str | None = None,
+) -> int:
     prog = prog_name()
     status = "NEW"
     prepend = False
     prefix: str | None = None
     note: str | None = None
     body: str | None = None
+    depends_raw: list[str] = []
     pos: list[str] = []
     i = 0
     while i < len(argv):
@@ -869,6 +1285,11 @@ def cmd_add(base_dir: Path, argv: list[str], commit: bool = False, no_commit: bo
                 raise SystemExit(f"{prog}: {a} requires an argument")
             body = argv[i + 1]
             i += 2
+        elif a in ("--depends", "-d"):
+            if i + 1 >= len(argv):
+                raise SystemExit(f"{prog}: {a} requires an argument")
+            depends_raw.append(argv[i + 1])
+            i += 2
         elif a.startswith("-"):
             raise SystemExit(f"{prog}: unknown option for add: {a}")
         else:
@@ -877,6 +1298,14 @@ def cmd_add(base_dir: Path, argv: list[str], commit: bool = False, no_commit: bo
 
     if status not in ("WIP", "NEXT", "NEW", "HOLD", "QUESTION"):
         raise SystemExit(f"{prog}: add status must be WIP, NEXT, NEW, HOLD, or QUESTION (got {status!r})")
+
+    if len(pos) >= 2 and not re.fullmatch(r"[A-Za-z](?:\d+)?", pos[0].strip()):
+        cand_proj = pos[0].strip().replace("\\", "/").strip("/")
+        ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
+        cand_dir = (ws_root / cand_proj).resolve()
+        if cand_proj and ".." not in cand_proj.split("/") and is_todo_project(cand_dir):
+            base_dir = cand_dir
+            pos = pos[1:]
 
     if len(pos) == 1:
         tid = next_free_id(base_dir, prefix or "F")
@@ -904,11 +1333,14 @@ def cmd_add(base_dir: Path, argv: list[str], commit: bool = False, no_commit: bo
         raise SystemExit(f"{prog}: task title cannot be empty")
 
     body = _resolve_body_arg(body)
+    depends_refs = _normalize_depends_refs(depends_raw) if depends_raw else None
+    body_lines = body.strip().splitlines() if body and body.strip() else []
+    body_lines = _apply_depends_to_body_lines(body_lines, depends_refs)
 
     heading = _format_heading(status, tid, title, note=note)
     sec_lines = [heading]
-    if body and body.strip():
-        sec_lines.extend(["", body.strip()])
+    if body_lines:
+        sec_lines.extend(["", *body_lines])
 
     _insert_task_section(base_dir / "TODO.md", sec_lines, _default_todo_header(base_dir), prepend=prepend)
     sys.stdout.write(f"{prog}: added {tid} ([{status}]) to TODO.md\n")
@@ -922,12 +1354,19 @@ def cmd_add(base_dir: Path, argv: list[str], commit: bool = False, no_commit: bo
     )
 
 
-def cmd_edit(base_dir: Path, argv: list[str], commit: bool = False, no_commit: bool = False) -> int:
+def cmd_edit(
+    base_dir: Path,
+    argv: list[str],
+    commit: bool = False,
+    no_commit: bool = False,
+    explicit_dir: str | None = None,
+) -> int:
     prog = prog_name()
     new_title: str | None = None
     note: str | None = None
     clear_note = False
     body: str | None = None
+    depends_raw: list[str] | None = None
     pos: list[str] = []
     i = 0
     while i < len(argv):
@@ -955,6 +1394,13 @@ def cmd_edit(base_dir: Path, argv: list[str], commit: bool = False, no_commit: b
                 raise SystemExit(f"{prog}: {a} requires an argument")
             body = argv[i + 1]
             i += 2
+        elif a in ("--depends", "-d"):
+            if i + 1 >= len(argv):
+                raise SystemExit(f"{prog}: {a} requires an argument")
+            if depends_raw is None:
+                depends_raw = []
+            depends_raw.append(argv[i + 1])
+            i += 2
         elif a.startswith("-"):
             raise SystemExit(f"{prog}: unknown option for edit: {a}")
         else:
@@ -962,12 +1408,14 @@ def cmd_edit(base_dir: Path, argv: list[str], commit: bool = False, no_commit: b
             i += 1
 
     if len(pos) != 1:
-        raise SystemExit(f"{prog}: usage: {prog} edit <ID> [-t TITLE] [-m NOTE] [-b BODY]")
-    target = pos[0].strip().upper()
+        raise SystemExit(f"{prog}: usage: {prog} edit <ID> [-t TITLE] [-m NOTE] [-b BODY] [--depends REF[,REF...]]")
+    base_dir, resolved_id = resolve_project_task_ref(base_dir, pos[0], explicit_dir=explicit_dir)
+    target = resolved_id.upper()
     body = _resolve_body_arg(body)
+    depends_refs = _normalize_depends_refs(depends_raw) if depends_raw is not None else None
 
-    if new_title is None and note is None and body is None:
-        raise SystemExit(f"{prog}: edit requires at least one of -t TITLE, -m NOTE, -b BODY, or stdin")
+    if new_title is None and note is None and body is None and depends_refs is None:
+        raise SystemExit(f"{prog}: edit requires at least one of -t TITLE, -m NOTE, -b BODY, --depends, or stdin")
 
     for fname in TASK_FILES:
         p = base_dir / fname
@@ -1000,14 +1448,19 @@ def cmd_edit(base_dir: Path, argv: list[str], commit: bool = False, no_commit: b
         heading = _format_heading(status, tid, final_title, note=final_note)
 
         if body is not None:
+            body_lines = _apply_depends_to_body_lines(body.strip().splitlines() if body.strip() else [], depends_refs)
             new_sec = [heading]
-            if body.strip():
-                new_sec.extend(["", body.strip()])
+            if body_lines:
+                new_sec.extend(["", *body_lines])
             new_sec.append("")
         else:
             old_sec = lines[start_idx:end_idx]
-            old_sec[0] = heading
-            new_sec = old_sec
+            if depends_refs is not None:
+                body_lines = _apply_depends_to_body_lines(old_sec[1:], depends_refs)
+                new_sec = [heading, *(["", *body_lines] if body_lines else []), ""]
+            else:
+                old_sec[0] = heading
+                new_sec = old_sec
 
         updated_lines = lines[:start_idx] + new_sec + lines[end_idx:]
         new_text = re.sub(r"\n{3,}", "\n\n", "\n".join(updated_lines).rstrip()) + "\n"
@@ -1223,6 +1676,7 @@ def cmd_update(force: bool = False, url: str | None = None, target_path: Path | 
 
 
 KNOWN_SUBCOMMANDS = (
+    "projects",
     "archive",
     "add",
     "edit",
@@ -1276,12 +1730,31 @@ def main(argv: list[str] | None = None) -> int:
     if "--no-commit" in args:
         no_commit = True
         args = [a for a in args if a != "--no-commit"]
+    workspace = False
+    if "--workspace" in args or "-w" in args:
+        workspace = True
+        args = [a for a in args if a not in ("--workspace", "-w")]
 
     explicit_dir: str | None = None
-    if args and args[0] not in KNOWN_SUBCOMMANDS and not args[0].startswith("-") and Path(args[0]).is_dir():
-        explicit_dir = args.pop(0)
+    if args and args[0] not in KNOWN_SUBCOMMANDS and not args[0].startswith("-"):
+        if Path(args[0]).is_dir():
+            explicit_dir = args.pop(0)
+        elif not re.fullmatch(r"[A-Za-z]\d+", args[0]) and not PROJECT_TASK_RE.match(args[0]):
+            ws_probe = resolve_workspace_root(resolve_target_dir(None))
+            cand = (ws_probe / args[0].replace("\\", "/").strip("/")).resolve()
+            if is_todo_project(cand):
+                explicit_dir = str(cand)
+                args.pop(0)
     base_dir = resolve_target_dir(explicit_dir)
+    if args and args[0] in ("projects", "--projects"):
+        return cmd_projects(base_dir, explicit_dir=explicit_dir)
     if not args:
+        if workspace:
+            return cmd_workspace_summary(resolve_workspace_root(base_dir, explicit_dir=explicit_dir), full=full)
+        if not is_todo_project(base_dir) and not (base_dir / "TODO.md").is_file():
+            ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
+            if discover_projects(ws_root):
+                return cmd_workspace_summary(ws_root, full=full)
         return cmd_summary(base_dir, full=full)
     if args[0] in ("archive", "--archive", "-a"):
         pos, note = _parse_note_arg(args[1:])
@@ -1289,29 +1762,36 @@ def main(argv: list[str] | None = None) -> int:
         pos = [p for p in pos if p not in ("--canceled", "--cancel", "--done")]
         if not pos:
             return cmd_archive_view(base_dir)
-        return cmd_transition(base_dir, pos[0], new_status=("CANCELED" if canceled else "DONE"), dest_file="TODO_ARCHIVE.md", note=note, commit=commit, no_commit=no_commit)
+        tdir, tid = resolve_project_task_ref(base_dir, pos[0], explicit_dir=explicit_dir)
+        return cmd_transition(tdir, tid, new_status=("CANCELED" if canceled else "DONE"), dest_file="TODO_ARCHIVE.md", note=note, commit=commit, no_commit=no_commit)
     if args[0] in ("add", "--add"):
-        return cmd_add(base_dir, args[1:], commit=commit, no_commit=no_commit)
+        return cmd_add(base_dir, args[1:], commit=commit, no_commit=no_commit, explicit_dir=explicit_dir)
     if args[0] in ("edit", "--edit"):
-        return cmd_edit(base_dir, args[1:], commit=commit, no_commit=no_commit)
+        return cmd_edit(base_dir, args[1:], commit=commit, no_commit=no_commit, explicit_dir=explicit_dir)
     if args[0] in ("append", "--append"):
+        if len(args) >= 2 and not args[1].startswith("-"):
+            tdir, tid = resolve_project_task_ref(base_dir, args[1], explicit_dir=explicit_dir)
+            return cmd_append(tdir, [tid, *args[2:]], commit=commit, no_commit=no_commit)
         return cmd_append(base_dir, args[1:], commit=commit, no_commit=no_commit)
     if args[0] in ("done", "--done"):
         pos, note = _parse_note_arg(args[1:])
         if len(pos) != 1:
             raise SystemExit(f"{prog}: usage: {prog} done <ID> [-m NOTE]")
-        return cmd_transition(base_dir, pos[0], new_status="DONE", dest_file="TODO_ARCHIVE.md", note=note, commit=commit, no_commit=no_commit)
+        tdir, tid = resolve_project_task_ref(base_dir, pos[0], explicit_dir=explicit_dir)
+        return cmd_transition(tdir, tid, new_status="DONE", dest_file="TODO_ARCHIVE.md", note=note, commit=commit, no_commit=no_commit)
     if args[0] in ("cancel", "canceled", "--cancel"):
         pos, note = _parse_note_arg(args[1:])
         if len(pos) != 1:
             raise SystemExit(f"{prog}: usage: {prog} cancel <ID> [-m REASON]")
-        return cmd_transition(base_dir, pos[0], new_status="CANCELED", dest_file="TODO_ARCHIVE.md", note=note, commit=commit, no_commit=no_commit)
+        tdir, tid = resolve_project_task_ref(base_dir, pos[0], explicit_dir=explicit_dir)
+        return cmd_transition(tdir, tid, new_status="CANCELED", dest_file="TODO_ARCHIVE.md", note=note, commit=commit, no_commit=no_commit)
     if args[0] in ("status", "--status"):
         pos, note = _parse_note_arg(args[1:])
         if len(pos) != 2:
             raise SystemExit(f"{prog}: usage: {prog} status <ID> <STATUS> [-m NOTE]")
+        tdir, tid = resolve_project_task_ref(base_dir, pos[0], explicit_dir=explicit_dir)
         st_up = pos[1].upper()
-        return cmd_transition(base_dir, pos[0], new_status=st_up, dest_file=None, note=note, promote_top=(st_up in ("WIP", "NEXT")), commit=commit, no_commit=no_commit)
+        return cmd_transition(tdir, tid, new_status=st_up, dest_file=None, note=note, promote_top=(st_up in ("WIP", "NEXT")), commit=commit, no_commit=no_commit)
     if args[0] in ("next-id", "--next-id"):
         if len(args) != 1:
             raise SystemExit(f"{prog}: usage: {prog} next-id")
@@ -1327,17 +1807,25 @@ def main(argv: list[str] | None = None) -> int:
     if args[0] in ("files", "--files"):
         if len(args) > 2:
             raise SystemExit(f"{prog}: usage: {prog} files [<ID>]")
-        return cmd_files(base_dir, args[1] if len(args) == 2 else None)
+        if len(args) == 2:
+            tdir, tid = resolve_project_task_ref(base_dir, args[1], explicit_dir=explicit_dir)
+            return cmd_files(tdir, tid)
+        return cmd_files(base_dir, None)
     if args[0] in ("next", "top", "--next", "--top"):
         pos, note = _parse_note_arg(args[1:])
         if args[0] == "--top" and not pos and note is None:
             return cmd_next_id(base_dir)
         if len(pos) != 1:
             raise SystemExit(f"{prog}: usage: {prog} next <ID> [-m NOTE]")
-        return cmd_transition(base_dir, pos[0], new_status="NEXT", dest_file="TODO.md", note=note, promote_top=True, commit=commit, no_commit=no_commit)
+        tdir, tid = resolve_project_task_ref(base_dir, pos[0], explicit_dir=explicit_dir)
+        return cmd_transition(tdir, tid, new_status="NEXT", dest_file="TODO.md", note=note, promote_top=True, commit=commit, no_commit=no_commit)
     if args[0] in ("ids", "--ids"):
         return cmd_ids(base_dir)
     if args[0] in ("check", "--check"):
+        if workspace or (not is_todo_project(base_dir) and not (base_dir / "TODO.md").is_file()):
+            ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
+            if workspace or discover_projects(ws_root):
+                return cmd_workspace_check(ws_root)
         return cmd_check(base_dir)
     if args[0] in ("init", "--init"):
         return cmd_init(base_dir, argv=args[1:], commit=commit, no_commit=no_commit)
@@ -1368,6 +1856,10 @@ def main(argv: list[str] | None = None) -> int:
                 i += 1
             else:
                 raise SystemExit(f"{prog}: usage: {prog} list [filter] [--limit N] [--full]")
+        if workspace or (not is_todo_project(base_dir) and not (base_dir / "TODO.md").is_file()):
+            ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
+            if workspace or discover_projects(ws_root):
+                return cmd_workspace_list(ws_root, filt, limit=limit, full=full)
         return cmd_list(base_dir, filt, limit=limit, full=full)
     if args[0] in ("show", "--show"):
         if len(args) < 2 or len(args) > 3:
@@ -1376,9 +1868,11 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_last(base_dir, args[2] if len(args) == 3 else None)
         if len(args) != 2:
             raise SystemExit(f"{prog}: usage: {prog} show <ID>")
-        return cmd_show(base_dir, args[1])
-    if len(args) == 1 and re.fullmatch(r"[A-Za-z]\d+", args[0]):
-        return cmd_show(base_dir, args[0])
+        tdir, tid = resolve_project_task_ref(base_dir, args[1], explicit_dir=explicit_dir)
+        return cmd_show(tdir, tid)
+    if len(args) == 1 and (re.fullmatch(r"[A-Za-z]\d+", args[0]) or PROJECT_TASK_RE.match(args[0])):
+        tdir, tid = resolve_project_task_ref(base_dir, args[0], explicit_dir=explicit_dir)
+        return cmd_show(tdir, tid)
     if len(args) == 1 and Path(args[0]).is_dir():
         return cmd_summary(resolve_target_dir(args[0]), full=full)
     raise SystemExit(f"{prog}: unknown arguments: {' '.join(args)} (see {prog} --help)")
