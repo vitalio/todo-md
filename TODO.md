@@ -9,9 +9,11 @@ Allow exporting parsed tasks as JSON for scripting.
 
 # ⚪ [NEW] F6: Move exported rules and bundles from src/ to agents/
 
-- Depends on: agents_bundle:F7
-- Move src/rules/todo_md.md and src/bundles/todo_md.bundle to agents/ once agents_bundle supports the root agents/ directory.
-- Update AGENTS.md, README.md, and tests to reference the new paths under agents/.
+- Depends on: agents_bundle:F7, agents_bundle:F15
+printf '%s\n' '__RB_STEP__:48'
+- Move `src/rules/todo_md.md` and `src/bundles/todo_md.bundle` to `agents/` using the unified logical bundle/rule layout once `agents_bundle` supports it.
+printf '%s\n' '__RB_STEP__:49'
+- Update `AGENTS.md`, `README.md`, and tests to reference the new paths under `agents/`.
 
 # ⚪ [NEW] F7: Cross-project workspace discovery, <project>:<ID> addressing, and Depends on support
 
@@ -42,3 +44,11 @@ Allow exporting parsed tasks as JSON for scripting.
   line ranges.
 - Sync `README.md` and add unit tests in `tests/test_todo_md.py` covering
   per-file and total budget filtering.
+
+# ⚪ [NEW] F16: Migrate workflow bundle and docs from role=execute and role=audit to role=work and role=review
+
+- Depends on: agents-rules:F9, agents-rules:F16
+printf '%s\n' '__RB_STEP__:51'
+- Update `src/bundles/todo_md.bundle`, `src/rules/todo_md.md`, `README.md`, and unit tests in `tests/test_todo_md.py` to use `role=work` and `role=review` instead of `role=execute` and `role=audit` (preserving legacy aliases only if needed during transition).
+printf '%s\n' '__RB_STEP__:52'
+- Rebuild and reinstall `todo_md` and release a PATCH version.
