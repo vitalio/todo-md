@@ -351,23 +351,41 @@ class TestTodoMd(unittest.TestCase):
         self.assertIn("# ⚪ [NEW] F8: New two", r_show_last.stdout)
         self.assertIn("Body U2", r_show_last.stdout)
 
-        # list orders NEW/HOLD/QUESTION newest-first while keeping WIP/NEXT priority order
+        # list and list -w display active tasks in exact TODO.md file order (top to bottom)
         r_list_new = self._run([str(SCRIPT), "list", "NEW"], check=True)
-        self.assertLess(r_list_new.stdout.index("F8"), r_list_new.stdout.index("F7"))
+        self.assertLess(r_list_new.stdout.index("F7"), r_list_new.stdout.index("F8"))
 
         r_list_act = self._run([str(SCRIPT), "list", "active"], check=True)
         out = r_list_act.stdout
         self.assertLess(out.index("F2"), out.index("F1"))
         self.assertLess(out.index("F4"), out.index("F3"))
-        self.assertLess(out.index("F6"), out.index("F5"))
-        self.assertLess(out.index("F8"), out.index("F7"))
-        self.assertLess(out.index("F10"), out.index("F9"))
+        self.assertLess(out.index("F5"), out.index("F6"))
+        self.assertLess(out.index("F7"), out.index("F8"))
+        self.assertLess(out.index("F9"), out.index("F10"))
+
+        ws_dir = self.tmp / "ws_order"
+        ws_proj = ws_dir / "proj"
+        ws_proj.mkdir(parents=True)
+        shutil.copy2(self.tmp / "TODO.md", ws_proj / "TODO.md")
+        shutil.copy2(self.tmp / "TODO_ARCHIVE.md", ws_proj / "TODO_ARCHIVE.md")
+        r_ws_act = self._run(
+            [str(SCRIPT), "list", "-w", "active"],
+            cwd=str(ws_dir),
+            env={**os.environ, "TODO_MD_WORKSPACE": str(ws_dir)},
+            check=True,
+        )
+        ws_out = r_ws_act.stdout
+        self.assertLess(ws_out.index("proj:F2"), ws_out.index("proj:F1"))
+        self.assertLess(ws_out.index("proj:F4"), ws_out.index("proj:F3"))
+        self.assertLess(ws_out.index("proj:F5"), ws_out.index("proj:F6"))
+        self.assertLess(ws_out.index("proj:F7"), ws_out.index("proj:F8"))
+        self.assertLess(ws_out.index("proj:F9"), ws_out.index("proj:F10"))
 
         # list --limit N and --full
         r_lim = self._run([str(SCRIPT), "list", "NEW", "--limit", "1", "--full"], check=True)
-        self.assertIn("# ⚪ [NEW] F8: New two", r_lim.stdout)
-        self.assertIn("Body U2", r_lim.stdout)
-        self.assertNotIn("F7", r_lim.stdout)
+        self.assertIn("# ⚪ [NEW] F7: New one", r_lim.stdout)
+        self.assertIn("Body U1", r_lim.stdout)
+        self.assertNotIn("F8", r_lim.stdout)
 
         r_lim_short = self._run([str(SCRIPT), "list", "archive", "-n", "1"], check=True)
         self.assertIn("F12", r_lim_short.stdout)

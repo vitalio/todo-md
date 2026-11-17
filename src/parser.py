@@ -729,11 +729,7 @@ def _order_active_tasks_for_list(active_tasks: list[dict[str, object]]) -> list[
     seen_statuses: set[str] = set()
     for st in sorted(ACTIVE_STATUS_ORDER, key=lambda s: ACTIVE_STATUS_ORDER[s]):
         seen_statuses.add(st)
-        bucket = grouped.get(st, [])
-        if st in ("QUESTION", "NEW", "HOLD"):
-            ordered.extend(reversed(bucket))
-        else:
-            ordered.extend(bucket)
+        ordered.extend(grouped.get(st, []))
     for st, bucket in grouped.items():
         if st not in seen_statuses:
             ordered.extend(bucket)

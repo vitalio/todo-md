@@ -1,3 +1,10 @@
+# ✅ [DONE] F22: Remove reverse ordering of QUESTION/NEW/HOLD tasks in todo_md list — *2026-11-17*
+
+- Remove `reversed(bucket)` for `QUESTION`, `NEW`, and `HOLD` in `_order_active_tasks_for_list` (`src/parser.py`) so `todo_md list` and `todo_md list -w` display active tasks in exact `TODO.md` file order (top to bottom).
+- Preserve existing `resolve_last_task_id` behavior (`last`, `last-id`, `show last`).
+- Update `test_last_last_id_and_list_options` in `tests/test_todo_md.py` (and any synced docs in `README.md` / `src/header.py` if needed).
+- Rebuild `todo_md` with `python3 build.py` and verify with `python3 -m unittest discover -s tests`.
+
 # ✅ [DONE] F21: Implement dependency sequencing (->), queue, and next-id resolution — *2026-11-17*
 
 - Implement sequential stage syntax (`->`) alongside parallel commas (`,`) in `- Depends on:` and `--depends`: `,` binds tighter than `->` (`A, B -> C`), and multiple `- Depends on:` lines (or repeated `--depends`) represent independent branches combined with AND; do not introduce a separate `- Order:` field.

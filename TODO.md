@@ -27,13 +27,6 @@
 - Extend `validate_all` in `src/parser.py` so `todo_md check` (and automatic post-mutation validation) reports an error when an active task in `TODO.md` retains a completion date stamp (`— *YYYY-MM-DD...*`) in its heading, instructing the user to move it back to `TODO_ARCHIVE.md` or clear the stale note.
 - Target files: `src/parser.py`, `src/rules/todo_md.md`, `README.md`, `tests/test_todo_md.py`.
 
-# 🎯 [NEXT] F22: Remove reverse ordering of QUESTION/NEW/HOLD tasks in todo_md list
-
-- Remove `reversed(bucket)` for `QUESTION`, `NEW`, and `HOLD` in `_order_active_tasks_for_list` (`src/parser.py`) so `todo_md list` and `todo_md list -w` display active tasks in exact `TODO.md` file order (top to bottom).
-- Preserve existing `resolve_last_task_id` behavior (`last`, `last-id`, `show last`).
-- Update `test_last_last_id_and_list_options` in `tests/test_todo_md.py` (and any synced docs in `README.md` / `src/header.py` if needed).
-- Rebuild `todo_md` with `python3 build.py` and verify with `python3 -m unittest discover -s tests`.
-
 # ⚪ [NEW] P1: JSON output mode (`--json`)
 
 Allow exporting parsed tasks as JSON for scripting.
