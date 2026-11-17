@@ -6,7 +6,7 @@
   {prog} <ID> | show <ID|last>               Show task <ID> with Task/Role/Workdir headers (or last [<STATUS|archive>], supports <project>:<ID>)
   {prog} last [<STATUS|archive>]           Show full section for last task in status/archive (default: NEW)
   {prog} last-id [<STATUS|archive>]        Print ID of last task in status/archive (default: NEW)
-  {prog} list [filter] [--limit N] [--full]  List tasks (active | archive | all | <STATUS>)
+  {prog} list [filter] [opts]                List tasks (active | archive | all | <STATUS>; opts: --role ROLE, --limit N, --full)
   {prog} archive [<ID>] [-m NOTE]            Print TODO_ARCHIVE.md, or archive task <ID>
   {prog} add [<PROJ>] [<PREFIX>] <TITLE>     Add a new task with auto-assigned ID (reads body from -b TEXT|- or stdin)
                                              Opts: -p PREFIX (default: F), --next, --status STATUS, -m NOTE, -b BODY|-, --role ROLE, --depends REF[,REF...]

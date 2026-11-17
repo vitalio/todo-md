@@ -50,6 +50,7 @@ class TestTodoMd(unittest.TestCase):
         self.assertIn("--reopen", rh.stdout)
         self.assertIn("add", rh.stdout)
         self.assertIn("--role ROLE", rh.stdout)
+        self.assertIn("opts: --role ROLE, --limit N, --full", rh.stdout)
         self.assertIn("edit", rh.stdout)
         self.assertIn("append", rh.stdout)
 
@@ -77,6 +78,7 @@ class TestTodoMd(unittest.TestCase):
         self.assertIn("key symbol names (functions/classes) in backticks", bundle_txt)
         self.assertIn("--max-total-bytes N", rule_txt)
         self.assertIn("key symbol names in backticks", rule_txt)
+        self.assertIn("list [active|archive|all|<STATUS>] [--role <role>]", rule_txt)
         self.assertIn("--max-total-lines N", rh.stdout)
         self.assertIn("[if task=last] var task=$(todo_md last-id DONE)", bundle_txt)
         self.assertIn("[if task=DONE] var task=$(todo_md last-id DONE)", bundle_txt)
@@ -781,6 +783,116 @@ class TestTodoMd(unittest.TestCase):
         ):
             with self.subTest(bad_args=bad_args):
                 proc = self._run([str(SCRIPT), *bad_args], cwd=str(proj))
+                self.assertNotEqual(proc.returncode, 0, msg=proc.stdout)
+
+    def test_list_role_display_and_filter(self):
+        ws = self.tmp / "ws"
+        proj_a = ws / "proj_a"
+        proj_b = ws / "proj_b"
+        proj_a.mkdir(parents=True)
+        proj_b.mkdir(parents=True)
+        self._run([str(SCRIPT), "init"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "init"], cwd=str(proj_b), check=True)
+
+        self._run([str(SCRIPT), "add", "D", "Design API", "-b", "Design body"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Build CLI", "-b", "Work body"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "B", "Fix crash", "-b", "Bug body"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "P", "Unassigned role", "-b", "Proposal body"], cwd=str(proj_a), check=True)
+        self._run(
+            [str(SCRIPT), "add", "F", "Audit diff", "--role", "review", "-b", "Review body"],
+            cwd=str(proj_a),
+            check=True,
+        )
+        self._run([str(SCRIPT), "add", "D", "Done design", "-b", "Done body"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "done", "D2", "-m", "done"], cwd=str(proj_a), check=True)
+
+        self._run([str(SCRIPT), "add", "F", "Other work", "-b", "B body"], cwd=str(proj_b), check=True)
+        self._run(
+            [str(SCRIPT), "add", "P", "Other review", "--role", "Review", "-b", "B review"],
+            cwd=str(proj_b),
+            check=True,
+        )
+
+        r_list = self._run([str(SCRIPT), "list"], cwd=str(proj_a), check=True)
+        rows = {
+            line.split()[0]: line
+            for line in r_list.stdout.splitlines()
+            if line.startswith("  ") and not line.strip().startswith("IDs")
+        }
+        self.assertIn("[design]", rows["D1"])
+        self.assertIn("[work]", rows["F1"])
+        self.assertIn("[work]", rows["B1"])
+        self.assertIn("[review]", rows["F2"])
+        self.assertNotIn("[design]", rows["P1"])
+        self.assertNotIn("[work]", rows["P1"])
+        self.assertNotIn("[review]", rows["P1"])
+
+        r_design = self._run([str(SCRIPT), "list", "--role", "design"], cwd=str(proj_a), check=True)
+        self.assertIn("D1", r_design.stdout)
+        self.assertNotIn("F1", r_design.stdout)
+        self.assertNotIn("F2", r_design.stdout)
+        self.assertNotIn("P1", r_design.stdout)
+
+        r_work = self._run([str(SCRIPT), "list", "active", "--role=WORK"], cwd=str(proj_a), check=True)
+        self.assertIn("F1", r_work.stdout)
+        self.assertIn("B1", r_work.stdout)
+        self.assertNotIn("F2", r_work.stdout)
+        self.assertNotIn("D1", r_work.stdout)
+
+        r_review_full = self._run(
+            [str(SCRIPT), "list", "--role", "REVIEW", "--limit", "1", "--full"],
+            cwd=str(proj_a),
+            check=True,
+        )
+        self.assertIn("# ⚪ [NEW] F2: Audit diff", r_review_full.stdout)
+        self.assertIn("Review body", r_review_full.stdout)
+        self.assertNotIn("F1", r_review_full.stdout)
+
+        r_arch_design = self._run([str(SCRIPT), "list", "archive", "--role", "design"], cwd=str(proj_a), check=True)
+        self.assertIn("D2", r_arch_design.stdout)
+        self.assertIn("[design]", r_arch_design.stdout)
+
+        r_none = self._run([str(SCRIPT), "list", "--role", "unknown"], cwd=str(proj_a), check=True)
+        self.assertIn("No matching tasks (active, role=unknown)", r_none.stdout)
+
+        r_ws_all = self._run([str(SCRIPT), "list", "-w"], cwd=str(proj_a), check=True)
+        ws_rows = {
+            line.split()[0]: line
+            for line in r_ws_all.stdout.splitlines()
+            if line.startswith("  ")
+        }
+        self.assertIn("[design]", ws_rows["proj_a:D1"])
+        self.assertIn("[work]", ws_rows["proj_a:F1"])
+        self.assertIn("[review]", ws_rows["proj_a:F2"])
+        self.assertNotIn("[work]", ws_rows["proj_a:P1"])
+        self.assertIn("[work]", ws_rows["proj_b:F1"])
+        self.assertIn("[Review]", ws_rows["proj_b:P1"])
+
+        r_ws_rev = self._run([str(SCRIPT), "-w", "list", "--role=review"], cwd=str(proj_a), check=True)
+        self.assertIn("proj_a:F2", r_ws_rev.stdout)
+        self.assertIn("proj_b:P1", r_ws_rev.stdout)
+        self.assertNotIn("proj_a:F1", r_ws_rev.stdout)
+        self.assertNotIn("proj_b:F1", r_ws_rev.stdout)
+
+        r_ws_lim = self._run(
+            [str(SCRIPT), "list", "-w", "--role", "work", "--limit", "1"],
+            cwd=str(proj_a),
+            check=True,
+        )
+        self.assertEqual(len(r_ws_lim.stdout.strip().splitlines()), 1)
+        self.assertIn("[work]", r_ws_lim.stdout)
+
+        r_ws_none = self._run([str(SCRIPT), "list", "-w", "--role", "missing"], cwd=str(proj_a), check=True)
+        self.assertIn("No matching tasks (active, role=missing)", r_ws_none.stdout)
+
+        for bad_args in (
+            ["list", "--role"],
+            ["list", "--role", ""],
+            ["list", "--role="],
+            ["list", "--role", "a\nb"],
+        ):
+            with self.subTest(bad_args=bad_args):
+                proc = self._run([str(SCRIPT), *bad_args], cwd=str(proj_a))
                 self.assertNotEqual(proc.returncode, 0, msg=proc.stdout)
 
     def test_install_sh(self):

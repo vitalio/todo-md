@@ -277,6 +277,7 @@ def main(argv: list[str] | None = None) -> int:
     if args[0] in ("list", "--list", "-l"):
         filt: str | None = None
         limit: int | None = None
+        role_filter: str | None = None
         i = 1
         while i < len(args):
             a = args[i]
@@ -294,18 +295,33 @@ def main(argv: list[str] | None = None) -> int:
                     raise SystemExit(f"{prog}: invalid limit {raw_lim!r}; expected a positive integer")
                 limit = int(raw_lim)
                 i += 1
+            elif a == "--role":
+                if i + 1 >= len(args):
+                    raise SystemExit(f"{prog}: {a} requires a role argument")
+                raw_role = args[i + 1].strip()
+                if not raw_role or "\n" in raw_role or "\r" in raw_role:
+                    raise SystemExit(f"{prog}: invalid --role value {args[i + 1]!r}; expected a non-empty single-line role")
+                role_filter = raw_role
+                i += 2
+            elif a.startswith("--role="):
+                raw_val = a.split("=", 1)[1]
+                raw_role = raw_val.strip()
+                if not raw_role or "\n" in raw_role or "\r" in raw_role:
+                    raise SystemExit(f"{prog}: invalid --role value {raw_val!r}; expected a non-empty single-line role")
+                role_filter = raw_role
+                i += 1
             elif a.startswith("-"):
                 raise SystemExit(f"{prog}: unknown option for list: {a}")
             elif filt is None:
                 filt = a
                 i += 1
             else:
-                raise SystemExit(f"{prog}: usage: {prog} list [filter] [--limit N] [--full]")
+                raise SystemExit(f"{prog}: usage: {prog} list [filter] [--role ROLE] [--limit N] [--full]")
         if workspace or (not is_todo_project(base_dir) and not (base_dir / "TODO.md").is_file()):
             ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
             if workspace or discover_projects(ws_root):
-                return cmd_workspace_list(ws_root, filt, limit=limit, full=full)
-        return cmd_list(base_dir, filt, limit=limit, full=full)
+                return cmd_workspace_list(ws_root, filt, limit=limit, full=full, role=role_filter)
+        return cmd_list(base_dir, filt, limit=limit, full=full, role=role_filter)
     if args[0] in ("show", "--show"):
         if len(args) < 2 or len(args) > 3:
             raise SystemExit(f"{prog}: usage: {prog} show <ID|last> [<STATUS|archive>]")

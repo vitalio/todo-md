@@ -1,9 +1,3 @@
-# 🎯 [NEXT] F26: Display resolved task role and support --role filter in todo_md list
-
-- Display the resolved role (`resolve_task_role` in `src/parser.py`, e.g. `[design]`, `[work]`, or explicit `- Role:` value) in compact `cmd_list` and `cmd_workspace_list` rows (`todo_md list` and `todo_md list -w`) alongside status and location.
-- Add `--role <role>` filtering to `todo_md list` and `todo_md list -w` in `src/cli.py`, `src/parser.py` (`cmd_list`, `cmd_workspace_list`), and `src/header.py` (matching case-insensitively against `resolve_task_role`).
-- Keep `src/rules/todo_md.md` and `README.md` in sync, add unit tests in `tests/test_todo_md.py`, and rebuild `todo_md` via `python3 build.py`.
-
 # 🎯 [NEXT] F20: Add global -C/--project target option across all todo_md subcommands
 
 - Add a global project/directory selector (`-C <dir|project>` and `--project <name>`, keeping `-p` in `add` for prefix) accepted before subcommands so any `todo_md` command (`ids`, `list`, `archive`, `last`, `last-id`, `next-id`, `files`, `check`, `add`, `edit`, `append`, `status`, `next`, `done`, `cancel`, `show`) can target a repository from any directory.

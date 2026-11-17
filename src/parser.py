@@ -469,11 +469,22 @@ def _order_active_tasks_for_list(active_tasks: list[dict[str, object]]) -> list[
     return ordered
 
 
+def _task_role_badge(task: dict[str, object]) -> str:
+    role = resolve_task_role(str(task["id"]), str(task["section"]))
+    return f"[{role}]" if role else ""
+
+
+def _task_matches_role(task: dict[str, object], wanted_role: str) -> bool:
+    role = resolve_task_role(str(task["id"]), str(task["section"]))
+    return role is not None and role.lower() == wanted_role
+
+
 def cmd_list(
     base_dir: Path,
     filt: str | None = None,
     limit: int | None = None,
     full: bool = False,
+    role: str | None = None,
 ) -> int:
     mode = (filt or "active").strip().lower()
     tasks = collect_all_tasks(base_dir)
@@ -494,17 +505,23 @@ def cmd_list(
     else:
         raise SystemExit(f"{prog_name()}: unknown list filter {filt!r}; expected active, archive, all, or a status name")
 
+    if role is not None:
+        wanted_role = role.strip().lower()
+        shown = [t for t in shown if _task_matches_role(t, wanted_role)]
+
     if limit is not None:
         shown = shown[:limit]
 
     if not shown:
-        sys.stdout.write(f"No matching tasks ({mode}) in {base_dir}\n")
+        role_note = f", role={role.strip()}" if role is not None else ""
+        sys.stdout.write(f"No matching tasks ({mode}{role_note}) in {base_dir}\n")
     elif full:
         sections = [str(t["section"]).rstrip() for t in shown]
         sys.stdout.write("\n\n".join(sections) + "\n")
     else:
         for t in shown:
             badge = f"{t['emoji']} [{t['status']}]"
+            role_badge = _task_role_badge(t)
             loc = str(t["file"])
             deps = parse_task_dependencies(str(t["section"]))
             dep_suffix = ""
@@ -512,7 +529,9 @@ def cmd_list(
                 resolved = resolve_dependency_statuses(base_dir, deps)
                 blocked = [f"{r} ({st})" for r, st, _ in resolved if st != "DONE"]
                 dep_suffix = f" [blocked: {', '.join(blocked)}]" if blocked else " [deps: DONE]"
-            sys.stdout.write(f"  {str(t['id']):<6}  {badge:<14}  {loc:<16}  {t['title']}{dep_suffix}\n")
+            sys.stdout.write(
+                f"  {str(t['id']):<6}  {badge:<14}  {role_badge:<10}  {loc:<16}  {t['title']}{dep_suffix}\n"
+            )
     top = highest_ids_in_use(base_dir)
     sys.stdout.write(f"\nIDs in use: {format_ids_summary(top)}\n")
     return 0
@@ -662,6 +681,7 @@ def cmd_workspace_list(
     filt: str | None = None,
     limit: int | None = None,
     full: bool = False,
+    role: str | None = None,
 ) -> int:
     projects = discover_projects(workspace_root)
     if not projects:
@@ -686,10 +706,14 @@ def cmd_workspace_list(
             matched = [t for t in (arch if st_up in ("DONE", "CANCELED") else active) if t["status"] == st_up]
         for t in matched:
             items.append((name, proj_dir, t))
+    if role is not None:
+        wanted_role = role.strip().lower()
+        items = [(name, proj_dir, t) for name, proj_dir, t in items if _task_matches_role(t, wanted_role)]
     if limit is not None:
         items = items[:limit]
     if not items:
-        sys.stdout.write(f"No matching tasks ({mode}) across workspace {workspace_root}\n")
+        role_note = f", role={role.strip()}" if role is not None else ""
+        sys.stdout.write(f"No matching tasks ({mode}{role_note}) across workspace {workspace_root}\n")
         return 0
     if full:
         sections: list[str] = []
@@ -703,7 +727,8 @@ def cmd_workspace_list(
     for name, proj_dir, t in items:
         ref = f"{name}:{t['id']}"
         badge = f"{t['emoji']} [{t['status']}]"
-        sys.stdout.write(f"  {ref:<28}  {badge:<14}  {t['title']}\n")
+        role_badge = _task_role_badge(t)
+        sys.stdout.write(f"  {ref:<28}  {badge:<14}  {role_badge:<10}  {t['title']}\n")
     return 0
 
 

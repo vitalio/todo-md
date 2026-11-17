@@ -21,7 +21,7 @@
     and `Workdir:` headers before `# TODO*.md:<line>`),
     `{cmd:todo_md} last [<STATUS|archive>]` (default: `NEW`),
     `{cmd:todo_md} last-id [<STATUS|archive>]` (default: `NEW`),
-    `{cmd:todo_md} list [active|archive|all|<STATUS>] [--limit N] [--full]`,
+    `{cmd:todo_md} list [active|archive|all|<STATUS>] [--role <role>] [--limit N] [--full]`,
     `{cmd:todo_md} archive`, `{cmd:todo_md} ids`,
     `{cmd:todo_md} next-id` (`--top`, top `WIP`/`NEXT` ID),
     `{cmd:todo_md} files [<ID>] [--max-lines N] [--max-total-lines N] [--max-bytes N] [--max-total-bytes N]`

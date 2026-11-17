@@ -1,3 +1,9 @@
+# ✅ [DONE] F26: Display resolved task role and support --role filter in todo_md list — *2026-11-17*
+
+- Display the resolved role (`resolve_task_role` in `src/parser.py`, e.g. `[design]`, `[work]`, or explicit `- Role:` value) in compact `cmd_list` and `cmd_workspace_list` rows (`todo_md list` and `todo_md list -w`) alongside status and location.
+- Add `--role <role>` filtering to `todo_md list` and `todo_md list -w` in `src/cli.py`, `src/parser.py` (`cmd_list`, `cmd_workspace_list`), and `src/header.py` (matching case-insensitively against `resolve_task_role`).
+- Keep `src/rules/todo_md.md` and `README.md` in sync, add unit tests in `tests/test_todo_md.py`, and rebuild `todo_md` via `python3 build.py`.
+
 # ✅ [DONE] F15: Limit todo_md files preloading by line and byte budget — *2026-11-17*
 
 - Add optional per-file and total budget flags to `todo_md files [<ID>]`
