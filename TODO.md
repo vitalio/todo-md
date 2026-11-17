@@ -1,3 +1,10 @@
+# 🎯 [NEXT] F22: Remove reverse ordering of QUESTION/NEW/HOLD tasks in todo_md list
+
+- Remove `reversed(bucket)` for `QUESTION`, `NEW`, and `HOLD` in `_order_active_tasks_for_list` (`src/parser.py`) so `todo_md list` and `todo_md list -w` display active tasks in exact `TODO.md` file order (top to bottom).
+- Preserve existing `resolve_last_task_id` behavior (`last`, `last-id`, `show last`).
+- Update `test_last_last_id_and_list_options` in `tests/test_todo_md.py` (and any synced docs in `README.md` / `src/header.py` if needed).
+- Rebuild `todo_md` with `python3 build.py` and verify with `python3 -m unittest discover -s tests`.
+
 # ⚪ [NEW] P1: JSON output mode (`--json`)
 
 Allow exporting parsed tasks as JSON for scripting.
@@ -63,10 +70,3 @@ Allow exporting parsed tasks as JSON for scripting.
 - Extend `todo_md next-id [<ID>]` to accept an optional `<ID>` (or `<project>:<ID>`) and print the first unblocked actionable task ID in `<ID>`'s queue (or `<ID>` itself when all deps are `DONE`), exiting non-zero on cycles, missing/canceled blockers, or already-closed targets.
 - Update `src/rules/todo_md.md` to specify the `--depends` contract (`A,B` vs `"A -> B -> C"`, no `- Order:`, one-way boundaries) and `queue` / `next-id <ID>` usage.
 - Target files: `src/header.py`, `src/parser.py`, `src/commands.py`, `src/cli.py`, `src/rules/todo_md.md`, `README.md`, `tests/test_todo_md.py`.
-
-# ⚪ [NEW] F22: Remove reverse ordering of QUESTION/NEW/HOLD tasks in todo_md list
-
-- Remove `reversed(bucket)` for `QUESTION`, `NEW`, and `HOLD` in `_order_active_tasks_for_list` (`src/parser.py`) so `todo_md list` and `todo_md list -w` display active tasks in exact `TODO.md` file order (top to bottom).
-- Preserve existing `resolve_last_task_id` behavior (`last`, `last-id`, `show last`).
-- Update `test_last_last_id_and_list_options` in `tests/test_todo_md.py` (and any synced docs in `README.md` / `src/header.py` if needed).
-- Rebuild `todo_md` with `python3 build.py` and verify with `python3 -m unittest discover -s tests`.
