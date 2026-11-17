@@ -15,9 +15,23 @@ def resolve_target_dir(explicit: str | None = None) -> Path:
 
 
 def resolve_workspace_root(base_dir: Path, explicit_dir: str | None = None) -> Path:
-    if explicit_dir:
-        return base_dir
     env_ws = os.environ.get("TODO_MD_WORKSPACE", "").strip()
+    if explicit_dir:
+        if is_todo_project(base_dir):
+            if env_ws:
+                p = Path(env_ws).expanduser().resolve()
+                if not p.is_dir():
+                    raise SystemExit(f"{prog_name()}: workspace directory not found: {env_ws}")
+                try:
+                    base_dir.resolve().relative_to(p)
+                    return p
+                except ValueError:
+                    pass
+            cur = base_dir
+            while cur.parent != cur and is_todo_project(cur.parent):
+                cur = cur.parent
+            return cur.parent
+        return base_dir
     if env_ws:
         p = Path(env_ws).expanduser().resolve()
         if not p.is_dir():
@@ -81,6 +95,67 @@ def resolve_project_dir(
     if not is_todo_project(candidate):
         raise SystemExit(f"{prog_name()}: project {norm!r} not found under workspace {ws_root}")
     return candidate
+
+
+def resolve_project_or_dir(selector: str) -> str:
+    raw = selector.strip()
+    if not raw:
+        raise SystemExit(f"{prog_name()}: empty project or directory selector")
+    p_cand = Path(raw).expanduser()
+    if p_cand.is_dir():
+        return str(p_cand.resolve())
+    looks_like_path = (
+        raw.startswith(("/", "~", "./", "../", ".\\", "..\\"))
+        or p_cand.is_absolute()
+    )
+    if looks_like_path:
+        raise SystemExit(f"{prog_name()}: directory not found: {selector}")
+
+    norm = raw.replace("\\", "/").strip("/")
+    if not norm or ".." in norm.split("/"):
+        raise SystemExit(f"{prog_name()}: target directory or project not found: {selector}")
+
+    cwd_res = Path.cwd().resolve()
+    probe_bases: list[Path] = [cwd_res]
+    for anc in cwd_res.parents:
+        if is_todo_project(anc):
+            if anc not in probe_bases:
+                probe_bases.append(anc)
+            break
+    env_cwd = os.environ.get("TODO_MD_CWD", "").strip()
+    if env_cwd:
+        p_env_cwd = Path(env_cwd).expanduser().resolve()
+        if p_env_cwd.is_dir() and p_env_cwd not in probe_bases:
+            probe_bases.append(p_env_cwd)
+
+    seen_ws: set[Path] = set()
+    for base in probe_bases:
+        ws_root = resolve_workspace_root(base).resolve()
+        if ws_root in seen_ws:
+            continue
+        seen_ws.add(ws_root)
+        cand = (ws_root / norm).resolve()
+        try:
+            cand.relative_to(ws_root)
+            if is_todo_project(cand):
+                return str(cand)
+        except ValueError:
+            pass
+        projects = discover_projects(ws_root)
+        exact = [p for rel, p in projects if rel == norm]
+        if exact:
+            return str(exact[0].resolve())
+        if "/" not in norm:
+            by_name = [(rel, p) for rel, p in projects if Path(rel).name == norm]
+            if len(by_name) == 1:
+                return str(by_name[0][1].resolve())
+            if len(by_name) > 1:
+                matches = ", ".join(rel for rel, _ in by_name)
+                raise SystemExit(
+                    f"{prog_name()}: ambiguous project name {selector!r}; matches: {matches}"
+                )
+
+    raise SystemExit(f"{prog_name()}: target directory or project not found: {selector}")
 
 
 def resolve_project_task_ref(

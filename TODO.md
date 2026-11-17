@@ -1,9 +1,7 @@
-# 🎯 [NEXT] F20: Add global -C/--project target option across all todo_md subcommands
+# 🎯 [NEXT] F30: Emit Title header in todo_md show preamble for downstream bundle and TUI display
 
-- Add a global project/directory selector (`-C <dir|project>` and `--project <name>`, keeping `-p` in `add` for prefix) accepted before subcommands so any `todo_md` command (`ids`, `list`, `archive`, `last`, `last-id`, `next-id`, `files`, `check`, `add`, `edit`, `append`, `status`, `next`, `done`, `cancel`, `show`) can target a repository from any directory.
-- Resolve `-C` targets as either a filesystem directory path or a discovered workspace project name/relative path (from `.todo_projects` / workspace root), failing explicitly with a non-zero exit code when the target cannot be resolved.
-- Keep `<project>:<ID>` strictly for task-level references (`show`, `edit`, `done`, `Depends on:`), and define explicit precedence (`-C`/`--project` > `TODO_MD_CWD` > `<project>:<ID>` > current directory).
-- Update `src/cli.py`, `src/header.py`, `README.md`, `src/rules/todo_md.md`, and `tests/test_todo_md.py` in sync.
+- Emit `Title: <base_title>` in `cmd_show` (`src/commands.py`) immediately after `Task: <ID>`, stripping any trailing `— *note*` via `_strip_heading_note` so `Task:` stays the bare ID while `Title:` carries the clean task summary.
+- Sync `src/header.py` (`--help`), `src/rules/todo_md.md`, `README.md`, and `tests/test_todo_md.py`, and rebuild `todo_md` via `python3 build.py`.
 
 # 🎯 [NEXT] D2: Design standalone task file mode (-f / --file) for shortlists and ad-hoc task files
 

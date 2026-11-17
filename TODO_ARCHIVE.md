@@ -1,3 +1,10 @@
+# ✅ [DONE] F20: Add global -C/--project target option across all todo_md subcommands — *2026-11-18*
+
+- Add a global project/directory selector (`-C <dir|project>` and `--project <name>`, keeping `-p` in `add` for prefix) accepted before subcommands so any `todo_md` command (`ids`, `list`, `archive`, `last`, `last-id`, `next-id`, `files`, `check`, `add`, `edit`, `append`, `status`, `next`, `done`, `cancel`, `show`) can target a repository from any directory.
+- Resolve `-C` targets as either a filesystem directory path or a discovered workspace project name/relative path (from `.todo_projects` / workspace root), failing explicitly with a non-zero exit code when the target cannot be resolved.
+- Keep `<project>:<ID>` strictly for task-level references (`show`, `edit`, `done`, `Depends on:`), and define explicit precedence (`-C`/`--project` > `TODO_MD_CWD` > `<project>:<ID>` > current directory).
+- Update `src/cli.py`, `src/header.py`, `README.md`, `src/rules/todo_md.md`, and `tests/test_todo_md.py` in sync.
+
 # ✅ [DONE] F29: Lazy-import urllib.request in src/cli.py to reduce CLI startup latency — *2026-11-17, lazy-import urllib.request*
 
 - Move `import urllib.request` out of top-level `src/header.py` into `fetch_remote_script` in `src/cli.py` so regular commands (`--version`, `check`, `add`, `list`, etc.) avoid importing `urllib.request`, `http.client`, and `ssl` (~21 ms startup overhead).

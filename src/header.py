@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # todo_md-repo: vitalio/todo_md
 """Usage:
+  {prog} [-C DIR|PROJ] [command] [opts]    Run any command against a target directory or workspace project
   {prog} [dir|project] [--full] [-w]         Print TODO.md or workspace overview (full WIP/NEXT/QUESTION or first task + compact)
   {prog} projects                            List discovered workspace projects and open task counts
   {prog} <ID> | show <ID|last>               Show task <ID> with Task/Role/Workdir headers (or last [<STATUS|archive>], supports <project>:<ID>)
@@ -28,6 +29,15 @@
   {prog} check-update                        Check if a newer version is available on GitHub
   {prog} -V | --version                      Print version and exit 0
   {prog} -h | --help                         Print this usage and exit 0
+
+Global options (accepted before subcommands):
+  -C DIR|PROJ, --project NAME   Target repository directory or workspace project
+                                (precedence: -C/--project > TODO_MD_CWD > <project>:<ID> > cwd;
+                                keep -p in 'add' for ID prefix and <project>:<ID> for task refs)
+  -w, --workspace               Operate across all discovered workspace projects
+  --full                        Show full task sections without compacting NEW/HOLD
+  -c, --commit                  Git-commit TODO*.md after mutating commands (opt-in)
+  --no-commit                   Accepted as a no-op alias (commits are disabled by default)
 
 Mutating commands automatically validate and status-order TODO.md (pass -c / --commit to also
 git-commit TODO*.md when inside a Git repository; --no-commit is accepted as a no-op alias).

@@ -41,6 +41,13 @@ todo_md check
 
 ## CLI Reference
 
+Global options accepted before subcommands:
+
+- `-C <dir|project>`, `--project <name>` — target a repository directory or discovered workspace project from any working directory (keeping `-p` in `add` for ID prefix, and `<project>:<ID>` strictly for task-level references like `show`, `edit`, `done`, and `Depends on:`). Target precedence: `-C`/`--project` > `TODO_MD_CWD` > `<project>:<ID>` > current directory.
+- `-w`, `--workspace` — operate across all discovered workspace projects.
+- `--full` — show full task sections without compacting `NEW` / `HOLD`.
+- `-c`, `--commit` — git-commit `TODO*.md` after mutating commands.
+
 | Command | Description |
 | :--- | :--- |
 | `todo_md [project] [--full] [-w]` | Print `TODO.md` or workspace (`-w`) overview (supports `<project>` and `<project>:<ID>`) |

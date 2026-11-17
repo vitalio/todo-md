@@ -13,6 +13,13 @@
     automatically when starting `role=execute task=<ID>`, and `done` is run
     before the final commit in `role=execute` so backlog updates are committed
     atomically with code changes.
+  - Target selection: pass `-C <dir|project>` or `--project <name>` before
+    any `{cmd:todo_md}` subcommand (`ids`, `list`, `archive`, `last`, `last-id`,
+    `next-id`, `files`, `check`, `add`, `edit`, `append`, `status`, `next`,
+    `done`, `cancel`, `show`) to target a repository directory or discovered
+    workspace project from any working directory (keep `-p` in `add` for ID
+    prefix and `<project>:<ID>` strictly for task-level references; precedence:
+    `-C`/`--project` > `TODO_MD_CWD` > `<project>:<ID>` > current directory).
   - Inspect: `{cmd:todo_md} [--full] [-w]` (overview or cross-project workspace
     overview: full `WIP`/`NEXT`/`QUESTION`, or first `NEW`/`HOLD` task when none
     exist, + compact backlog; supports `<project>:<ID>` and `<project>` addressing),

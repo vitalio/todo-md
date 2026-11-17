@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # todo_md-repo: vitalio/todo_md
 """Usage:
+  {prog} [-C DIR|PROJ] [command] [opts]    Run any command against a target directory or workspace project
   {prog} [dir|project] [--full] [-w]         Print TODO.md or workspace overview (full WIP/NEXT/QUESTION or first task + compact)
   {prog} projects                            List discovered workspace projects and open task counts
   {prog} <ID> | show <ID|last>               Show task <ID> with Task/Role/Workdir headers (or last [<STATUS|archive>], supports <project>:<ID>)
@@ -28,6 +29,15 @@
   {prog} check-update                        Check if a newer version is available on GitHub
   {prog} -V | --version                      Print version and exit 0
   {prog} -h | --help                         Print this usage and exit 0
+
+Global options (accepted before subcommands):
+  -C DIR|PROJ, --project NAME   Target repository directory or workspace project
+                                (precedence: -C/--project > TODO_MD_CWD > <project>:<ID> > cwd;
+                                keep -p in 'add' for ID prefix and <project>:<ID> for task refs)
+  -w, --workspace               Operate across all discovered workspace projects
+  --full                        Show full task sections without compacting NEW/HOLD
+  -c, --commit                  Git-commit TODO*.md after mutating commands (opt-in)
+  --no-commit                   Accepted as a no-op alias (commits are disabled by default)
 
 Mutating commands automatically validate and status-order TODO.md (pass -c / --commit to also
 git-commit TODO*.md when inside a Git repository; --no-commit is accepted as a no-op alias).
@@ -57,7 +67,7 @@ import tempfile
 from datetime import date
 from pathlib import Path
 
-VERSION = "0.15.0"
+VERSION = "0.16.0"
 REPO_MARKER = "todo_md-repo: vitalio/todo_md"
 DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/vitalio/todo_md/main/todo_md"
 FENCE = chr(96) * 3
@@ -143,9 +153,23 @@ def resolve_target_dir(explicit: str | None = None) -> Path:
 
 
 def resolve_workspace_root(base_dir: Path, explicit_dir: str | None = None) -> Path:
-    if explicit_dir:
-        return base_dir
     env_ws = os.environ.get("TODO_MD_WORKSPACE", "").strip()
+    if explicit_dir:
+        if is_todo_project(base_dir):
+            if env_ws:
+                p = Path(env_ws).expanduser().resolve()
+                if not p.is_dir():
+                    raise SystemExit(f"{prog_name()}: workspace directory not found: {env_ws}")
+                try:
+                    base_dir.resolve().relative_to(p)
+                    return p
+                except ValueError:
+                    pass
+            cur = base_dir
+            while cur.parent != cur and is_todo_project(cur.parent):
+                cur = cur.parent
+            return cur.parent
+        return base_dir
     if env_ws:
         p = Path(env_ws).expanduser().resolve()
         if not p.is_dir():
@@ -209,6 +233,67 @@ def resolve_project_dir(
     if not is_todo_project(candidate):
         raise SystemExit(f"{prog_name()}: project {norm!r} not found under workspace {ws_root}")
     return candidate
+
+
+def resolve_project_or_dir(selector: str) -> str:
+    raw = selector.strip()
+    if not raw:
+        raise SystemExit(f"{prog_name()}: empty project or directory selector")
+    p_cand = Path(raw).expanduser()
+    if p_cand.is_dir():
+        return str(p_cand.resolve())
+    looks_like_path = (
+        raw.startswith(("/", "~", "./", "../", ".\\", "..\\"))
+        or p_cand.is_absolute()
+    )
+    if looks_like_path:
+        raise SystemExit(f"{prog_name()}: directory not found: {selector}")
+
+    norm = raw.replace("\\", "/").strip("/")
+    if not norm or ".." in norm.split("/"):
+        raise SystemExit(f"{prog_name()}: target directory or project not found: {selector}")
+
+    cwd_res = Path.cwd().resolve()
+    probe_bases: list[Path] = [cwd_res]
+    for anc in cwd_res.parents:
+        if is_todo_project(anc):
+            if anc not in probe_bases:
+                probe_bases.append(anc)
+            break
+    env_cwd = os.environ.get("TODO_MD_CWD", "").strip()
+    if env_cwd:
+        p_env_cwd = Path(env_cwd).expanduser().resolve()
+        if p_env_cwd.is_dir() and p_env_cwd not in probe_bases:
+            probe_bases.append(p_env_cwd)
+
+    seen_ws: set[Path] = set()
+    for base in probe_bases:
+        ws_root = resolve_workspace_root(base).resolve()
+        if ws_root in seen_ws:
+            continue
+        seen_ws.add(ws_root)
+        cand = (ws_root / norm).resolve()
+        try:
+            cand.relative_to(ws_root)
+            if is_todo_project(cand):
+                return str(cand)
+        except ValueError:
+            pass
+        projects = discover_projects(ws_root)
+        exact = [p for rel, p in projects if rel == norm]
+        if exact:
+            return str(exact[0].resolve())
+        if "/" not in norm:
+            by_name = [(rel, p) for rel, p in projects if Path(rel).name == norm]
+            if len(by_name) == 1:
+                return str(by_name[0][1].resolve())
+            if len(by_name) > 1:
+                matches = ", ".join(rel for rel, _ in by_name)
+                raise SystemExit(
+                    f"{prog_name()}: ambiguous project name {selector!r}; matches: {matches}"
+                )
+
+    raise SystemExit(f"{prog_name()}: target directory or project not found: {selector}")
 
 
 def resolve_project_task_ref(
@@ -2549,24 +2634,55 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_update(force=force)
 
     full = False
+    commit = False
+    no_commit = False
+    workspace = False
+    project_selector: str | None = None
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a in ("-C", "--project"):
+            if i + 1 >= len(args) or not args[i + 1].strip():
+                raise SystemExit(f"{prog}: {a} requires a directory or project argument")
+            project_selector = args[i + 1]
+            i += 2
+        elif a.startswith("--project="):
+            val = a.split("=", 1)[1]
+            if not val.strip():
+                raise SystemExit(f"{prog}: --project requires a non-empty directory or project argument")
+            project_selector = val
+            i += 1
+        elif a == "--full":
+            full = True
+            i += 1
+        elif a in ("--commit", "-c"):
+            commit = True
+            i += 1
+        elif a == "--no-commit":
+            no_commit = True
+            i += 1
+        elif a in ("--workspace", "-w"):
+            workspace = True
+            i += 1
+        else:
+            break
+    args = args[i:]
+
     if "--full" in args:
         full = True
         args = [a for a in args if a != "--full"]
-    commit = False
     if "--commit" in args or "-c" in args:
         commit = True
         args = [a for a in args if a not in ("--commit", "-c")]
-    no_commit = False
     if "--no-commit" in args:
         no_commit = True
         args = [a for a in args if a != "--no-commit"]
-    workspace = False
     if "--workspace" in args or "-w" in args:
         workspace = True
         args = [a for a in args if a not in ("--workspace", "-w")]
 
-    explicit_dir: str | None = None
-    if args and args[0] not in KNOWN_SUBCOMMANDS and not args[0].startswith("-"):
+    explicit_dir: str | None = resolve_project_or_dir(project_selector) if project_selector is not None else None
+    if explicit_dir is None and args and args[0] not in KNOWN_SUBCOMMANDS and not args[0].startswith("-"):
         if Path(args[0]).is_dir():
             explicit_dir = args.pop(0)
         elif not re.fullmatch(r"[A-Za-z]\d+", args[0]) and not PROJECT_TASK_RE.match(args[0]):

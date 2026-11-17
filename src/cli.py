@@ -110,24 +110,55 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_update(force=force)
 
     full = False
+    commit = False
+    no_commit = False
+    workspace = False
+    project_selector: str | None = None
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a in ("-C", "--project"):
+            if i + 1 >= len(args) or not args[i + 1].strip():
+                raise SystemExit(f"{prog}: {a} requires a directory or project argument")
+            project_selector = args[i + 1]
+            i += 2
+        elif a.startswith("--project="):
+            val = a.split("=", 1)[1]
+            if not val.strip():
+                raise SystemExit(f"{prog}: --project requires a non-empty directory or project argument")
+            project_selector = val
+            i += 1
+        elif a == "--full":
+            full = True
+            i += 1
+        elif a in ("--commit", "-c"):
+            commit = True
+            i += 1
+        elif a == "--no-commit":
+            no_commit = True
+            i += 1
+        elif a in ("--workspace", "-w"):
+            workspace = True
+            i += 1
+        else:
+            break
+    args = args[i:]
+
     if "--full" in args:
         full = True
         args = [a for a in args if a != "--full"]
-    commit = False
     if "--commit" in args or "-c" in args:
         commit = True
         args = [a for a in args if a not in ("--commit", "-c")]
-    no_commit = False
     if "--no-commit" in args:
         no_commit = True
         args = [a for a in args if a != "--no-commit"]
-    workspace = False
     if "--workspace" in args or "-w" in args:
         workspace = True
         args = [a for a in args if a not in ("--workspace", "-w")]
 
-    explicit_dir: str | None = None
-    if args and args[0] not in KNOWN_SUBCOMMANDS and not args[0].startswith("-"):
+    explicit_dir: str | None = resolve_project_or_dir(project_selector) if project_selector is not None else None
+    if explicit_dir is None and args and args[0] not in KNOWN_SUBCOMMANDS and not args[0].startswith("-"):
         if Path(args[0]).is_dir():
             explicit_dir = args.pop(0)
         elif not re.fullmatch(r"[A-Za-z]\d+", args[0]) and not PROJECT_TASK_RE.match(args[0]):
