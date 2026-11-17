@@ -3,10 +3,15 @@
 
 from __future__ import annotations
 
+import contextlib
+import importlib.machinery
+import importlib.util
+import io
 import os
 import pty
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from datetime import date
@@ -18,13 +23,32 @@ INSTALL_SH = ROOT / "install.sh"
 
 
 class TestTodoMd(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        loader = importlib.machinery.SourceFileLoader("todo_md_cli", str(SCRIPT))
+        spec = importlib.util.spec_from_loader("todo_md_cli", loader)
+        if spec is None:
+            raise RuntimeError(f"failed to load module spec from {SCRIPT}")
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        cls.todo_md_mod = module
+
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="todo_md_test_"))
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def _run(
+    def _assert_ok(
+        self, args: list[str], proc: subprocess.CompletedProcess[str]
+    ) -> None:
+        self.assertEqual(
+            proc.returncode,
+            0,
+            msg=f"{args!r} failed (rc={proc.returncode})\nstdout:\n{proc.stdout}\nstderr:\n{proc.stderr}",
+        )
+
+    def _run_subprocess(
         self, args: list[str], *, check: bool = False, **kwargs
     ) -> subprocess.CompletedProcess[str]:
         kwargs.setdefault("cwd", str(self.tmp))
@@ -32,15 +56,77 @@ class TestTodoMd(unittest.TestCase):
         kwargs.setdefault("text", True)
         proc = subprocess.run(args, check=False, **kwargs)
         if check:
-            self.assertEqual(
-                proc.returncode,
-                0,
-                msg=f"{args!r} failed (rc={proc.returncode})\nstdout:\n{proc.stdout}\nstderr:\n{proc.stderr}",
-            )
+            self._assert_ok(args, proc)
         return proc
 
+    def _run_in_process(
+        self, args: list[str], *, check: bool = False, **kwargs
+    ) -> subprocess.CompletedProcess[str]:
+        cwd = str(kwargs.pop("cwd", self.tmp))
+        input_data = kwargs.pop("input", None)
+        env = kwargs.pop("env", None)
+        if kwargs:
+            raise ValueError(f"unsupported in-process _run kwargs: {sorted(kwargs)}")
+
+        out_buf = io.StringIO()
+        err_buf = io.StringIO()
+        stdin_buf = io.StringIO("" if input_data is None else input_data)
+
+        old_cwd = os.getcwd()
+        old_argv = sys.argv
+        old_stdin = sys.stdin
+        old_env = os.environ.copy() if env is not None else None
+        rc = 0
+        try:
+            os.chdir(cwd)
+            if env is not None:
+                os.environ.clear()
+                os.environ.update(env)
+            sys.argv = [str(SCRIPT), *args[1:]]
+            sys.stdin = stdin_buf
+            with contextlib.redirect_stdout(out_buf), contextlib.redirect_stderr(err_buf):
+                try:
+                    rc = int(self.todo_md_mod.main(args[1:]))
+                except SystemExit as exc:
+                    if exc.code is None:
+                        rc = 0
+                    elif isinstance(exc.code, int):
+                        rc = exc.code
+                    else:
+                        err_buf.write(f"{exc.code}\n")
+                        rc = 1
+        finally:
+            if old_env is not None:
+                os.environ.clear()
+                os.environ.update(old_env)
+            sys.stdin = old_stdin
+            sys.argv = old_argv
+            os.chdir(old_cwd)
+
+        proc = subprocess.CompletedProcess(
+            args=args,
+            returncode=rc,
+            stdout=out_buf.getvalue(),
+            stderr=err_buf.getvalue(),
+        )
+        if check:
+            self._assert_ok(args, proc)
+        return proc
+
+    def _run(
+        self, args: list[str], *, check: bool = False, **kwargs
+    ) -> subprocess.CompletedProcess[str]:
+        if (
+            not args
+            or args[0] != str(SCRIPT)
+            or "stdin" in kwargs
+            or "timeout" in kwargs
+        ):
+            return self._run_subprocess(args, check=check, **kwargs)
+        return self._run_in_process(args, check=check, **kwargs)
+
     def test_help_version_and_agents(self):
-        rh = self._run([str(SCRIPT), "-h"])
+        rh = self._run_subprocess([str(SCRIPT), "-h"])
         self.assertEqual(rh.returncode, 0)
         self.assertIn("Usage:", rh.stdout)
         self.assertNotIn("resume", rh.stdout)
@@ -54,7 +140,7 @@ class TestTodoMd(unittest.TestCase):
         self.assertIn("edit", rh.stdout)
         self.assertIn("append", rh.stdout)
 
-        rv = self._run([str(SCRIPT), "--version"])
+        rv = self._run_subprocess([str(SCRIPT), "--version"])
         self.assertEqual(rv.returncode, 0)
         ver = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
         self.assertEqual(rv.stdout.strip(), f"todo_md {ver}")
@@ -214,42 +300,42 @@ class TestTodoMd(unittest.TestCase):
         self.assertLess(arch_txt.index("F5:"), arch_txt.index("F1:"))
 
     def test_git_default_no_commit_and_opt_in_commit(self):
-        self._run(["git", "init"], check=True)
-        self._run(["git", "config", "user.name", "Test User"], check=True)
-        self._run(["git", "config", "user.email", "test@example.com"], check=True)
+        self._run_subprocess(["git", "init"], check=True)
+        self._run_subprocess(["git", "config", "user.name", "Test User"], check=True)
+        self._run_subprocess(["git", "config", "user.email", "test@example.com"], check=True)
 
         # Create a staged non-TODO file to verify todo_md --commit commits ONLY TODO*.md
         other_file = self.tmp / "unrelated.txt"
         other_file.write_text("unrelated staged work\n", encoding="utf-8")
-        self._run(["git", "add", "unrelated.txt"], check=True)
+        self._run_subprocess(["git", "add", "unrelated.txt"], check=True)
 
         # Default init does NOT git-commit
-        r_init = self._run([str(SCRIPT), "init", "Initial idea"], check=True)
+        r_init = self._run_subprocess([str(SCRIPT), "init", "Initial idea"], check=True)
         self.assertNotIn("committed", r_init.stdout)
 
         # Add with -c / --commit commits TODO*.md (including the initialized files)
-        r_add1 = self._run([str(SCRIPT), "add", "Task A", "-c"], check=True)
+        r_add1 = self._run_subprocess([str(SCRIPT), "add", "Task A", "-c"], check=True)
         self.assertIn("committed TODO.md, TODO_ARCHIVE.md", r_add1.stdout)
 
         # Verify unrelated.txt is still staged and was NOT included in the todo_md commit
-        r_show = self._run(["git", "show", "--name-only", "--pretty=format:", "HEAD"], check=True)
+        r_show = self._run_subprocess(["git", "show", "--name-only", "--pretty=format:", "HEAD"], check=True)
         committed_files = r_show.stdout.strip().splitlines()
         self.assertEqual(committed_files, ["TODO.md", "TODO_ARCHIVE.md"])
-        r_st = self._run(["git", "status", "--porcelain"], check=True)
+        r_st = self._run_subprocess(["git", "status", "--porcelain"], check=True)
         self.assertIn("A  unrelated.txt", r_st.stdout)
 
         # Default add without --commit does not commit; --no-commit is accepted as a no-op alias
-        r_add2 = self._run([str(SCRIPT), "add", "Task B"], check=True)
+        r_add2 = self._run_subprocess([str(SCRIPT), "add", "Task B"], check=True)
         self.assertNotIn("committed", r_add2.stdout)
-        r_add3 = self._run([str(SCRIPT), "add", "Task C", "--no-commit"], check=True)
+        r_add3 = self._run_subprocess([str(SCRIPT), "add", "Task C", "--no-commit"], check=True)
         self.assertNotIn("committed", r_add3.stdout)
 
         # Done with --commit moves task to TODO_ARCHIVE.md and commits both files
-        r_done = self._run([str(SCRIPT), "done", "F2", "-m", "1234567", "--commit"], check=True)
+        r_done = self._run_subprocess([str(SCRIPT), "done", "F2", "-m", "1234567", "--commit"], check=True)
         self.assertIn("committed TODO.md, TODO_ARCHIVE.md", r_done.stdout)
         self.assertIn("Complete task F2: Task A", r_done.stdout)
 
-        r_log = self._run(["git", "log", "--oneline"], check=True)
+        r_log = self._run_subprocess(["git", "log", "--oneline"], check=True)
         self.assertEqual(len(r_log.stdout.strip().splitlines()), 2)
 
     def test_next_id_files_and_pipe_output(self):
@@ -452,7 +538,7 @@ class TestTodoMd(unittest.TestCase):
             with self.subTest(cmd=args[0], flag=label):
                 master_fd, slave_fd = pty.openpty()
                 try:
-                    r_tty = self._run(
+                    r_tty = self._run_subprocess(
                         [str(SCRIPT), *args],
                         stdin=slave_fd,
                         timeout=5,
@@ -1200,7 +1286,7 @@ class TestTodoMd(unittest.TestCase):
         bin_dir = self.tmp / "bin"
         bin_dir.mkdir()
         env = {**os.environ, "PATH": f"{bin_dir}:/usr/bin:/bin"}
-        r = self._run(["sh", str(INSTALL_SH), "--dir", str(bin_dir), "--yes"], env=env)
+        r = self._run_subprocess(["sh", str(INSTALL_SH), "--dir", str(bin_dir), "--yes"], env=env)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertTrue((bin_dir / "todo_md").is_file())
 

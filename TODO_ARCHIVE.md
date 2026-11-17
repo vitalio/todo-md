@@ -1,3 +1,10 @@
+# ✅ [DONE] F28: Speed up unit tests by running CLI calls in-process — *2026-11-17, in-process CLI test runner*
+
+- Load the built `todo_md` script once per test class (e.g. in `setUpClass` via `importlib.machinery.SourceFileLoader`) and execute `main(argv)` in-process inside `tests/test_todo_md.py` with isolated `stdout`, `stderr`, `stdin`, `cwd`, and `os.environ` instead of spawning nearly 300 `subprocess.run` processes.
+- Keep real `subprocess.run` coverage for executable entrypoint and environment integration tests (`-h`, `--version`, `pty` TTY error handling, `git` `--commit`, and `install.sh`).
+- Verify `python3 -m unittest discover -s tests` passes cleanly with zero `ResourceWarning`s and completes in under 2 seconds.
+- Target files: `tests/test_todo_md.py`.
+
 # ✅ [DONE] F27: Order list output topologically by dependencies, highlight blocked NEXT tasks, and add --ready filter — *2026-11-17*
 
 - Depends on: F21, F22
