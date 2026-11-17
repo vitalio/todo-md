@@ -1282,6 +1282,50 @@ class TestTodoMd(unittest.TestCase):
         self.assertLess(r_cyc_list.stdout.index("F1"), r_cyc_list.stdout.index("F2"))
         self.assertIn("⏳ [NEXT]", r_cyc_list.stdout)
 
+    def test_lazy_urllib_import_and_offline_update(self):
+        probe = (
+            "import contextlib, importlib.machinery, importlib.util, io, sys\n"
+            "loader = importlib.machinery.SourceFileLoader('todo_md_probe', sys.argv[1])\n"
+            "spec = importlib.util.spec_from_loader('todo_md_probe', loader)\n"
+            "mod = importlib.util.module_from_spec(spec)\n"
+            "loader.exec_module(mod)\n"
+            "buf = io.StringIO()\n"
+            "with contextlib.redirect_stdout(buf):\n"
+            "    assert mod.main(['--version']) == 0\n"
+            "    assert mod.main(['init']) == 0\n"
+            "    assert mod.main(['add', 'Lazy import task']) == 0\n"
+            "    assert mod.main(['check']) == 0\n"
+            "    assert mod.main(['list']) == 0\n"
+            "for banned in ('urllib.request', 'http.client', 'ssl'):\n"
+            "    assert banned not in sys.modules, f'unexpectedly imported {banned}'\n"
+        )
+        r_probe = self._run_subprocess([sys.executable, "-c", probe, str(SCRIPT)])
+        self.assertEqual(r_probe.returncode, 0, msg=r_probe.stderr)
+
+        remote_file = self.tmp / "remote_todo_md"
+        remote_payload = (
+            "#!/usr/bin/env python3\n"
+            "# todo_md-repo: vitalio/todo_md\n"
+            "VERSION = '99.0.0'\n"
+        )
+        remote_file.write_text(remote_payload, encoding="utf-8")
+        env = {**os.environ, "TODO_MD_UPDATE_URL": remote_file.as_uri()}
+
+        r_chk = self._run_subprocess([str(SCRIPT), "check-update"], env=env)
+        self.assertEqual(r_chk.returncode, 0, msg=r_chk.stderr)
+        self.assertIn("update available:", r_chk.stdout)
+        self.assertIn("99.0.0", r_chk.stdout)
+
+        dest_bin = self.tmp / "todo_md_local"
+        dest_bin.write_text("# old\n", encoding="utf-8")
+        out_buf = io.StringIO()
+        err_buf = io.StringIO()
+        with contextlib.redirect_stdout(out_buf), contextlib.redirect_stderr(err_buf):
+            rc = self.todo_md_mod.cmd_update(url=remote_file.as_uri(), target_path=dest_bin)
+        self.assertEqual(rc, 0, msg=err_buf.getvalue())
+        self.assertIn("-> 99.0.0", out_buf.getvalue())
+        self.assertEqual(dest_bin.read_text(encoding="utf-8"), remote_payload)
+
     def test_install_sh(self):
         bin_dir = self.tmp / "bin"
         bin_dir.mkdir()

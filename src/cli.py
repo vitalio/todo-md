@@ -8,6 +8,8 @@ def version_tuple(v: str) -> tuple[int, ...]:
 
 
 def fetch_remote_script(url: str | None = None) -> str:
+    import urllib.request
+
     target_url = url or os.environ.get("TODO_MD_UPDATE_URL") or DEFAULT_UPDATE_URL
     req = urllib.request.Request(target_url, headers={"User-Agent": f"todo_md/{VERSION}"})
     with urllib.request.urlopen(req, timeout=15) as resp:

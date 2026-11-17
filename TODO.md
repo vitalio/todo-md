@@ -1,9 +1,3 @@
-# 🎯 [NEXT] F29: Lazy-import urllib.request in src/cli.py to reduce CLI startup latency
-
-- Move `import urllib.request` out of top-level `src/header.py` into `fetch_remote_script` in `src/cli.py` so regular commands (`--version`, `check`, `add`, `list`, etc.) avoid importing `urllib.request`, `http.client`, and `ssl` (~21 ms startup overhead).
-- Rebuild standalone `todo_md` via `python3 build.py`, verify `python3 build.py --check`, reinstall locally via `sh install.sh --yes`, and add an offline unit test in `tests/test_todo_md.py` confirming `urllib.request` is not imported on normal commands while `update` / `check-update` behavior remains intact.
-- Target files: `src/header.py`, `src/cli.py`, `todo_md`, `tests/test_todo_md.py`.
-
 # 🎯 [NEXT] F20: Add global -C/--project target option across all todo_md subcommands
 
 - Add a global project/directory selector (`-C <dir|project>` and `--project <name>`, keeping `-p` in `add` for prefix) accepted before subcommands so any `todo_md` command (`ids`, `list`, `archive`, `last`, `last-id`, `next-id`, `files`, `check`, `add`, `edit`, `append`, `status`, `next`, `done`, `cancel`, `show`) can target a repository from any directory.

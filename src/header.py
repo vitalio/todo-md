@@ -54,7 +54,6 @@ import re
 import subprocess
 import sys
 import tempfile
-import urllib.request
 from datetime import date
 from pathlib import Path
 
