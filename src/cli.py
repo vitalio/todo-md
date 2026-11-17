@@ -75,6 +75,7 @@ KNOWN_SUBCOMMANDS = (
     "next",
     "reopen",
     "top",
+    "queue",
     "next-id",
     "last-id",
     "last",
@@ -187,9 +188,28 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_transition(tdir, tid, new_status=st_up, dest_file=None, note=note, promote_top=(st_up in ("WIP", "NEXT")), reopen=reopen, commit=commit, no_commit=no_commit)
     if args[0] in ("reopen", "--reopen"):
         return cmd_reopen(base_dir, args[1:], commit=commit, no_commit=no_commit, explicit_dir=explicit_dir)
+    if args[0] in ("queue", "--queue"):
+        show_all = False
+        pos: list[str] = []
+        for a in args[1:]:
+            if a == "--all":
+                show_all = True
+            elif a.startswith("-"):
+                raise SystemExit(f"{prog}: unknown option for queue: {a}")
+            else:
+                pos.append(a)
+        if len(pos) != 1:
+            raise SystemExit(f"{prog}: usage: {prog} queue <ID> [--all]")
+        tdir, tid = resolve_project_task_ref(base_dir, pos[0], explicit_dir=explicit_dir)
+        return cmd_queue(base_dir, tdir, tid, show_all=show_all, explicit_dir=explicit_dir)
     if args[0] in ("next-id", "--next-id"):
-        if len(args) != 1:
-            raise SystemExit(f"{prog}: usage: {prog} next-id")
+        if len(args) > 2:
+            raise SystemExit(f"{prog}: usage: {prog} next-id [<ID>]")
+        if len(args) == 2:
+            if args[1].startswith("-"):
+                raise SystemExit(f"{prog}: unknown option for next-id: {args[1]}")
+            tdir, tid = resolve_project_task_ref(base_dir, args[1], explicit_dir=explicit_dir)
+            return cmd_next_id(base_dir, target_dir=tdir, task_id=tid, explicit_dir=explicit_dir)
         return cmd_next_id(base_dir)
     if args[0] in ("last-id", "--last-id"):
         if len(args) > 2:

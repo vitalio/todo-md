@@ -467,26 +467,18 @@ def _resolve_body_arg(body: str | None) -> str | None:
     return body
 
 
-def _normalize_depends_refs(raw_items: list[str]) -> list[str]:
-    refs: list[str] = []
-    seen: set[str] = set()
+def _normalize_depends_clauses(raw_items: list[str]) -> list[str]:
+    clauses: list[str] = []
     for item in raw_items:
-        for part in item.split(","):
-            tok = part.strip()
-            if not tok:
-                continue
-            pm = PROJECT_TASK_RE.match(tok)
-            if pm:
-                proj_part = pm.group(1).strip().replace("\\", "/").strip("/")
-                norm = f"{proj_part}:{pm.group(2).upper()}"
-            elif re.fullmatch(r"[A-Za-z]\d+", tok):
-                norm = tok.upper()
-            else:
-                raise SystemExit(f"{prog_name()}: invalid dependency reference {tok!r}; expected <ID> or <project>:<ID>")
-            if norm not in seen:
-                seen.add(norm)
-                refs.append(norm)
-    return refs
+        if not item.strip():
+            continue
+        stages, err = parse_depends_clause(item)
+        if err:
+            raise SystemExit(
+                f"{prog_name()}: invalid --depends value {item!r}: {err}; expected <ID> or <project>:<ID> separated by ',' and '->'"
+            )
+        clauses.append(" -> ".join(", ".join(stage) for stage in stages))
+    return clauses
 
 
 def _normalize_role_arg(raw_role: str) -> str:
@@ -517,25 +509,25 @@ def _apply_role_to_body_lines(lines: list[str], role: str | None) -> list[str]:
     return [role_line, *filtered] if filtered else [role_line]
 
 
-def _apply_depends_to_body_lines(lines: list[str], depends_refs: list[str] | None) -> list[str]:
-    if depends_refs is None:
+def _apply_depends_to_body_lines(lines: list[str], depends_clauses: list[str] | None) -> list[str]:
+    if depends_clauses is None:
         return lines
     filtered: list[str] = []
     in_fence = False
     for line in lines:
         if line.lstrip().startswith(FENCE):
             in_fence = not in_fence
-        if not in_fence and DEPENDS_LINE_RE.match(line):
+        if not in_fence and (DEPENDS_LINE_RE.match(line) or EMPTY_DEPENDS_LINE_RE.match(line)):
             continue
         filtered.append(line)
     while filtered and not filtered[0].strip():
         filtered.pop(0)
     while filtered and not filtered[-1].strip():
         filtered.pop()
-    if not depends_refs:
+    if not depends_clauses:
         return filtered
-    dep_line = f"- Depends on: {', '.join(depends_refs)}"
-    return [dep_line, *filtered] if filtered else [dep_line]
+    dep_lines = [f"- Depends on: {clause}" for clause in depends_clauses]
+    return [*dep_lines, *filtered] if filtered else dep_lines
 
 
 def cmd_add(
@@ -644,9 +636,9 @@ def cmd_add(
         raise SystemExit(f"{prog}: task title cannot be empty")
 
     body = _resolve_body_arg(body)
-    depends_refs = _normalize_depends_refs(depends_raw) if depends_raw else None
+    depends_clauses = _normalize_depends_clauses(depends_raw) if depends_raw else None
     body_lines = body.strip().splitlines() if body and body.strip() else []
-    body_lines = _apply_depends_to_body_lines(body_lines, depends_refs)
+    body_lines = _apply_depends_to_body_lines(body_lines, depends_clauses)
     body_lines = _apply_role_to_body_lines(body_lines, role)
 
     heading = _format_heading(status, tid, title, note=note)
@@ -726,13 +718,13 @@ def cmd_edit(
             i += 1
 
     if len(pos) != 1:
-        raise SystemExit(f"{prog}: usage: {prog} edit <ID> [-t TITLE] [-m NOTE] [-b BODY] [--role ROLE] [--depends REF[,REF...]]")
+        raise SystemExit(f"{prog}: usage: {prog} edit <ID> [-t TITLE] [-m NOTE] [-b BODY] [--role ROLE] [--depends SPEC]")
     base_dir, resolved_id = resolve_project_task_ref(base_dir, pos[0], explicit_dir=explicit_dir)
     target = resolved_id.upper()
     body = _resolve_body_arg(body)
-    depends_refs = _normalize_depends_refs(depends_raw) if depends_raw is not None else None
+    depends_clauses = _normalize_depends_clauses(depends_raw) if depends_raw is not None else None
 
-    if new_title is None and note is None and body is None and depends_refs is None and role is None:
+    if new_title is None and note is None and body is None and depends_clauses is None and role is None:
         raise SystemExit(f"{prog}: edit requires at least one of -t TITLE, -m NOTE, -b BODY, --role ROLE, --depends, or stdin")
 
     for fname in TASK_FILES:
@@ -767,7 +759,7 @@ def cmd_edit(
 
         if body is not None:
             body_lines = body.strip().splitlines() if body.strip() else []
-            body_lines = _apply_depends_to_body_lines(body_lines, depends_refs)
+            body_lines = _apply_depends_to_body_lines(body_lines, depends_clauses)
             body_lines = _apply_role_to_body_lines(body_lines, role)
             new_sec = [heading]
             if body_lines:
@@ -775,8 +767,8 @@ def cmd_edit(
             new_sec.append("")
         else:
             old_sec = lines[start_idx:end_idx]
-            if depends_refs is not None or role is not None:
-                body_lines = _apply_depends_to_body_lines(old_sec[1:], depends_refs)
+            if depends_clauses is not None or role is not None:
+                body_lines = _apply_depends_to_body_lines(old_sec[1:], depends_clauses)
                 body_lines = _apply_role_to_body_lines(body_lines, role)
                 new_sec = [heading, *(["", *body_lines] if body_lines else []), ""]
             else:
@@ -875,12 +867,139 @@ def resolve_top_task_id(base_dir: Path) -> str | None:
     return None
 
 
-def cmd_next_id(base_dir: Path) -> int:
-    tid = resolve_top_task_id(base_dir)
-    if not tid:
-        sys.stderr.write(f"{prog_name()}: no active WIP or NEXT task found in TODO.md under {base_dir}\n")
+def _first_actionable_in_dag(dag: dict[str, object]) -> str | None:
+    nodes: dict[tuple[Path, str], dict[str, object]] = dag["nodes"]  # type: ignore[assignment]
+    prereqs: dict[tuple[Path, str], list[tuple[Path, str]]] = dag["prereqs"]  # type: ignore[assignment]
+    topo_order: list[tuple[Path, str]] = dag["topo_order"]  # type: ignore[assignment]
+    for u in topo_order:
+        nd = nodes[u]
+        if str(nd["status"]) not in ACTIVE_STATUS_ORDER:
+            continue
+        blockers = [p for p in prereqs[u] if str(nodes[p]["status"]) != "DONE"]
+        if not blockers:
+            return str(nd["ref"])
+    return None
+
+
+def cmd_queue(
+    base_dir: Path,
+    target_dir: Path,
+    task_id: str,
+    show_all: bool = False,
+    explicit_dir: str | None = None,
+) -> int:
+    dag = build_dependency_dag(
+        base_dir,
+        target_dir,
+        task_id,
+        explicit_dir=explicit_dir,
+        stop_at_done=True,
+    )
+    nodes: dict[tuple[Path, str], dict[str, object]] = dag["nodes"]  # type: ignore[assignment]
+    prereqs: dict[tuple[Path, str], list[tuple[Path, str]]] = dag["prereqs"]  # type: ignore[assignment]
+    topo_order: list[tuple[Path, str]] = dag["topo_order"]  # type: ignore[assignment]
+    root_key: tuple[Path, str] = dag["root"]  # type: ignore[assignment]
+    root_node = nodes[root_key]
+    if not root_node["exists"]:
+        sys.stderr.write(f"{prog_name()}: task {root_node['ref']!r} not found in TODO*.md under {target_dir}\n")
         return 1
-    sys.stdout.write(f"{tid}\n")
+    syntax_errors: list[str] = dag["syntax_errors"]  # type: ignore[assignment]
+    if syntax_errors:
+        for e in syntax_errors:
+            sys.stderr.write(f"ERROR: {e}\n")
+        return 1
+    cycle: list[str] = dag["cycle"]  # type: ignore[assignment]
+    if cycle:
+        sys.stderr.write(f"ERROR: dependency cycle detected: {' -> '.join(cycle)}\n")
+        return 1
+
+    shown = topo_order if show_all else [u for u in topo_order if str(nodes[u]["status"]) != "DONE"]
+    if not shown:
+        sys.stdout.write(f"No pending tasks in queue for {root_node['ref']} (all tasks DONE)\n")
+    else:
+        for idx, u in enumerate(shown, start=1):
+            nd = nodes[u]
+            st = str(nd["status"])
+            ref = str(nd["ref"])
+            title = str(nd["title"])
+            if st == "MISSING":
+                badge = "[MISSING]"
+                marker = "[blocked]"
+            elif st == "CANCELED":
+                badge = f"{nd['emoji']} [CANCELED]"
+                marker = "[blocked]"
+            elif st == "DONE":
+                badge = f"{nd['emoji']} [DONE]"
+                marker = ""
+            else:
+                badge = f"{nd['emoji']} [{st}]"
+                blockers = [str(nodes[p]["ref"]) for p in prereqs[u] if str(nodes[p]["status"]) != "DONE"]
+                marker = f"[blocked by: {', '.join(blockers)}]" if blockers else "[ready]"
+            suffix = f"  {marker}" if marker else ""
+            sys.stdout.write(f"  {idx:>2}. {ref:<20}  {badge:<14}  {title}{suffix}\n")
+
+    next_act = _first_actionable_in_dag(dag)
+    sys.stdout.write(f"Next actionable: {next_act or 'none'}\n")
+    return 0
+
+
+def cmd_next_id(
+    base_dir: Path,
+    target_dir: Path | None = None,
+    task_id: str | None = None,
+    explicit_dir: str | None = None,
+) -> int:
+    if task_id is None:
+        tid = resolve_top_task_id(base_dir)
+        if not tid:
+            sys.stderr.write(f"{prog_name()}: no active WIP or NEXT task found in TODO.md under {base_dir}\n")
+            return 1
+        sys.stdout.write(f"{tid}\n")
+        return 0
+
+    tdir = target_dir or base_dir
+    dag = build_dependency_dag(
+        base_dir,
+        tdir,
+        task_id,
+        explicit_dir=explicit_dir,
+        stop_at_done=True,
+    )
+    nodes: dict[tuple[Path, str], dict[str, object]] = dag["nodes"]  # type: ignore[assignment]
+    topo_order: list[tuple[Path, str]] = dag["topo_order"]  # type: ignore[assignment]
+    root_key: tuple[Path, str] = dag["root"]  # type: ignore[assignment]
+    root_node = nodes[root_key]
+    if not root_node["exists"]:
+        sys.stderr.write(f"{prog_name()}: task {root_node['ref']!r} not found in TODO*.md under {tdir}\n")
+        return 1
+    root_status = str(root_node["status"])
+    if root_status in ("DONE", "CANCELED"):
+        sys.stderr.write(f"{prog_name()}: task {root_node['ref']} is already closed ([{root_status}])\n")
+        return 1
+    syntax_errors: list[str] = dag["syntax_errors"]  # type: ignore[assignment]
+    if syntax_errors:
+        for e in syntax_errors:
+            sys.stderr.write(f"ERROR: {e}\n")
+        return 1
+    cycle: list[str] = dag["cycle"]  # type: ignore[assignment]
+    if cycle:
+        sys.stderr.write(f"{prog_name()}: dependency cycle detected: {' -> '.join(cycle)}\n")
+        return 1
+    bad_blockers = [
+        f"{nodes[u]['ref']} ({nodes[u]['status']})"
+        for u in topo_order
+        if str(nodes[u]["status"]) in ("MISSING", "CANCELED")
+    ]
+    if bad_blockers:
+        sys.stderr.write(
+            f"{prog_name()}: task {root_node['ref']} is blocked by {', '.join(bad_blockers)}\n"
+        )
+        return 1
+    next_act = _first_actionable_in_dag(dag)
+    if not next_act:
+        sys.stderr.write(f"{prog_name()}: no unblocked actionable task found for {root_node['ref']}\n")
+        return 1
+    sys.stdout.write(f"{next_act}\n")
     return 0
 
 

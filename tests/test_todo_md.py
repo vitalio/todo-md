@@ -80,6 +80,12 @@ class TestTodoMd(unittest.TestCase):
         self.assertIn("key symbol names in backticks", rule_txt)
         self.assertIn("list [active|archive|all|<STATUS>] [--role <role>]", rule_txt)
         self.assertIn("--max-total-lines N", rh.stdout)
+        self.assertIn("queue <ID> [--all]", rh.stdout)
+        self.assertIn("next-id [<ID>]", rh.stdout)
+        self.assertIn("queue <ID> [--all]", rule_txt)
+        self.assertIn("next-id [<ID>]", rule_txt)
+        self.assertIn("A -> B -> C", rule_txt)
+        self.assertIn("do not introduce a separate `- Order:` field", rule_txt)
         self.assertIn("[if task=last] var task=$(todo_md last-id DONE)", bundle_txt)
         self.assertIn("[if task=DONE] var task=$(todo_md last-id DONE)", bundle_txt)
 
@@ -894,6 +900,167 @@ class TestTodoMd(unittest.TestCase):
             with self.subTest(bad_args=bad_args):
                 proc = self._run([str(SCRIPT), *bad_args], cwd=str(proj_a))
                 self.assertNotEqual(proc.returncode, 0, msg=proc.stdout)
+
+    def test_dependency_sequencing_queue_next_id_and_cycles(self):
+        ws = self.tmp / "ws"
+        orch = ws / "orch"
+        proj_a = ws / "proj_a"
+        proj_b = ws / "proj_b"
+        for d in (orch, proj_a, proj_b):
+            d.mkdir(parents=True)
+            self._run([str(SCRIPT), "init"], cwd=str(d), check=True)
+
+        # Intra-project sequential stages + parallel commas + multiple Depends on lines
+        self._run([str(SCRIPT), "add", "Stage 1A"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "Stage 1B"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "Stage 2C"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "Branch 2X"], cwd=str(proj_a), check=True)
+        self._run(
+            [
+                str(SCRIPT),
+                "add",
+                "Target T",
+                "--depends",
+                "F1, F2 -> F3",
+                "--depends",
+                "F4",
+            ],
+            cwd=str(proj_a),
+            check=True,
+        )
+        todo_a = (proj_a / "TODO.md").read_text(encoding="utf-8")
+        self.assertIn("- Depends on: F1, F2 -> F3", todo_a)
+        self.assertIn("- Depends on: F4", todo_a)
+
+        r_show_f5 = self._run([str(SCRIPT), "F5"], cwd=str(proj_a), check=True)
+        self.assertIn(
+            "Dependencies (blocked): F1 ⚪ [NEW], F2 ⚪ [NEW] -> F3 ⚪ [NEW]; F4 ⚪ [NEW]",
+            r_show_f5.stdout,
+        )
+
+        # Queue shows stable topological order with [ready] / [blocked by: ...] and Next actionable
+        r_q1 = self._run([str(SCRIPT), "queue", "F5"], cwd=str(proj_a), check=True)
+        q1_lines = r_q1.stdout.splitlines()
+        self.assertLess(r_q1.stdout.index("F1"), r_q1.stdout.index("F3"))
+        self.assertLess(r_q1.stdout.index("F2"), r_q1.stdout.index("F3"))
+        self.assertLess(r_q1.stdout.index("F3"), r_q1.stdout.index("F5"))
+        self.assertIn("[ready]", q1_lines[0])
+        self.assertIn("[blocked by: F1, F2]", r_q1.stdout)
+        self.assertIn("Next actionable: F1", r_q1.stdout)
+
+        r_nid1 = self._run([str(SCRIPT), "next-id", "F5"], cwd=str(proj_a), check=True)
+        self.assertEqual(r_nid1.stdout.strip(), "F1")
+
+        # Complete F1 and F2 -> DONE tasks hidden by default, shown with --all; F3 becomes ready
+        self._run([str(SCRIPT), "done", "F1", "-m", "done1"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "done", "F2", "-m", "done2"], cwd=str(proj_a), check=True)
+        r_q2 = self._run([str(SCRIPT), "queue", "F5"], cwd=str(proj_a), check=True)
+        self.assertNotIn("F1", r_q2.stdout)
+        self.assertNotIn("F2", r_q2.stdout)
+        self.assertIn("Next actionable: F3", r_q2.stdout)
+
+        r_q2_all = self._run([str(SCRIPT), "queue", "F5", "--all"], cwd=str(proj_a), check=True)
+        self.assertIn("F1", r_q2_all.stdout)
+        self.assertIn("✅ [DONE]", r_q2_all.stdout)
+        self.assertIn("Next actionable: F3", r_q2_all.stdout)
+        self.assertEqual(self._run([str(SCRIPT), "next-id", "F5"], cwd=str(proj_a), check=True).stdout.strip(), "F3")
+
+        # Complete F3 and F4 -> Dependencies (ready), next-id F5 returns F5 itself
+        self._run([str(SCRIPT), "done", "F3", "-m", "done3"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "done", "F4", "-m", "done4"], cwd=str(proj_a), check=True)
+        r_show_ready = self._run([str(SCRIPT), "F5"], cwd=str(proj_a), check=True)
+        self.assertIn(
+            "Dependencies (ready): F1 ✅ [DONE], F2 ✅ [DONE] -> F3 ✅ [DONE]; F4 ✅ [DONE]",
+            r_show_ready.stdout,
+        )
+        self.assertEqual(self._run([str(SCRIPT), "next-id", "F5"], cwd=str(proj_a), check=True).stdout.strip(), "F5")
+
+        # Cross-project orchestrator preserving one-way boundaries + transitive intra-project deps
+        self._run([str(SCRIPT), "add", "Repo A base"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "Repo B prereq"], cwd=str(proj_b), check=True)
+        self._run([str(SCRIPT), "add", "Repo B child", "--depends", "F1"], cwd=str(proj_b), check=True)
+        self._run(
+            [str(SCRIPT), "add", "Release orch", "--depends", "proj_a:F6 -> proj_b:F2"],
+            cwd=str(orch),
+            check=True,
+        )
+        proj_b_before = (proj_b / "TODO.md").read_text(encoding="utf-8")
+
+        r_orch_q = self._run([str(SCRIPT), "queue", "F1"], cwd=str(orch), check=True)
+        self.assertLess(r_orch_q.stdout.index("proj_a:F6"), r_orch_q.stdout.index("proj_b:F2"))
+        self.assertLess(r_orch_q.stdout.index("proj_b:F1"), r_orch_q.stdout.index("proj_b:F2"))
+        self.assertIn("[blocked by: proj_a:F6, proj_b:F1]", r_orch_q.stdout)
+        self.assertEqual(self._run([str(SCRIPT), "next-id", "F1"], cwd=str(orch), check=True).stdout.strip(), "proj_a:F6")
+        self.assertEqual(
+            self._run([str(SCRIPT), "next-id", "orch:F1"], cwd=str(ws), check=True).stdout.strip(),
+            "proj_a:F6",
+        )
+        self.assertEqual((proj_b / "TODO.md").read_text(encoding="utf-8"), proj_b_before)
+
+        # Complete proj_a:F6 -> proj_b:F1 is next; complete proj_b:F1 -> proj_b:F2 is next
+        self._run([str(SCRIPT), "done", "proj_a:F6", "-m", "d6"], cwd=str(ws), check=True)
+        self.assertEqual(self._run([str(SCRIPT), "next-id", "F1"], cwd=str(orch), check=True).stdout.strip(), "proj_b:F1")
+        self._run([str(SCRIPT), "done", "proj_b:F1", "-m", "db1"], cwd=str(ws), check=True)
+        self.assertEqual(self._run([str(SCRIPT), "next-id", "F1"], cwd=str(orch), check=True).stdout.strip(), "proj_b:F2")
+
+        # CANCELED blocker causes next-id to fail non-zero and queue to mark [blocked]
+        self._run([str(SCRIPT), "cancel", "proj_b:F2", "-m", "dropped"], cwd=str(ws), check=True)
+        r_q_can = self._run([str(SCRIPT), "queue", "F1"], cwd=str(orch), check=True)
+        self.assertIn("[CANCELED]", r_q_can.stdout)
+        self.assertIn("[blocked by: proj_b:F2]", r_q_can.stdout)
+        self.assertIn("Next actionable: none", r_q_can.stdout)
+        r_nid_can = self._run([str(SCRIPT), "next-id", "F1"], cwd=str(orch))
+        self.assertNotEqual(r_nid_can.returncode, 0)
+        self.assertIn("CANCELED", r_nid_can.stderr)
+
+        # Already-closed target fails non-zero in next-id
+        r_nid_done = self._run([str(SCRIPT), "next-id", "F1"], cwd=str(proj_a))
+        self.assertNotEqual(r_nid_done.returncode, 0)
+        self.assertIn("already closed", r_nid_done.stderr)
+
+        # Syntax errors rejected by --depends
+        for bad_dep in ("F1 ->", "-> F1", "F1, -> F2", "badref"):
+            with self.subTest(bad_dep=bad_dep):
+                r_bad = self._run([str(SCRIPT), "add", "Bad dep", "--depends", bad_dep], cwd=str(proj_a))
+                self.assertNotEqual(r_bad.returncode, 0)
+
+        # Transitive cycle detection in todo_md check, queue, and next-id
+        cyc_dir = ws / "cyc"
+        cyc_dir.mkdir()
+        self._run([str(SCRIPT), "init"], cwd=str(cyc_dir), check=True)
+        self._run([str(SCRIPT), "add", "Node A"], cwd=str(cyc_dir), check=True)
+        self._run([str(SCRIPT), "add", "Node B", "--depends", "F1"], cwd=str(cyc_dir), check=True)
+        r_cyc_edit = self._run([str(SCRIPT), "edit", "F1", "--depends", "F2"], cwd=str(cyc_dir))
+        self.assertNotEqual(r_cyc_edit.returncode, 0)
+        self.assertIn("dependency cycle", r_cyc_edit.stderr)
+        r_chk_cyc = self._run([str(SCRIPT), "check"], cwd=str(cyc_dir))
+        self.assertNotEqual(r_chk_cyc.returncode, 0)
+        self.assertIn("dependency cycle", r_chk_cyc.stderr)
+        r_q_cyc = self._run([str(SCRIPT), "queue", "F1"], cwd=str(cyc_dir))
+        self.assertNotEqual(r_q_cyc.returncode, 0)
+        self.assertIn("dependency cycle", r_q_cyc.stderr)
+        r_nid_cyc = self._run([str(SCRIPT), "next-id", "F1"], cwd=str(cyc_dir))
+        self.assertNotEqual(r_nid_cyc.returncode, 0)
+        self.assertIn("dependency cycle", r_nid_cyc.stderr)
+
+        # Stage-induced cycle (A depends on B, target says A -> B) caught by check
+        cyc_stage = ws / "cyc_stage"
+        cyc_stage.mkdir()
+        self._run([str(SCRIPT), "init"], cwd=str(cyc_stage), check=True)
+        self._run([str(SCRIPT), "add", "S2"], cwd=str(cyc_stage), check=True)
+        self._run([str(SCRIPT), "add", "S1", "--depends", "F1"], cwd=str(cyc_stage), check=True)
+        r_st_cyc = self._run([str(SCRIPT), "add", "S3", "--depends", "F2 -> F1"], cwd=str(cyc_stage))
+        self.assertNotEqual(r_st_cyc.returncode, 0)
+        self.assertIn("dependency cycle", r_st_cyc.stderr)
+
+        # Syntax error in TODO.md caught by check
+        syn_dir = ws / "syn"
+        syn_dir.mkdir()
+        self._run([str(SCRIPT), "init"], cwd=str(syn_dir), check=True)
+        (syn_dir / "TODO.md").write_text("# ⚪ [NEW] F1: Broken\n\n- Depends on: F2 -> \n", encoding="utf-8")
+        r_syn = self._run([str(SCRIPT), "check"], cwd=str(syn_dir))
+        self.assertNotEqual(r_syn.returncode, 0)
+        self.assertIn("syntax error", r_syn.stderr)
 
     def test_install_sh(self):
         bin_dir = self.tmp / "bin"

@@ -50,8 +50,8 @@ todo_md check
 | `todo_md last-id [<STATUS\|archive>]` | Print ID of last task in status/archive (default: `NEW`) |
 | `todo_md list [filter] [--role ROLE] [--limit N] [--full]` | List tasks (`active`, `archive`, `all`, or `<STATUS>`) with optional role filter, limit, and full sections |
 | `todo_md archive [<ID>] [-m NOTE]` | Print `TODO_ARCHIVE.md`, or archive task `<ID>` to `TODO_ARCHIVE.md` |
-| `todo_md add [<PROJ>] [<PREFIX>] <TITLE> [opts]` | Add a new task with auto-assigned ID (`-p PREFIX`, `--next`, `--status STATUS`, `-m NOTE`, `-b BODY\|-`, `--role ROLE`, `--depends REF[,REF...]`) |
-| `todo_md edit <ID> [opts]` | Update task title, note, body, role, or dependencies (`-t TITLE`, `-m NOTE`, `-b BODY\|-`, `--role ROLE`, `--depends REF[,REF...]`) |
+| `todo_md add [<PROJ>] [<PREFIX>] <TITLE> [opts]` | Add a new task with auto-assigned ID (`-p PREFIX`, `--next`, `--status STATUS`, `-m NOTE`, `-b BODY\|-`, `--role ROLE`, `--depends SPEC`) |
+| `todo_md edit <ID> [opts]` | Update task title, note, body, role, or dependencies (`-t TITLE`, `-m NOTE`, `-b BODY\|-`, `--role ROLE`, `--depends SPEC`) |
 | `todo_md append <ID> [-b TEXT\|-]` | Append progress/notes to task `<ID>` body (`-b TEXT\|-` or `stdin`) |
 | `todo_md status <ID> <STATUS> [-m N] [--reopen]` | Update task status (`WIP`, `NEXT`, `NEW`, `HOLD`, `QUESTION`, `DONE`, `CANCELED`; `--reopen` required if archived) |
 | `todo_md next <ID> [-m NOTE] [--reopen]` | Promote task `<ID>` to `🎯 [NEXT]` priority at the top of `TODO.md` (`--reopen` required if archived) |
@@ -59,7 +59,8 @@ todo_md check
 | `todo_md done <ID> [-m NOTE]` | Mark task `<ID>` as `✅ [DONE]` and move it to `TODO_ARCHIVE.md` |
 | `todo_md cancel <ID> [-m REASON]` | Mark task `<ID>` as `❌ [CANCELED]` and move it to `TODO_ARCHIVE.md` |
 | `todo_md ids` | Print highest task IDs in use and next free ID per letter prefix |
-| `todo_md next-id` / `--top` | Print the top `WIP` or `NEXT` task ID in `TODO.md` |
+| `todo_md queue <ID> [--all]` | Show topologically sorted execution queue for `<ID>` (use `--all` to include `DONE`) |
+| `todo_md next-id [<ID>]` / `--top` | Print the top `WIP`/`NEXT` task ID, or first ready task ID in `<ID>`'s queue |
 | `todo_md files [<ID>] [opts]` | List existing repo file paths referenced in backticks in task `<ID>` (`--max-lines N`, `--max-total-lines N`, `--max-bytes N`, `--max-total-bytes N`) |
 | `todo_md check` | Validate task headings, status badges, and unique IDs across `TODO*.md` |
 | `todo_md init [TEXT] [--force]` | Create starter `TODO.md` (with optional project idea from `TEXT` or `stdin`) and `TODO_ARCHIVE.md` |

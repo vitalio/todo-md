@@ -95,6 +95,71 @@ def resolve_project_task_ref(
     return base_dir, ref.strip()
 
 
+EMPTY_DEPENDS_LINE_RE = re.compile(r"^\s*[-*]\s*Depends on:\s*$", re.IGNORECASE)
+
+
+def normalize_dep_ref_token(tok: str) -> tuple[str | None, str | None]:
+    raw = tok.strip()
+    if not raw:
+        return None, "empty dependency reference"
+    pm = PROJECT_TASK_RE.match(raw)
+    if pm:
+        proj_part = pm.group(1).strip().replace("\\", "/").strip("/")
+        if not proj_part or ".." in proj_part.split("/"):
+            return None, f"invalid dependency reference {raw!r}"
+        return f"{proj_part}:{pm.group(2).upper()}", None
+    if re.fullmatch(r"[A-Za-z]\d+", raw):
+        return raw.upper(), None
+    return None, f"invalid dependency reference {raw!r}"
+
+
+def parse_depends_clause(raw_clause: str) -> tuple[list[list[str]], str | None]:
+    if not raw_clause.strip():
+        return [], "empty Depends on: clause"
+    stages: list[list[str]] = []
+    for raw_stage in raw_clause.split("->"):
+        if not raw_stage.strip():
+            return [], f"empty stage in dependency clause {raw_clause.strip()!r}"
+        stage_refs: list[str] = []
+        seen_stage: set[str] = set()
+        for raw_item in raw_stage.split(","):
+            tok = raw_item.strip()
+            if not tok:
+                return [], f"empty item in dependency stage {raw_stage.strip()!r}"
+            norm, err = normalize_dep_ref_token(tok)
+            if err or norm is None:
+                return [], err or f"invalid dependency reference {tok!r}"
+            if norm not in seen_stage:
+                seen_stage.add(norm)
+                stage_refs.append(norm)
+        stages.append(stage_refs)
+    return stages, None
+
+
+def parse_dependency_clauses(section_text: str) -> tuple[list[list[list[str]]], list[str]]:
+    clauses: list[list[list[str]]] = []
+    errors: list[str] = []
+    in_fence = False
+    for line in section_text.splitlines():
+        if line.lstrip().startswith(FENCE):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        if EMPTY_DEPENDS_LINE_RE.match(line):
+            errors.append("empty Depends on: line")
+            continue
+        m = DEPENDS_LINE_RE.match(line)
+        if not m:
+            continue
+        stages, err = parse_depends_clause(m.group(1))
+        if err:
+            errors.append(err)
+        elif stages:
+            clauses.append(stages)
+    return clauses, errors
+
+
 def parse_task_dependencies(section_text: str) -> list[str]:
     refs: list[str] = []
     seen: set[str] = set()
@@ -108,21 +173,16 @@ def parse_task_dependencies(section_text: str) -> list[str]:
         m = DEPENDS_LINE_RE.match(line)
         if not m:
             continue
-        for raw in m.group(1).split(","):
-            tok = raw.strip()
-            if not tok:
-                continue
-            pm = PROJECT_TASK_RE.match(tok)
-            if pm:
-                proj_part = pm.group(1).strip().replace("\\", "/").strip("/")
-                norm = f"{proj_part}:{pm.group(2).upper()}"
-            elif re.fullmatch(r"[A-Za-z]\d+", tok):
-                norm = tok.upper()
-            else:
-                norm = tok
-            if norm not in seen:
-                seen.add(norm)
-                refs.append(norm)
+        for raw_stage in m.group(1).split("->"):
+            for raw in raw_stage.split(","):
+                tok = raw.strip()
+                if not tok:
+                    continue
+                norm, _ = normalize_dep_ref_token(tok)
+                val = norm if norm is not None else tok
+                if val not in seen:
+                    seen.add(val)
+                    refs.append(val)
     return refs
 
 
@@ -149,7 +209,7 @@ def resolve_dependency_statuses(
             proj_name, tid = pm.group(1).strip().replace("\\", "/").strip("/"), pm.group(2).upper()
             target_dir = (ws_root / proj_name).resolve()
             if not is_todo_project(target_dir):
-                results.append((ref, "MISSING", "project not found"))
+                results.append((ref, "MISSING", ""))
                 continue
         else:
             target_dir = base_dir
@@ -157,10 +217,199 @@ def resolve_dependency_statuses(
         statuses = _task_statuses(target_dir)
         st = statuses.get(tid)
         if st is None:
-            results.append((ref, "MISSING", "task not found"))
+            results.append((ref, "MISSING", ""))
         else:
             results.append((ref, st, VALID_STATUSES.get(st, "")))
     return results
+
+
+def build_dependency_dag(
+    base_dir: Path,
+    target_dir: Path,
+    task_id: str,
+    explicit_dir: str | None = None,
+    stop_at_done: bool = False,
+) -> dict[str, object]:
+    ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
+    ws_resolved = ws_root.resolve()
+    disp_resolved = base_dir.resolve()
+    disp_is_proj = is_todo_project(disp_resolved)
+    task_cache: dict[Path, dict[str, dict[str, object]]] = {}
+
+    def _task_map(proj_dir: Path) -> dict[str, dict[str, object]]:
+        p_res = proj_dir.resolve()
+        if p_res not in task_cache:
+            mapping: dict[str, dict[str, object]] = {}
+            if is_todo_project(p_res):
+                for t in collect_all_tasks(p_res):
+                    mapping[str(t["id"]).upper()] = t
+            task_cache[p_res] = mapping
+        return task_cache[p_res]
+
+    def _resolve_ref(cur_dir: Path, ref: str) -> tuple[Path, str]:
+        pm = PROJECT_TASK_RE.match(ref)
+        if pm:
+            proj_name = pm.group(1).strip().replace("\\", "/").strip("/")
+            return (ws_resolved / proj_name).resolve(), pm.group(2).upper()
+        return cur_dir.resolve(), ref.upper()
+
+    def _format_ref(node_key: tuple[Path, str]) -> str:
+        ndir, ntid = node_key
+        if disp_is_proj and ndir == disp_resolved:
+            return ntid
+        try:
+            rel = ndir.relative_to(ws_resolved).as_posix()
+            if rel and rel != ".":
+                return f"{rel}:{ntid}"
+        except ValueError:
+            pass
+        return f"{ndir.name}:{ntid}"
+
+    root = (target_dir.resolve(), task_id.strip().upper())
+    nodes: dict[tuple[Path, str], dict[str, object]] = {}
+    prereqs: dict[tuple[Path, str], list[tuple[Path, str]]] = {}
+    prereq_sets: dict[tuple[Path, str], set[tuple[Path, str]]] = {}
+    order_idx: dict[tuple[Path, str], int] = {}
+    syntax_errors: list[str] = []
+
+    def _ensure_node_slot(k: tuple[Path, str]) -> None:
+        if k not in prereqs:
+            prereqs[k] = []
+            prereq_sets[k] = set()
+
+    def _add_prereq(node: tuple[Path, str], dep: tuple[Path, str]) -> None:
+        _ensure_node_slot(node)
+        _ensure_node_slot(dep)
+        if dep not in prereq_sets[node]:
+            prereq_sets[node].add(dep)
+            prereqs[node].append(dep)
+
+    def _visit(node_key: tuple[Path, str]) -> None:
+        if node_key in nodes:
+            return
+        ndir, ntid = node_key
+        _ensure_node_slot(node_key)
+        tdict = _task_map(ndir).get(ntid)
+        if tdict is None:
+            missing_title = "(missing task)" if is_todo_project(ndir) else "(unknown project)"
+            nodes[node_key] = {
+                "id": ntid,
+                "status": "MISSING",
+                "emoji": "",
+                "title": missing_title,
+                "exists": False,
+                "ref": _format_ref(node_key),
+            }
+            order_idx[node_key] = len(order_idx)
+            return
+
+        st = str(tdict["status"])
+        nodes[node_key] = {
+            **tdict,
+            "exists": True,
+            "ref": _format_ref(node_key),
+        }
+        clauses, errs = parse_dependency_clauses(str(tdict["section"]))
+        for err in errs:
+            syntax_errors.append(f"{_format_ref(node_key)}: {err}")
+
+        if stop_at_done and st == "DONE":
+            done_refs_to_visit: list[tuple[Path, str]] = []
+            for clause in clauses:
+                resolved_stages = [[_resolve_ref(ndir, r) for r in stage] for stage in clause]
+                for i, stage_keys in enumerate(resolved_stages):
+                    for k in stage_keys:
+                        kt = _task_map(k[0]).get(k[1])
+                        if kt is not None and str(kt["status"]) == "DONE":
+                            _add_prereq(node_key, k)
+                            done_refs_to_visit.append(k)
+                            if i > 0:
+                                for prev_k in resolved_stages[i - 1]:
+                                    pt = _task_map(prev_k[0]).get(prev_k[1])
+                                    if pt is not None and str(pt["status"]) == "DONE":
+                                        _add_prereq(k, prev_k)
+            for k in done_refs_to_visit:
+                _visit(k)
+            order_idx[node_key] = len(order_idx)
+            return
+
+        to_visit: list[tuple[Path, str]] = []
+        for clause in clauses:
+            resolved_stages = [[_resolve_ref(ndir, r) for r in stage] for stage in clause]
+            for i, stage_keys in enumerate(resolved_stages):
+                for k in stage_keys:
+                    _add_prereq(node_key, k)
+                    to_visit.append(k)
+                    if i > 0:
+                        for prev_k in resolved_stages[i - 1]:
+                            _add_prereq(k, prev_k)
+        for k in to_visit:
+            _visit(k)
+        order_idx[node_key] = len(order_idx)
+
+    _visit(root)
+
+    in_degree: dict[tuple[Path, str], int] = {u: len(prereqs[u]) for u in nodes}
+    dependents: dict[tuple[Path, str], list[tuple[Path, str]]] = {u: [] for u in nodes}
+    for u in nodes:
+        for p in prereqs[u]:
+            dependents[p].append(u)
+
+    avail: list[tuple[int, str, tuple[Path, str]]] = [
+        (order_idx.get(u, 0), str(nodes[u]["ref"]), u)
+        for u in nodes
+        if in_degree[u] == 0
+    ]
+    heapq.heapify(avail)
+    topo_order: list[tuple[Path, str]] = []
+    while avail:
+        _, _, u = heapq.heappop(avail)
+        topo_order.append(u)
+        for v in dependents[u]:
+            in_degree[v] -= 1
+            if in_degree[v] == 0:
+                heapq.heappush(avail, (order_idx.get(v, 0), str(nodes[v]["ref"]), v))
+
+    cycle: list[str] = []
+    if len(topo_order) < len(nodes):
+        cyclic_nodes = {u for u, deg in in_degree.items() if deg > 0}
+        state: dict[tuple[Path, str], int] = {}
+        stack: list[tuple[Path, str]] = []
+
+        def _find_cycle(u: tuple[Path, str]) -> list[tuple[Path, str]] | None:
+            state[u] = 1
+            stack.append(u)
+            for nxt in prereqs[u]:
+                if nxt not in cyclic_nodes:
+                    continue
+                st_nxt = state.get(nxt, 0)
+                if st_nxt == 1:
+                    idx_start = stack.index(nxt)
+                    return list(reversed(stack[idx_start:] + [nxt]))
+                if st_nxt == 0:
+                    res = _find_cycle(nxt)
+                    if res:
+                        return res
+            stack.pop()
+            state[u] = 2
+            return None
+
+        ordered_cyclic = sorted(cyclic_nodes, key=lambda k: order_idx.get(k, 0))
+        for start_node in ordered_cyclic:
+            if state.get(start_node, 0) == 0:
+                found_cyc = _find_cycle(start_node)
+                if found_cyc:
+                    cycle = [str(nodes[k]["ref"]) for k in found_cyc]
+                    break
+
+    return {
+        "root": root,
+        "nodes": nodes,
+        "prereqs": prereqs,
+        "topo_order": topo_order,
+        "cycle": cycle,
+        "syntax_errors": syntax_errors,
+    }
 
 
 def parse_task_role(section_text: str) -> str | None:
@@ -192,21 +441,43 @@ def format_dependency_summary(
     section_text: str,
     explicit_dir: str | None = None,
 ) -> str | None:
-    deps = parse_task_dependencies(section_text)
-    if not deps:
+    clauses, syntax_errors = parse_dependency_clauses(section_text)
+    if not clauses and not syntax_errors:
         return None
-    resolved = resolve_dependency_statuses(base_dir, deps, explicit_dir=explicit_dir)
-    parts: list[str] = []
-    blocked = False
-    for ref, st, emoji in resolved:
-        if st == "DONE":
-            parts.append(f"{ref} {emoji} [DONE]".replace("  ", " "))
-        else:
-            blocked = True
-            label = f"{emoji} [{st}]".strip() if emoji else f"[{st}]"
-            parts.append(f"{ref} {label}")
+    flat_refs: list[str] = []
+    seen_refs: set[str] = set()
+    for clause in clauses:
+        for stage in clause:
+            for ref in stage:
+                if ref not in seen_refs:
+                    seen_refs.add(ref)
+                    flat_refs.append(ref)
+    resolved_list = resolve_dependency_statuses(base_dir, flat_refs, explicit_dir=explicit_dir)
+    status_map = {ref: (st, emoji) for ref, st, emoji in resolved_list}
+    blocked = bool(syntax_errors)
+    clause_strs: list[str] = []
+    for clause in clauses:
+        stage_strs: list[str] = []
+        for stage in clause:
+            item_strs: list[str] = []
+            for ref in stage:
+                st, emoji = status_map.get(ref, ("MISSING", ""))
+                if st == "DONE":
+                    item_strs.append(f"{ref} {emoji} [DONE]".replace("  ", " "))
+                elif st == "MISSING":
+                    blocked = True
+                    item_strs.append(f"{ref} [MISSING]")
+                else:
+                    blocked = True
+                    label = f"{emoji} [{st}]".strip() if emoji else f"[{st}]"
+                    item_strs.append(f"{ref} {label}")
+            stage_strs.append(", ".join(item_strs))
+        clause_strs.append(" -> ".join(stage_strs))
+    if syntax_errors and not clause_strs:
+        return f"Dependencies (blocked): [syntax error: {'; '.join(syntax_errors)}]"
     state = "blocked" if blocked else "ready"
-    return f"Dependencies ({state}): " + ", ".join(parts)
+    suffix = f" [syntax error: {'; '.join(syntax_errors)}]" if syntax_errors else ""
+    return f"Dependencies ({state}): " + "; ".join(clause_strs) + suffix
 
 
 def read_if_exists(path: Path) -> str:
@@ -584,34 +855,50 @@ def validate_all(base_dir: Path) -> tuple[list[str], int]:
         for t in parse_tasks_in_text(read_if_exists(todo_path), "TODO.md"):
             tid = str(t["id"]).upper()
             lineno = int(t["line"])
-            for ref in parse_task_dependencies(str(t["section"])):
-                pm = PROJECT_TASK_RE.match(ref)
-                if pm:
-                    proj_name = pm.group(1).strip().replace("\\", "/").strip("/")
-                    target_tid = pm.group(2).upper()
-                    if not proj_name or ".." in proj_name.split("/"):
-                        errors.append(f"TODO.md:{lineno}: task {tid} has invalid dependency reference {ref!r}")
-                        continue
-                    target_dir = (ws_root / proj_name).resolve()
-                    if not is_todo_project(target_dir):
-                        errors.append(f"TODO.md:{lineno}: task {tid} depends on unknown project in {ref!r}")
-                        continue
-                    if target_dir not in proj_task_cache:
-                        proj_task_cache[target_dir] = {
-                            str(pt["id"]).upper() for pt in collect_all_tasks(target_dir)
-                        }
-                    if target_tid not in proj_task_cache[target_dir]:
-                        errors.append(f"TODO.md:{lineno}: task {tid} depends on missing task {ref!r}")
-                    elif target_dir == base_dir.resolve() and target_tid == tid:
-                        errors.append(f"TODO.md:{lineno}: task {tid} cannot depend on itself")
-                elif re.fullmatch(r"[A-Za-z]\d+", ref):
-                    target_tid = ref.upper()
-                    if target_tid == tid:
-                        errors.append(f"TODO.md:{lineno}: task {tid} cannot depend on itself")
-                    elif target_tid not in local_ids:
-                        errors.append(f"TODO.md:{lineno}: task {tid} depends on missing task {ref!r}")
-                else:
-                    errors.append(f"TODO.md:{lineno}: task {tid} has invalid dependency reference {ref!r}")
+            sec = str(t["section"])
+            clauses, syntax_errs = parse_dependency_clauses(sec)
+            for serr in syntax_errs:
+                errors.append(f"TODO.md:{lineno}: task {tid} has dependency syntax error: {serr}")
+            checked_refs: set[str] = set()
+            for clause in clauses:
+                for stage in clause:
+                    for ref in stage:
+                        if ref in checked_refs:
+                            continue
+                        checked_refs.add(ref)
+                        pm = PROJECT_TASK_RE.match(ref)
+                        if pm:
+                            proj_name = pm.group(1).strip().replace("\\", "/").strip("/")
+                            target_tid = pm.group(2).upper()
+                            if not proj_name or ".." in proj_name.split("/"):
+                                errors.append(f"TODO.md:{lineno}: task {tid} has invalid dependency reference {ref!r}")
+                                continue
+                            target_dir = (ws_root / proj_name).resolve()
+                            if not is_todo_project(target_dir):
+                                errors.append(f"TODO.md:{lineno}: task {tid} depends on unknown project in {ref!r}")
+                                continue
+                            if target_dir not in proj_task_cache:
+                                proj_task_cache[target_dir] = {
+                                    str(pt["id"]).upper() for pt in collect_all_tasks(target_dir)
+                                }
+                            if target_tid not in proj_task_cache[target_dir]:
+                                errors.append(f"TODO.md:{lineno}: task {tid} depends on missing task {ref!r}")
+                            elif target_dir == base_dir.resolve() and target_tid == tid:
+                                errors.append(f"TODO.md:{lineno}: task {tid} cannot depend on itself")
+                        elif re.fullmatch(r"[A-Za-z]\d+", ref):
+                            target_tid = ref.upper()
+                            if target_tid == tid:
+                                errors.append(f"TODO.md:{lineno}: task {tid} cannot depend on itself")
+                            elif target_tid not in local_ids:
+                                errors.append(f"TODO.md:{lineno}: task {tid} depends on missing task {ref!r}")
+                        else:
+                            errors.append(f"TODO.md:{lineno}: task {tid} has invalid dependency reference {ref!r}")
+            if clauses:
+                dag = build_dependency_dag(base_dir, base_dir, tid, stop_at_done=False)
+                if dag["cycle"]:
+                    errors.append(
+                        f"TODO.md:{lineno}: task {tid} has dependency cycle: {' -> '.join(dag['cycle'])}"
+                    )
 
     return errors, len(seen_ids)
 

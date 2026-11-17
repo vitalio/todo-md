@@ -23,16 +23,28 @@
     `{cmd:todo_md} last-id [<STATUS|archive>]` (default: `NEW`),
     `{cmd:todo_md} list [active|archive|all|<STATUS>] [--role <role>] [--limit N] [--full]`,
     `{cmd:todo_md} archive`, `{cmd:todo_md} ids`,
-    `{cmd:todo_md} next-id` (`--top`, top `WIP`/`NEXT` ID),
+    `{cmd:todo_md} queue <ID> [--all]` (topologically sorted execution queue;
+    hides `DONE` unless `--all` is passed; prints `[ready]` / `[blocked by: ...]`
+    and `Next actionable: <ref>`),
+    `{cmd:todo_md} next-id [<ID>]` (`--top`, top `WIP`/`NEXT` ID, or with
+    `<ID>`/`<project>:<ID>` prints the first unblocked actionable ID in `<ID>`'s
+    queue, exiting non-zero on cycles, missing/canceled blockers, or closed targets),
     `{cmd:todo_md} files [<ID>] [--max-lines N] [--max-total-lines N] [--max-bytes N] [--max-total-bytes N]`
     (existing backtick-referenced repo files within optional size budgets;
     reference target file paths and key symbol names in backticks in task
     bodies rather than brittle line ranges)
-  - Create: `{cmd:todo_md} add [<PROJECT>] [<PREFIX>] "<title>" [-p <PREFIX>] [--next] [--status WIP|NEXT|NEW|HOLD|QUESTION] [-m "<note>"] [-b "<body_md>"|-] [--role <role>] [--depends <ref>[,<ref>...]] [-c|--commit]`
+  - Create: `{cmd:todo_md} add [<PROJECT>] [<PREFIX>] "<title>" [-p <PREFIX>] [--next] [--status WIP|NEXT|NEW|HOLD|QUESTION] [-m "<note>"] [-b "<body_md>"|-] [--role <role>] [--depends <spec>] [-c|--commit]`
     (auto-assigns `<ID>`, default prefix `F`; pass body via `-b`, `-b -` for `stdin`, or piped `stdin`;
     `{cmd:todo_md} init "<idea>"` bootstraps a new `TODO.md`)
-  - Update: `{cmd:todo_md} edit <ID> [-t "<title>"] [-m "<note>"] [-b "<body_md>"|-] [--role <role>] [--depends <ref>[,<ref>...]] [-c|--commit]`,
+  - Update: `{cmd:todo_md} edit <ID> [-t "<title>"] [-m "<note>"] [-b "<body_md>"|-] [--role <role>] [--depends <spec>] [-c|--commit]`,
     `{cmd:todo_md} append <ID> [-b "<text>"|-] [-c|--commit]`
+  - Dependencies (`--depends` and `- Depends on:`): use `,` for parallel items
+    within a stage (`A,B`) and `->` for sequential stages (`"A -> B -> C"`,
+    with `,` binding tighter than `->` as in `"A, B -> C"`); repeat
+    `--depends` or add multiple `- Depends on:` lines for independent branches
+    combined with AND; do not introduce a separate `- Order:` field;
+    cross-project orchestrator dependencies (`<project>:<ID>`) preserve one-way
+    repo boundaries without modifying child repos
   - Transition: `{cmd:todo_md} status <ID> <WIP|NEXT|NEW|HOLD|QUESTION> [-m "<note>"] [--reopen] [-c|--commit]`,
     `{cmd:todo_md} next <ID> [-m "<note>"] [--reopen] [-c|--commit]` (promote to `🎯 [NEXT]`),
     `{cmd:todo_md} reopen <ID> [--status <STATUS>] [-m "<note>"] [-c|--commit]` (reopen archived task to `TODO.md`, default `NEW`; transitions from `TODO_ARCHIVE.md` without `--reopen` or `reopen` are rejected)
