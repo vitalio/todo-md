@@ -30,8 +30,9 @@
     `{cmd:todo_md} init "<idea>"` bootstraps a new `TODO.md`)
   - Update: `{cmd:todo_md} edit <ID> [-t "<title>"] [-m "<note>"] [-b "<body_md>"|-] [--role <role>] [--depends <ref>[,<ref>...]] [-c|--commit]`,
     `{cmd:todo_md} append <ID> [-b "<text>"|-] [-c|--commit]`
-  - Transition: `{cmd:todo_md} status <ID> <WIP|NEXT|NEW|HOLD|QUESTION> [-m "<note>"] [-c|--commit]`,
-    `{cmd:todo_md} next <ID> [-m "<note>"] [-c|--commit]` (promote to `🎯 [NEXT]`)
+  - Transition: `{cmd:todo_md} status <ID> <WIP|NEXT|NEW|HOLD|QUESTION> [-m "<note>"] [--reopen] [-c|--commit]`,
+    `{cmd:todo_md} next <ID> [-m "<note>"] [--reopen] [-c|--commit]` (promote to `🎯 [NEXT]`),
+    `{cmd:todo_md} reopen <ID> [--status <STATUS>] [-m "<note>"] [-c|--commit]` (reopen archived task to `TODO.md`, default `NEW`; transitions from `TODO_ARCHIVE.md` without `--reopen` or `reopen` are rejected)
   - Close (prepends to `TODO_ARCHIVE.md`): `{cmd:todo_md} done <ID> [-m "<note>"] [-c|--commit]`,
     `{cmd:todo_md} cancel <ID> [-m "<reason>"] [-c|--commit]`
   - Validation & commits: mutating commands automatically validate and reorder

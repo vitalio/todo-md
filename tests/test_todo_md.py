@@ -46,6 +46,8 @@ class TestTodoMd(unittest.TestCase):
         self.assertNotIn("resume", rh.stdout)
         self.assertNotIn("TODO_PLAN.md", rh.stdout)
         self.assertIn("next <ID>", rh.stdout)
+        self.assertIn("reopen <ID>", rh.stdout)
+        self.assertIn("--reopen", rh.stdout)
         self.assertIn("add", rh.stdout)
         self.assertIn("--role ROLE", rh.stdout)
         self.assertIn("edit", rh.stdout)
@@ -61,6 +63,8 @@ class TestTodoMd(unittest.TestCase):
         self.assertIn("Repository scope only", rule_txt)
         self.assertIn("🎯 [NEXT]", rule_txt)
         self.assertIn("TODO_ARCHIVE.md", rule_txt)
+        self.assertIn("reopen <ID>", rule_txt)
+        self.assertIn("--reopen", rule_txt)
         bundle_txt = (ROOT / "src/bundles/todo_md.bundle").read_text(encoding="utf-8")
         self.assertIn("rule vitalio/todo_md:todo_md", bundle_txt)
         self.assertNotIn("task=next", bundle_txt)
@@ -639,6 +643,91 @@ class TestTodoMd(unittest.TestCase):
         r_bad_role = self._run([str(SCRIPT), "add", "Bad role", "--role", "a\nb"], cwd=str(proj_a))
         self.assertNotEqual(r_bad_role.returncode, 0)
         self.assertIn("single line", r_bad_role.stderr)
+
+    def test_forbid_implicit_reopen_and_reopen_command(self):
+        ws = self.tmp / "ws"
+        ws.mkdir()
+        proj = ws / "proj"
+        proj.mkdir()
+        self._run([str(SCRIPT), "init"], cwd=str(proj), check=True)
+        (proj / "app.py").write_text("print('ok')\n", encoding="utf-8")
+        self._run([str(SCRIPT), "add", "Done task", "-b", "See `app.py`."], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "add", "Canceled task", "-b", "Body 2"], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "add", "Second done", "-b", "Body 3"], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "add", "Second canceled", "-b", "Body 4"], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "done", "F1", "-m", "abc1234"], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "cancel", "F2", "-m", "obsolete"], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "done", "F3", "-m", "def5678"], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "cancel", "F4", "-m", "wontfix"], cwd=str(proj), check=True)
+
+        todo_before = (proj / "TODO.md").read_text(encoding="utf-8")
+        arch_before = (proj / "TODO_ARCHIVE.md").read_text(encoding="utf-8")
+
+        # Reject implicit reopening via status / next and reject re-archiving
+        reject_cases = [
+            (["status", "F1", "WIP"], "DONE", "abc1234"),
+            (["status", "F1", "NEW"], "DONE", "abc1234"),
+            (["next", "F1"], "DONE", "abc1234"),
+            (["status", "F2", "HOLD"], "CANCELED", "obsolete"),
+            (["next", "F2"], "CANCELED", "obsolete"),
+            (["done", "F1"], "DONE", "abc1234"),
+            (["cancel", "F1"], "DONE", "abc1234"),
+            (["archive", "F1"], "DONE", "abc1234"),
+            (["archive", "F2", "--canceled"], "CANCELED", "obsolete"),
+            (["status", "F1", "DONE"], "DONE", "abc1234"),
+            (["status", "F2", "CANCELED"], "CANCELED", "obsolete"),
+        ]
+        for args, exp_status, exp_note in reject_cases:
+            with self.subTest(args=args):
+                proc = self._run([str(SCRIPT), *args], cwd=str(proj))
+                self.assertNotEqual(proc.returncode, 0, msg=proc.stdout)
+                self.assertIn(exp_status, proc.stderr)
+                self.assertIn(exp_note, proc.stderr)
+                self.assertIn("--reopen", proc.stderr)
+                self.assertIn("reopen", proc.stderr)
+
+        self.assertEqual((proj / "TODO.md").read_text(encoding="utf-8"), todo_before)
+        self.assertEqual((proj / "TODO_ARCHIVE.md").read_text(encoding="utf-8"), arch_before)
+
+        # Read/audit commands continue to work on archived tasks
+        for cmd in ([str(SCRIPT), "F1"], [str(SCRIPT), "show", "F1"], [str(SCRIPT), "files", "F1"]):
+            r_read = self._run(cmd, cwd=str(proj), check=True)
+            self.assertTrue(r_read.stdout.strip())
+
+        # status --reopen clears prior closing note unless -m is provided
+        r_reopen_wip = self._run([str(SCRIPT), "status", "F1", "WIP", "--reopen"], cwd=str(proj), check=True)
+        self.assertIn("moved F1 ([WIP])", r_reopen_wip.stdout)
+        todo_after_f1 = (proj / "TODO.md").read_text(encoding="utf-8")
+        self.assertIn("# 🔵 [WIP] F1: Done task\n", todo_after_f1)
+        self.assertNotIn("abc1234", todo_after_f1)
+        self.assertNotIn("F1:", (proj / "TODO_ARCHIVE.md").read_text(encoding="utf-8"))
+
+        # next --reopen with -m replaces closing note
+        self._run([str(SCRIPT), "next", "F2", "--reopen", "-m", "retrying"], cwd=str(proj), check=True)
+        todo_after_f2 = (proj / "TODO.md").read_text(encoding="utf-8")
+        self.assertIn("# 🎯 [NEXT] F2: Canceled task — *retrying*", todo_after_f2)
+        self.assertNotIn("obsolete", todo_after_f2)
+
+        # reopen defaults to NEW and clears closing note; --status and -m customize it
+        self._run([str(SCRIPT), "reopen", "proj:F3"], cwd=str(ws), check=True)
+        todo_after_f3 = (proj / "TODO.md").read_text(encoding="utf-8")
+        self.assertIn("# ⚪ [NEW] F3: Second done\n", todo_after_f3)
+        self.assertNotIn("def5678", todo_after_f3)
+
+        self._run([str(SCRIPT), "reopen", "F4", "--status", "HOLD", "-m", "paused"], cwd=str(proj), check=True)
+        todo_after_f4 = (proj / "TODO.md").read_text(encoding="utf-8")
+        self.assertIn("# ⏸️ [HOLD] F4: Second canceled — *paused*", todo_after_f4)
+        self.assertNotIn("wontfix", todo_after_f4)
+
+        # Reopening an already-active task or passing an archive status to reopen fails explicitly
+        r_active = self._run([str(SCRIPT), "reopen", "F3"], cwd=str(proj))
+        self.assertNotEqual(r_active.returncode, 0)
+        self.assertIn("already active", r_active.stderr)
+        r_bad_st = self._run([str(SCRIPT), "reopen", "F3", "--status", "DONE"], cwd=str(proj))
+        self.assertNotEqual(r_bad_st.returncode, 0)
+        self.assertIn("active status", r_bad_st.stderr)
+
+        self._run([str(SCRIPT), "check"], cwd=str(proj), check=True)
 
     def test_install_sh(self):
         bin_dir = self.tmp / "bin"

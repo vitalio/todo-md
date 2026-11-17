@@ -73,6 +73,7 @@ KNOWN_SUBCOMMANDS = (
     "canceled",
     "status",
     "next",
+    "reopen",
     "top",
     "next-id",
     "last-id",
@@ -174,11 +175,18 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_transition(tdir, tid, new_status="CANCELED", dest_file="TODO_ARCHIVE.md", note=note, commit=commit, no_commit=no_commit)
     if args[0] in ("status", "--status"):
         pos, note = _parse_note_arg(args[1:])
+        reopen = "--reopen" in pos
+        pos = [p for p in pos if p != "--reopen"]
+        bad_flags = [p for p in pos if p.startswith("-")]
+        if bad_flags:
+            raise SystemExit(f"{prog}: unknown option for status: {bad_flags[0]}")
         if len(pos) != 2:
-            raise SystemExit(f"{prog}: usage: {prog} status <ID> <STATUS> [-m NOTE]")
+            raise SystemExit(f"{prog}: usage: {prog} status <ID> <STATUS> [-m NOTE] [--reopen]")
         tdir, tid = resolve_project_task_ref(base_dir, pos[0], explicit_dir=explicit_dir)
         st_up = pos[1].upper()
-        return cmd_transition(tdir, tid, new_status=st_up, dest_file=None, note=note, promote_top=(st_up in ("WIP", "NEXT")), commit=commit, no_commit=no_commit)
+        return cmd_transition(tdir, tid, new_status=st_up, dest_file=None, note=note, promote_top=(st_up in ("WIP", "NEXT")), reopen=reopen, commit=commit, no_commit=no_commit)
+    if args[0] in ("reopen", "--reopen"):
+        return cmd_reopen(base_dir, args[1:], commit=commit, no_commit=no_commit, explicit_dir=explicit_dir)
     if args[0] in ("next-id", "--next-id"):
         if len(args) != 1:
             raise SystemExit(f"{prog}: usage: {prog} next-id")
@@ -202,10 +210,15 @@ def main(argv: list[str] | None = None) -> int:
         pos, note = _parse_note_arg(args[1:])
         if args[0] == "--top" and not pos and note is None:
             return cmd_next_id(base_dir)
+        reopen = "--reopen" in pos
+        pos = [p for p in pos if p != "--reopen"]
+        bad_flags = [p for p in pos if p.startswith("-")]
+        if bad_flags:
+            raise SystemExit(f"{prog}: unknown option for next: {bad_flags[0]}")
         if len(pos) != 1:
-            raise SystemExit(f"{prog}: usage: {prog} next <ID> [-m NOTE]")
+            raise SystemExit(f"{prog}: usage: {prog} next <ID> [-m NOTE] [--reopen]")
         tdir, tid = resolve_project_task_ref(base_dir, pos[0], explicit_dir=explicit_dir)
-        return cmd_transition(tdir, tid, new_status="NEXT", dest_file="TODO.md", note=note, promote_top=True, commit=commit, no_commit=no_commit)
+        return cmd_transition(tdir, tid, new_status="NEXT", dest_file="TODO.md", note=note, promote_top=True, reopen=reopen, commit=commit, no_commit=no_commit)
     if args[0] in ("ids", "--ids"):
         return cmd_ids(base_dir)
     if args[0] in ("check", "--check"):

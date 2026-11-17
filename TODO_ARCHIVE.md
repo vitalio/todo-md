@@ -1,3 +1,10 @@
+# ✅ [DONE] F24: Forbid implicit reopening of archived tasks (--reopen and todo_md reopen) — *2026-11-17, forbid implicit reopening, add --reopen and reopen*
+
+- Reject transitions from `TODO_ARCHIVE.md` (`DONE` or `CANCELED`) to active statuses (`WIP`, `NEXT`, `NEW`, `HOLD`, `QUESTION`) in `status` and `next` (and reject re-archiving already archived tasks in `done`, `cancel`, and `archive <ID>`) unless `--reopen` is explicitly passed, exiting non-zero with the current archived status, closing note, and a hint to use `--reopen` or `reopen <ID>`.
+- Add `--reopen` support to `status` and `next`, plus a `todo_md reopen <ID> [--status <STATUS>] [-m "<note>"] [-c]` subcommand that moves the task back to `TODO.md` (default status `NEW`) and clears any prior closing note from the heading unless `-m` is supplied.
+- Ensure pre-execution hooks in `src/bundles/todo_md.bundle` (`$ todo_md status {task:} WIP`) fail fast before session startup if given an archived task ID, while read/audit commands (`show`, `files`, `role=audit`) continue to work on archived tasks.
+- Target files: `src/cli.py`, `src/commands.py`, `src/header.py`, `src/rules/todo_md.md`, `src/bundles/todo_md.bundle`, `README.md`, `tests/test_todo_md.py`.
+
 # ✅ [DONE] F23: Emit Task, Role, and Workdir headers in single-task show output — *2026-11-17, emit Task, Role, and Workdir headers*
 
 - Update `cmd_show` in `src/parser.py` and single-task dispatch in `src/cli.py` so displaying an individual task (`<ID>`, `<project>:<ID>`, `show <ID|last>`) prints `Task: <ID>`, optional `Role: <role>`, and `Workdir: <absolute project directory>` followed by a blank line before `# TODO.md:<line>`.

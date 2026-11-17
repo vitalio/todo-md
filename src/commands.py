@@ -273,6 +273,8 @@ def cmd_transition(
     dest_file: str | None = None,
     note: str | None = None,
     promote_top: bool = False,
+    reopen: bool = False,
+    require_archived: bool = False,
     commit: bool = False,
     no_commit: bool = False,
 ) -> int:
@@ -296,7 +298,32 @@ def cmd_transition(
         sys.stderr.write(f"{prog_name()}: task {target!r} not found in TODO*.md under {base_dir}\n")
         return 1
 
-    final_status = new_status or str(found["status"])
+    cur_status = str(found["status"])
+    is_archived = source_file == "TODO_ARCHIVE.md" or cur_status in ("DONE", "CANCELED")
+    final_status = new_status or cur_status
+    base_title, existing_note = _strip_heading_note(str(found["title"]))
+
+    if require_archived and not is_archived:
+        sys.stderr.write(
+            f"{prog_name()}: task {found['id']} is already active ([{cur_status}] in {source_file})\n"
+        )
+        return 1
+
+    if is_archived:
+        note_detail = f" (closing note: {existing_note})" if existing_note else ""
+        if final_status in ("DONE", "CANCELED"):
+            sys.stderr.write(
+                f"{prog_name()}: task {found['id']} is already archived as [{cur_status}]{note_detail}; "
+                f"use '{prog_name()} reopen {found['id']}' or pass --reopen with status/next to reopen it\n"
+            )
+            return 1
+        if not reopen:
+            sys.stderr.write(
+                f"{prog_name()}: task {found['id']} is archived as [{cur_status}]{note_detail}; "
+                f"pass --reopen or run '{prog_name()} reopen {found['id']}' to move it back to TODO.md\n"
+            )
+            return 1
+
     if dest_file is None:
         if final_status in ("DONE", "CANCELED"):
             dest_file = "TODO_ARCHIVE.md"
@@ -305,20 +332,23 @@ def cmd_transition(
 
     today_iso = date.today().isoformat()
     effective_note = note
-    if final_status == "DONE":
+    if is_archived and reopen:
+        if effective_note is None:
+            effective_note = ""
+    elif final_status == "DONE":
         if effective_note and today_iso not in effective_note:
             effective_note = f"{today_iso}, {effective_note}"
         elif effective_note is None:
-            _, existing_n = _strip_heading_note(str(found["title"]))
-            if not existing_n:
+            if not existing_note:
                 effective_note = today_iso
 
     tid = str(found["id"])
-    base_title, _ = _strip_heading_note(str(found["title"]))
     sec_lines = list(found["lines"])  # type: ignore[arg-type]
     sec_lines[0] = _format_heading(final_status, tid, str(found["title"]), note=effective_note)
 
-    if final_status == "DONE":
+    if require_archived or (is_archived and reopen):
+        commit_msg = f"Reopen task {tid} as {final_status}: {base_title}"
+    elif final_status == "DONE":
         commit_msg = f"Complete task {tid}: {base_title}"
     elif final_status == "CANCELED":
         commit_msg = f"Cancel task {tid}: {base_title}"
@@ -364,6 +394,66 @@ def cmd_transition(
         commit=commit,
         no_commit=no_commit,
         promote_id=(target if promote_top and dest_file == "TODO.md" else None),
+    )
+
+
+def cmd_reopen(
+    base_dir: Path,
+    argv: list[str],
+    commit: bool = False,
+    no_commit: bool = False,
+    explicit_dir: str | None = None,
+) -> int:
+    prog = prog_name()
+    target_status = "NEW"
+    note: str | None = None
+    pos: list[str] = []
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a in ("--commit", "-c"):
+            commit = True
+            i += 1
+        elif a == "--no-commit":
+            no_commit = True
+            i += 1
+        elif a in ("--status", "-s"):
+            if i + 1 >= len(argv):
+                raise SystemExit(f"{prog}: {a} requires an argument")
+            target_status = argv[i + 1].upper()
+            i += 2
+        elif a.startswith("--status="):
+            target_status = a.split("=", 1)[1].upper()
+            i += 1
+        elif a in ("-m", "--note", "--reason"):
+            if i + 1 >= len(argv):
+                raise SystemExit(f"{prog}: {a} requires an argument")
+            note = argv[i + 1]
+            i += 2
+        elif a.startswith("-"):
+            raise SystemExit(f"{prog}: unknown option for reopen: {a}")
+        else:
+            pos.append(a)
+            i += 1
+
+    if len(pos) != 1:
+        raise SystemExit(f"{prog}: usage: {prog} reopen <ID> [--status STATUS] [-m NOTE]")
+    if target_status not in ACTIVE_STATUS_ORDER:
+        raise SystemExit(
+            f"{prog}: reopen --status must be an active status ({', '.join(ACTIVE_STATUS_ORDER)}), got {target_status!r}"
+        )
+    tdir, tid = resolve_project_task_ref(base_dir, pos[0], explicit_dir=explicit_dir)
+    return cmd_transition(
+        tdir,
+        tid,
+        new_status=target_status,
+        dest_file="TODO.md",
+        note=note,
+        promote_top=(target_status in ("WIP", "NEXT")),
+        reopen=True,
+        require_archived=True,
+        commit=commit,
+        no_commit=no_commit,
     )
 
 
