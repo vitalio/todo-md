@@ -3,14 +3,14 @@
 """Usage:
   {prog} [dir|project] [--full] [-w]         Print TODO.md or workspace overview (full WIP/NEXT/QUESTION or first task + compact)
   {prog} projects                            List discovered workspace projects and open task counts
-  {prog} <ID> | show <ID|last>               Show full section for task <ID> (or last [<STATUS|archive>], supports <project>:<ID>)
+  {prog} <ID> | show <ID|last>               Show task <ID> with Task/Role/Workdir headers (or last [<STATUS|archive>], supports <project>:<ID>)
   {prog} last [<STATUS|archive>]           Show full section for last task in status/archive (default: NEW)
   {prog} last-id [<STATUS|archive>]        Print ID of last task in status/archive (default: NEW)
   {prog} list [filter] [--limit N] [--full]  List tasks (active | archive | all | <STATUS>)
   {prog} archive [<ID>] [-m NOTE]            Print TODO_ARCHIVE.md, or archive task <ID>
   {prog} add [<PROJ>] [<PREFIX>] <TITLE>     Add a new task with auto-assigned ID (reads body from -b TEXT|- or stdin)
-                                             Opts: -p PREFIX (default: F), --next, --status STATUS, -m NOTE, -b BODY|-, --depends REF[,REF...]
-  {prog} edit <ID> [opts]                    Update task title, note, body, or deps (-t TITLE, -m NOTE, -b BODY|-, --depends REF[,REF...])
+                                             Opts: -p PREFIX (default: F), --next, --status STATUS, -m NOTE, -b BODY|-, --role ROLE, --depends REF[,REF...]
+  {prog} edit <ID> [opts]                    Update task title, note, body, role, or deps (-t TITLE, -m NOTE, -b BODY|-, --role ROLE, --depends REF[,REF...])
   {prog} append <ID> [-b TEXT|-]             Append text to task <ID> body (from -b TEXT|- or stdin)
   {prog} status <ID> <STATUS> [-m NOTE]      Update status of <ID> (WIP|NEXT|NEW|HOLD|QUESTION|DONE|CANCELED)
   {prog} next <ID> [-m NOTE]                 Promote task <ID> to 🎯 [NEXT] priority at the top of TODO.md
@@ -54,7 +54,7 @@ import urllib.request
 from datetime import date
 from pathlib import Path
 
-VERSION = "0.10.0"
+VERSION = "0.11.0"
 REPO_MARKER = "todo_md-repo: vitalio/todo_md"
 DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/vitalio/todo_md/main/todo_md"
 FENCE = chr(96) * 3
@@ -89,6 +89,12 @@ ANY_ID_RE = re.compile(
 BACKTICK_TOKEN_RE = re.compile(r"`([^`\n]+)`")
 PROJECT_TASK_RE = re.compile(r"^(.+?):([A-Za-z]\d+)$")
 DEPENDS_LINE_RE = re.compile(r"^\s*[-*]\s*Depends on:\s*(.+?)\s*$", re.IGNORECASE)
+ROLE_LINE_RE = re.compile(r"^\s*[-*]\s*Role:\s*(.+?)\s*$", re.IGNORECASE)
+PREFIX_DEFAULT_ROLES: dict[str, str] = {
+    "D": "design",
+    "F": "work",
+    "B": "work",
+}
 WORKSPACE_SKIP_DIRS = frozenset({
     "node_modules",
     "vendor",
@@ -280,6 +286,30 @@ def resolve_dependency_statuses(
         else:
             results.append((ref, st, VALID_STATUSES.get(st, "")))
     return results
+
+
+def parse_task_role(section_text: str) -> str | None:
+    in_fence = False
+    for line in section_text.splitlines():
+        if line.lstrip().startswith(FENCE):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        m = ROLE_LINE_RE.match(line)
+        if m:
+            role = m.group(1).strip()
+            if role:
+                return role
+    return None
+
+
+def resolve_task_role(task_id: str, section_text: str) -> str | None:
+    explicit = parse_task_role(section_text)
+    if explicit:
+        return explicit
+    prefix = task_id.strip().upper()[:1]
+    return PREFIX_DEFAULT_ROLES.get(prefix)
 
 
 def format_dependency_summary(
@@ -524,11 +554,22 @@ def cmd_last(base_dir: Path, filt: str | None = None) -> int:
 def cmd_show(base_dir: Path, task_id: str) -> int:
     target = task_id.strip().upper()
     top = highest_ids_in_use(base_dir)
+    workdir = str(base_dir.resolve())
     for t in collect_all_tasks(base_dir):
         if str(t["id"]).upper() == target:
-            dep_line = format_dependency_summary(base_dir, str(t["section"]))
+            tid = str(t["id"]).upper()
+            section = str(t["section"])
+            role = resolve_task_role(tid, section)
+            header_lines = [f"Task: {tid}"]
+            if role:
+                header_lines.append(f"Role: {role}")
+            header_lines.append(f"Workdir: {workdir}")
+            headers = "\n".join(header_lines)
+            dep_line = format_dependency_summary(base_dir, section)
             dep_block = f"\n{dep_line}" if dep_line else ""
-            sys.stdout.write(f"# {t['file']}:{t['line']}\n{t['section']}{dep_block}\n\n---\nIDs in use: {format_ids_summary(top)}\n")
+            sys.stdout.write(
+                f"{headers}\n\n# {t['file']}:{t['line']}\n{section}{dep_block}\n\n---\nIDs in use: {format_ids_summary(top)}\n"
+            )
             return 0
     sys.stderr.write(f"{prog_name()}: task {target!r} not found in TODO*.md under {base_dir}\n")
     return 1
@@ -1212,6 +1253,34 @@ def _normalize_depends_refs(raw_items: list[str]) -> list[str]:
     return refs
 
 
+def _normalize_role_arg(raw_role: str) -> str:
+    role = raw_role.strip()
+    if "\n" in role or "\r" in role:
+        raise SystemExit(f"{prog_name()}: --role value must be a single line")
+    return role
+
+
+def _apply_role_to_body_lines(lines: list[str], role: str | None) -> list[str]:
+    if role is None:
+        return lines
+    filtered: list[str] = []
+    in_fence = False
+    for line in lines:
+        if line.lstrip().startswith(FENCE):
+            in_fence = not in_fence
+        if not in_fence and ROLE_LINE_RE.match(line):
+            continue
+        filtered.append(line)
+    while filtered and not filtered[0].strip():
+        filtered.pop(0)
+    while filtered and not filtered[-1].strip():
+        filtered.pop()
+    if not role:
+        return filtered
+    role_line = f"- Role: {role}"
+    return [role_line, *filtered] if filtered else [role_line]
+
+
 def _apply_depends_to_body_lines(lines: list[str], depends_refs: list[str] | None) -> list[str]:
     if depends_refs is None:
         return lines
@@ -1246,6 +1315,7 @@ def cmd_add(
     prefix: str | None = None
     note: str | None = None
     body: str | None = None
+    role: str | None = None
     depends_raw: list[str] = []
     pos: list[str] = []
     i = 0
@@ -1284,6 +1354,11 @@ def cmd_add(
             if i + 1 >= len(argv):
                 raise SystemExit(f"{prog}: {a} requires an argument")
             body = argv[i + 1]
+            i += 2
+        elif a == "--role":
+            if i + 1 >= len(argv):
+                raise SystemExit(f"{prog}: {a} requires an argument")
+            role = _normalize_role_arg(argv[i + 1])
             i += 2
         elif a in ("--depends", "-d"):
             if i + 1 >= len(argv):
@@ -1326,7 +1401,7 @@ def cmd_add(
             raise SystemExit(f"{prog}: invalid ID prefix {first!r}; expected a single letter A-Z (e.g. F, B, P)")
     else:
         raise SystemExit(
-            f"{prog}: usage: {prog} add [<PREFIX>] <TITLE> [-p PREFIX] [--next] [--status STATUS] [-m NOTE] [-b BODY]"
+            f"{prog}: usage: {prog} add [<PREFIX>] <TITLE> [-p PREFIX] [--next] [--status STATUS] [-m NOTE] [-b BODY] [--role ROLE]"
         )
 
     if not title:
@@ -1336,6 +1411,7 @@ def cmd_add(
     depends_refs = _normalize_depends_refs(depends_raw) if depends_raw else None
     body_lines = body.strip().splitlines() if body and body.strip() else []
     body_lines = _apply_depends_to_body_lines(body_lines, depends_refs)
+    body_lines = _apply_role_to_body_lines(body_lines, role)
 
     heading = _format_heading(status, tid, title, note=note)
     sec_lines = [heading]
@@ -1366,6 +1442,7 @@ def cmd_edit(
     note: str | None = None
     clear_note = False
     body: str | None = None
+    role: str | None = None
     depends_raw: list[str] | None = None
     pos: list[str] = []
     i = 0
@@ -1394,6 +1471,11 @@ def cmd_edit(
                 raise SystemExit(f"{prog}: {a} requires an argument")
             body = argv[i + 1]
             i += 2
+        elif a == "--role":
+            if i + 1 >= len(argv):
+                raise SystemExit(f"{prog}: {a} requires an argument")
+            role = _normalize_role_arg(argv[i + 1])
+            i += 2
         elif a in ("--depends", "-d"):
             if i + 1 >= len(argv):
                 raise SystemExit(f"{prog}: {a} requires an argument")
@@ -1408,14 +1490,14 @@ def cmd_edit(
             i += 1
 
     if len(pos) != 1:
-        raise SystemExit(f"{prog}: usage: {prog} edit <ID> [-t TITLE] [-m NOTE] [-b BODY] [--depends REF[,REF...]]")
+        raise SystemExit(f"{prog}: usage: {prog} edit <ID> [-t TITLE] [-m NOTE] [-b BODY] [--role ROLE] [--depends REF[,REF...]]")
     base_dir, resolved_id = resolve_project_task_ref(base_dir, pos[0], explicit_dir=explicit_dir)
     target = resolved_id.upper()
     body = _resolve_body_arg(body)
     depends_refs = _normalize_depends_refs(depends_raw) if depends_raw is not None else None
 
-    if new_title is None and note is None and body is None and depends_refs is None:
-        raise SystemExit(f"{prog}: edit requires at least one of -t TITLE, -m NOTE, -b BODY, --depends, or stdin")
+    if new_title is None and note is None and body is None and depends_refs is None and role is None:
+        raise SystemExit(f"{prog}: edit requires at least one of -t TITLE, -m NOTE, -b BODY, --role ROLE, --depends, or stdin")
 
     for fname in TASK_FILES:
         p = base_dir / fname
@@ -1448,15 +1530,18 @@ def cmd_edit(
         heading = _format_heading(status, tid, final_title, note=final_note)
 
         if body is not None:
-            body_lines = _apply_depends_to_body_lines(body.strip().splitlines() if body.strip() else [], depends_refs)
+            body_lines = body.strip().splitlines() if body.strip() else []
+            body_lines = _apply_depends_to_body_lines(body_lines, depends_refs)
+            body_lines = _apply_role_to_body_lines(body_lines, role)
             new_sec = [heading]
             if body_lines:
                 new_sec.extend(["", *body_lines])
             new_sec.append("")
         else:
             old_sec = lines[start_idx:end_idx]
-            if depends_refs is not None:
+            if depends_refs is not None or role is not None:
                 body_lines = _apply_depends_to_body_lines(old_sec[1:], depends_refs)
+                body_lines = _apply_role_to_body_lines(body_lines, role)
                 new_sec = [heading, *(["", *body_lines] if body_lines else []), ""]
             else:
                 old_sec[0] = heading

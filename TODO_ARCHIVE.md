@@ -1,3 +1,10 @@
+# ✅ [DONE] F23: Emit Task, Role, and Workdir headers in single-task show output — *2026-11-17, emit Task, Role, and Workdir headers*
+
+- Update `cmd_show` in `src/parser.py` and single-task dispatch in `src/cli.py` so displaying an individual task (`<ID>`, `<project>:<ID>`, `show <ID|last>`) prints `Task: <ID>`, optional `Role: <role>`, and `Workdir: <absolute project directory>` followed by a blank line before `# TODO.md:<line>`.
+- Resolve `Role:` from explicit `- Role: <role>` metadata in the task body (supported via `--role <role>` in `todo_md add` / `todo_md edit`), falling back by task prefix (`D` -> `design`, `F`/`B` -> `work`; omit `Role:` for unmapped prefixes when unset).
+- Ensure `Workdir:` resolves to the target project root for local `<ID>`, `<project>:<ID>`, and `-C` invocations, while keeping workspace/list overview outputs unchanged.
+- Sync `README.md`, `src/header.py`, `src/rules/todo_md.md`, and `tests/test_todo_md.py`, and rebuild `todo_md` via `build.py`.
+
 # ✅ [DONE] D1: Design dependency queue and next actionable task resolution — *2026-11-17, design agreed; spec recorded in AGENTS.md and F21*
 
 - Design CLI commands in `todo_md` to build an ordered execution queue for a

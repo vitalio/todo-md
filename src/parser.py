@@ -163,6 +163,30 @@ def resolve_dependency_statuses(
     return results
 
 
+def parse_task_role(section_text: str) -> str | None:
+    in_fence = False
+    for line in section_text.splitlines():
+        if line.lstrip().startswith(FENCE):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        m = ROLE_LINE_RE.match(line)
+        if m:
+            role = m.group(1).strip()
+            if role:
+                return role
+    return None
+
+
+def resolve_task_role(task_id: str, section_text: str) -> str | None:
+    explicit = parse_task_role(section_text)
+    if explicit:
+        return explicit
+    prefix = task_id.strip().upper()[:1]
+    return PREFIX_DEFAULT_ROLES.get(prefix)
+
+
 def format_dependency_summary(
     base_dir: Path,
     section_text: str,
@@ -405,11 +429,22 @@ def cmd_last(base_dir: Path, filt: str | None = None) -> int:
 def cmd_show(base_dir: Path, task_id: str) -> int:
     target = task_id.strip().upper()
     top = highest_ids_in_use(base_dir)
+    workdir = str(base_dir.resolve())
     for t in collect_all_tasks(base_dir):
         if str(t["id"]).upper() == target:
-            dep_line = format_dependency_summary(base_dir, str(t["section"]))
+            tid = str(t["id"]).upper()
+            section = str(t["section"])
+            role = resolve_task_role(tid, section)
+            header_lines = [f"Task: {tid}"]
+            if role:
+                header_lines.append(f"Role: {role}")
+            header_lines.append(f"Workdir: {workdir}")
+            headers = "\n".join(header_lines)
+            dep_line = format_dependency_summary(base_dir, section)
             dep_block = f"\n{dep_line}" if dep_line else ""
-            sys.stdout.write(f"# {t['file']}:{t['line']}\n{t['section']}{dep_block}\n\n---\nIDs in use: {format_ids_summary(top)}\n")
+            sys.stdout.write(
+                f"{headers}\n\n# {t['file']}:{t['line']}\n{section}{dep_block}\n\n---\nIDs in use: {format_ids_summary(top)}\n"
+            )
             return 0
     sys.stderr.write(f"{prog_name()}: task {target!r} not found in TODO*.md under {base_dir}\n")
     return 1

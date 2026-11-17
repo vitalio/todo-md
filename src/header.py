@@ -3,14 +3,14 @@
 """Usage:
   {prog} [dir|project] [--full] [-w]         Print TODO.md or workspace overview (full WIP/NEXT/QUESTION or first task + compact)
   {prog} projects                            List discovered workspace projects and open task counts
-  {prog} <ID> | show <ID|last>               Show full section for task <ID> (or last [<STATUS|archive>], supports <project>:<ID>)
+  {prog} <ID> | show <ID|last>               Show task <ID> with Task/Role/Workdir headers (or last [<STATUS|archive>], supports <project>:<ID>)
   {prog} last [<STATUS|archive>]           Show full section for last task in status/archive (default: NEW)
   {prog} last-id [<STATUS|archive>]        Print ID of last task in status/archive (default: NEW)
   {prog} list [filter] [--limit N] [--full]  List tasks (active | archive | all | <STATUS>)
   {prog} archive [<ID>] [-m NOTE]            Print TODO_ARCHIVE.md, or archive task <ID>
   {prog} add [<PROJ>] [<PREFIX>] <TITLE>     Add a new task with auto-assigned ID (reads body from -b TEXT|- or stdin)
-                                             Opts: -p PREFIX (default: F), --next, --status STATUS, -m NOTE, -b BODY|-, --depends REF[,REF...]
-  {prog} edit <ID> [opts]                    Update task title, note, body, or deps (-t TITLE, -m NOTE, -b BODY|-, --depends REF[,REF...])
+                                             Opts: -p PREFIX (default: F), --next, --status STATUS, -m NOTE, -b BODY|-, --role ROLE, --depends REF[,REF...]
+  {prog} edit <ID> [opts]                    Update task title, note, body, role, or deps (-t TITLE, -m NOTE, -b BODY|-, --role ROLE, --depends REF[,REF...])
   {prog} append <ID> [-b TEXT|-]             Append text to task <ID> body (from -b TEXT|- or stdin)
   {prog} status <ID> <STATUS> [-m NOTE]      Update status of <ID> (WIP|NEXT|NEW|HOLD|QUESTION|DONE|CANCELED)
   {prog} next <ID> [-m NOTE]                 Promote task <ID> to 🎯 [NEXT] priority at the top of TODO.md
@@ -89,6 +89,12 @@ ANY_ID_RE = re.compile(
 BACKTICK_TOKEN_RE = re.compile(r"`([^`\n]+)`")
 PROJECT_TASK_RE = re.compile(r"^(.+?):([A-Za-z]\d+)$")
 DEPENDS_LINE_RE = re.compile(r"^\s*[-*]\s*Depends on:\s*(.+?)\s*$", re.IGNORECASE)
+ROLE_LINE_RE = re.compile(r"^\s*[-*]\s*Role:\s*(.+?)\s*$", re.IGNORECASE)
+PREFIX_DEFAULT_ROLES: dict[str, str] = {
+    "D": "design",
+    "F": "work",
+    "B": "work",
+}
 WORKSPACE_SKIP_DIRS = frozenset({
     "node_modules",
     "vendor",

@@ -45,13 +45,13 @@ todo_md check
 | :--- | :--- |
 | `todo_md [project] [--full] [-w]` | Print `TODO.md` or workspace (`-w`) overview (supports `<project>` and `<project>:<ID>`) |
 | `todo_md projects` | List discovered workspace projects and their open task counts |
-| `todo_md <ID>` / `todo_md show <ID\|last>` | Show full Markdown section for task `<ID>` (or `last [<STATUS\|archive>]`) across `TODO*.md` |
+| `todo_md <ID>` / `todo_md show <ID\|last>` | Show `Task:`, optional `Role:`, and `Workdir:` headers plus full Markdown section for task `<ID>` (or `last [<STATUS\|archive>]`) |
 | `todo_md last [<STATUS\|archive>]` | Show full Markdown section for last task in status/archive (default: `NEW`) |
 | `todo_md last-id [<STATUS\|archive>]` | Print ID of last task in status/archive (default: `NEW`) |
 | `todo_md list [filter] [--limit N] [--full]` | List tasks (`active`, `archive`, `all`, or `<STATUS>`) with optional limit and full sections |
 | `todo_md archive [<ID>] [-m NOTE]` | Print `TODO_ARCHIVE.md`, or archive task `<ID>` to `TODO_ARCHIVE.md` |
-| `todo_md add [<PROJ>] [<PREFIX>] <TITLE> [opts]` | Add a new task with auto-assigned ID (`-p PREFIX`, `--next`, `--status STATUS`, `-m NOTE`, `-b BODY\|-`, `--depends REF[,REF...]`) |
-| `todo_md edit <ID> [opts]` | Update task title, note, body, or dependencies (`-t TITLE`, `-m NOTE`, `-b BODY\|-`, `--depends REF[,REF...]`) |
+| `todo_md add [<PROJ>] [<PREFIX>] <TITLE> [opts]` | Add a new task with auto-assigned ID (`-p PREFIX`, `--next`, `--status STATUS`, `-m NOTE`, `-b BODY\|-`, `--role ROLE`, `--depends REF[,REF...]`) |
+| `todo_md edit <ID> [opts]` | Update task title, note, body, role, or dependencies (`-t TITLE`, `-m NOTE`, `-b BODY\|-`, `--role ROLE`, `--depends REF[,REF...]`) |
 | `todo_md append <ID> [-b TEXT\|-]` | Append progress/notes to task `<ID>` body (`-b TEXT\|-` or `stdin`) |
 | `todo_md status <ID> <STATUS> [-m N]` | Update task status (`WIP`, `NEXT`, `NEW`, `HOLD`, `QUESTION`, `DONE`, `CANCELED`) |
 | `todo_md next <ID> [-m NOTE]` | Promote task `<ID>` to `🎯 [NEXT]` priority at the top of `TODO.md` |
