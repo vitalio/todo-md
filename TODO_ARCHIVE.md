@@ -1,3 +1,12 @@
+# ✅ [DONE] F27: Order list output topologically by dependencies, highlight blocked NEXT tasks, and add --ready filter — *2026-11-17*
+
+- Depends on: F21, F22
+- Order tasks topologically within each status bucket in `_order_active_tasks_for_list` (`src/parser.py`) and `_sort_todo_file` (`src/commands.py`) so prerequisites always appear before dependent tasks regardless of `todo_md next` promotion order (falling back to file order if a cycle exists).
+- Place unblocked (`ready`) tasks before tasks with open blockers within `NEXT` (and other active status buckets), and render blocked `NEXT` items with `⏳ [NEXT]` in `todo_md list` and `todo_md list -w` without altering `TODO.md` headings.
+- Display dependency status badges (`[blocked: ...]` / `[deps: DONE]`) in `todo_md list -w` matching local `todo_md list`, and append the actionable root blocker (`<- start: <ID>`) when blocked by a multi-step chain.
+- Add `--ready` option to `todo_md list` (`src/cli.py`, `src/commands.py`, `src/parser.py`) to filter active tasks to those with no unresolved dependencies (working across local and `-w` workspace modes).
+- Keep `src/header.py` (`--help`), `src/rules/todo_md.md`, `README.md`, and `tests/test_todo_md.py` in sync, and rebuild `todo_md` via `python3 build.py`.
+
 # ✅ [DONE] F22: Remove reverse ordering of QUESTION/NEW/HOLD tasks in todo_md list — *2026-11-17*
 
 - Remove `reversed(bucket)` for `QUESTION`, `NEW`, and `HOLD` in `_order_active_tasks_for_list` (`src/parser.py`) so `todo_md list` and `todo_md list -w` display active tasks in exact `TODO.md` file order (top to bottom).

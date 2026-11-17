@@ -412,6 +412,78 @@ def build_dependency_dag(
     }
 
 
+def _first_actionable_in_dag(dag: dict[str, object]) -> str | None:
+    nodes: dict[tuple[Path, str], dict[str, object]] = dag["nodes"]  # type: ignore[assignment]
+    prereqs: dict[tuple[Path, str], list[tuple[Path, str]]] = dag["prereqs"]  # type: ignore[assignment]
+    topo_order: list[tuple[Path, str]] = dag["topo_order"]  # type: ignore[assignment]
+    for u in topo_order:
+        nd = nodes[u]
+        if str(nd["status"]) not in ACTIVE_STATUS_ORDER:
+            continue
+        blockers = [p for p in prereqs[u] if str(nodes[p]["status"]) != "DONE"]
+        if not blockers:
+            return str(nd["ref"])
+    return None
+
+
+def _task_dependency_info(
+    base_dir: Path,
+    task: dict[str, object],
+    explicit_dir: str | None = None,
+) -> tuple[bool, str]:
+    sec = str(task["section"])
+    _, syntax_errs = parse_dependency_clauses(sec)
+    deps = parse_task_dependencies(sec)
+    if not deps and not syntax_errs:
+        return False, ""
+    resolved = resolve_dependency_statuses(base_dir, deps, explicit_dir=explicit_dir) if deps else []
+    blocked = [f"{r} ({st})" for r, st, _ in resolved if st != "DONE"]
+    if syntax_errs and not blocked:
+        return True, f" [blocked: syntax error: {'; '.join(syntax_errs)}]"
+    if not blocked and not syntax_errs:
+        return False, " [deps: DONE]"
+    start_suffix = ""
+    if not syntax_errs and str(task.get("status", "")) in ACTIVE_STATUS_ORDER:
+        dag = build_dependency_dag(
+            base_dir,
+            base_dir,
+            str(task["id"]),
+            explicit_dir=explicit_dir,
+            stop_at_done=True,
+        )
+        if not dag["syntax_errors"] and not dag["cycle"]:
+            nodes: dict[tuple[Path, str], dict[str, object]] = dag["nodes"]  # type: ignore[assignment]
+            prereqs: dict[tuple[Path, str], list[tuple[Path, str]]] = dag["prereqs"]  # type: ignore[assignment]
+            root_key: tuple[Path, str] = dag["root"]  # type: ignore[assignment]
+            has_chain = any(
+                u != root_key
+                and str(nodes[u]["status"]) != "DONE"
+                and any(str(nodes[p]["status"]) != "DONE" for p in prereqs[u])
+                for u in nodes
+            )
+            if has_chain:
+                start_id = _first_actionable_in_dag(dag)
+                if start_id and start_id != str(nodes[root_key]["ref"]):
+                    start_suffix = f" <- start: {start_id}"
+    return True, f" [blocked: {', '.join(blocked)}]{start_suffix}"
+
+
+def _is_task_blocked(
+    base_dir: Path,
+    task: dict[str, object],
+    explicit_dir: str | None = None,
+) -> bool:
+    sec = str(task["section"])
+    _, syntax_errs = parse_dependency_clauses(sec)
+    if syntax_errs:
+        return True
+    deps = parse_task_dependencies(sec)
+    if not deps:
+        return False
+    resolved = resolve_dependency_statuses(base_dir, deps, explicit_dir=explicit_dir)
+    return any(st != "DONE" for _, st, _ in resolved)
+
+
 def parse_task_role(section_text: str) -> str | None:
     in_fence = False
     for line in section_text.splitlines():
@@ -721,19 +793,110 @@ def cmd_show(base_dir: Path, task_id: str) -> int:
     return 1
 
 
-def _order_active_tasks_for_list(active_tasks: list[dict[str, object]]) -> list[dict[str, object]]:
-    grouped: dict[str, list[dict[str, object]]] = {}
-    for t in active_tasks:
-        grouped.setdefault(str(t["status"]), []).append(t)
+def _order_active_tasks(
+    active_tasks: list[dict[str, object]],
+    base_dir: Path | None = None,
+    promote_id: str | None = None,
+    ready_statuses: frozenset[str] | None = None,
+) -> list[dict[str, object]]:
+    if not active_tasks:
+        return []
+    target = promote_id.strip().upper() if promote_id else None
+    task_by_id: dict[str, int] = {}
+    for idx, t in enumerate(active_tasks):
+        tid = str(t["id"]).upper()
+        if tid not in task_by_id:
+            task_by_id[tid] = idx
+
+    blocked_flags: list[bool] = []
+    direct_local_prereqs: list[list[int]] = []
+    for idx, t in enumerate(active_tasks):
+        if base_dir is not None:
+            blocked_flags.append(_is_task_blocked(base_dir, t))
+        else:
+            _, syntax_errs = parse_dependency_clauses(str(t["section"]))
+            deps = parse_task_dependencies(str(t["section"]))
+            blocked_flags.append(bool(syntax_errs) or any(r.upper() in task_by_id for r in deps))
+        local_deps: list[int] = []
+        for ref in parse_task_dependencies(str(t["section"])):
+            if re.fullmatch(r"[A-Za-z]\d+", ref):
+                p_idx = task_by_id.get(ref.upper())
+                if p_idx is not None and p_idx != idx and p_idx not in local_deps:
+                    local_deps.append(p_idx)
+        direct_local_prereqs.append(local_deps)
+
+    all_local_prereqs: list[set[int]] = []
+    for start_idx in range(len(active_tasks)):
+        reach: set[int] = set()
+        stack = list(direct_local_prereqs[start_idx])
+        while stack:
+            cur = stack.pop()
+            if cur == start_idx or cur in reach:
+                continue
+            reach.add(cur)
+            for nxt in direct_local_prereqs[cur]:
+                if nxt not in reach and nxt != start_idx:
+                    stack.append(nxt)
+        all_local_prereqs.append(reach)
+
+    grouped: dict[str, list[int]] = {}
+    for idx, t in enumerate(active_tasks):
+        grouped.setdefault(str(t["status"]), []).append(idx)
+
+    def _order_bucket(st: str, bucket_indices: list[int]) -> list[int]:
+        if len(bucket_indices) <= 1:
+            return bucket_indices
+        bucket_set = set(bucket_indices)
+        in_degree: dict[int, int] = {idx: 0 for idx in bucket_indices}
+        dependents: dict[int, list[int]] = {idx: [] for idx in bucket_indices}
+        for u_idx in bucket_indices:
+            for p_idx in all_local_prereqs[u_idx]:
+                if p_idx in bucket_set and p_idx != u_idx:
+                    in_degree[u_idx] += 1
+                    dependents[p_idx].append(u_idx)
+
+        use_ready = ready_statuses is None or st in ready_statuses
+
+        def _key(idx: int) -> tuple[int, int, int]:
+            is_blk = 1 if (use_ready and blocked_flags[idx]) else 0
+            prom = 0 if (target and str(active_tasks[idx]["id"]).upper() == target) else 1
+            return (is_blk, prom, idx)
+
+        avail = [_key(idx) for idx in bucket_indices if in_degree[idx] == 0]
+        heapq.heapify(avail)
+        result: list[int] = []
+        while avail:
+            _, _, u = heapq.heappop(avail)
+            result.append(u)
+            for v in dependents[u]:
+                in_degree[v] -= 1
+                if in_degree[v] == 0:
+                    heapq.heappush(avail, _key(v))
+        if len(result) < len(bucket_indices):
+            done_set = set(result)
+            remaining = [idx for idx in bucket_indices if idx not in done_set]
+            remaining.sort(key=_key)
+            result.extend(remaining)
+        return result
+
     ordered: list[dict[str, object]] = []
     seen_statuses: set[str] = set()
     for st in sorted(ACTIVE_STATUS_ORDER, key=lambda s: ACTIVE_STATUS_ORDER[s]):
         seen_statuses.add(st)
-        ordered.extend(grouped.get(st, []))
+        for idx in _order_bucket(st, grouped.get(st, [])):
+            ordered.append(active_tasks[idx])
     for st, bucket in grouped.items():
         if st not in seen_statuses:
-            ordered.extend(bucket)
+            for idx in _order_bucket(st, bucket):
+                ordered.append(active_tasks[idx])
     return ordered
+
+
+def _order_active_tasks_for_list(
+    active_tasks: list[dict[str, object]],
+    base_dir: Path | None = None,
+) -> list[dict[str, object]]:
+    return _order_active_tasks(active_tasks, base_dir=base_dir)
 
 
 def _task_role_badge(task: dict[str, object]) -> str:
@@ -752,10 +915,14 @@ def cmd_list(
     limit: int | None = None,
     full: bool = False,
     role: str | None = None,
+    ready: bool = False,
 ) -> int:
     mode = (filt or "active").strip().lower()
     tasks = collect_all_tasks(base_dir)
-    active_tasks = _order_active_tasks_for_list([t for t in tasks if t["file"] == "TODO.md"])
+    active_tasks = _order_active_tasks_for_list(
+        [t for t in tasks if t["file"] == "TODO.md"],
+        base_dir=base_dir,
+    )
     arch_tasks = [t for t in tasks if t["file"] == "TODO_ARCHIVE.md"]
     if mode in ("active", "open"):
         shown = active_tasks
@@ -776,26 +943,42 @@ def cmd_list(
         wanted_role = role.strip().lower()
         shown = [t for t in shown if _task_matches_role(t, wanted_role)]
 
+    dep_cache: dict[tuple[str, str], tuple[bool, str]] = {}
+
+    def _dep_info(t: dict[str, object]) -> tuple[bool, str]:
+        key = (str(t["file"]), str(t["id"]).upper())
+        if key not in dep_cache:
+            dep_cache[key] = _task_dependency_info(base_dir, t)
+        return dep_cache[key]
+
+    if ready:
+        shown = [
+            t
+            for t in shown
+            if str(t["status"]) in ACTIVE_STATUS_ORDER and not _dep_info(t)[0]
+        ]
+
     if limit is not None:
         shown = shown[:limit]
 
     if not shown:
-        role_note = f", role={role.strip()}" if role is not None else ""
-        sys.stdout.write(f"No matching tasks ({mode}{role_note}) in {base_dir}\n")
+        notes: list[str] = []
+        if role is not None:
+            notes.append(f"role={role.strip()}")
+        if ready:
+            notes.append("ready")
+        extra = f", {', '.join(notes)}" if notes else ""
+        sys.stdout.write(f"No matching tasks ({mode}{extra}) in {base_dir}\n")
     elif full:
         sections = [str(t["section"]).rstrip() for t in shown]
         sys.stdout.write("\n\n".join(sections) + "\n")
     else:
         for t in shown:
-            badge = f"{t['emoji']} [{t['status']}]"
+            is_blocked, dep_suffix = _dep_info(t)
+            emoji = "⏳" if (str(t["status"]) == "NEXT" and is_blocked) else str(t["emoji"])
+            badge = f"{emoji} [{t['status']}]"
             role_badge = _task_role_badge(t)
             loc = str(t["file"])
-            deps = parse_task_dependencies(str(t["section"]))
-            dep_suffix = ""
-            if deps:
-                resolved = resolve_dependency_statuses(base_dir, deps)
-                blocked = [f"{r} ({st})" for r, st, _ in resolved if st != "DONE"]
-                dep_suffix = f" [blocked: {', '.join(blocked)}]" if blocked else " [deps: DONE]"
             sys.stdout.write(
                 f"  {str(t['id']):<6}  {badge:<14}  {role_badge:<10}  {loc:<16}  {t['title']}{dep_suffix}\n"
             )
@@ -965,6 +1148,7 @@ def cmd_workspace_list(
     limit: int | None = None,
     full: bool = False,
     role: str | None = None,
+    ready: bool = False,
 ) -> int:
     projects = discover_projects(workspace_root)
     if not projects:
@@ -976,7 +1160,10 @@ def cmd_workspace_list(
     items: list[tuple[str, Path, dict[str, object]]] = []
     for name, proj_dir in projects:
         tasks = collect_all_tasks(proj_dir)
-        active = _order_active_tasks_for_list([t for t in tasks if t["file"] == "TODO.md"])
+        active = _order_active_tasks_for_list(
+            [t for t in tasks if t["file"] == "TODO.md"],
+            base_dir=proj_dir,
+        )
         arch = [t for t in tasks if t["file"] == "TODO_ARCHIVE.md"]
         if mode in ("active", "open"):
             matched = active
@@ -992,11 +1179,32 @@ def cmd_workspace_list(
     if role is not None:
         wanted_role = role.strip().lower()
         items = [(name, proj_dir, t) for name, proj_dir, t in items if _task_matches_role(t, wanted_role)]
+
+    dep_cache: dict[tuple[Path, str, str], tuple[bool, str]] = {}
+
+    def _ws_dep_info(proj_dir: Path, t: dict[str, object]) -> tuple[bool, str]:
+        key = (proj_dir, str(t["file"]), str(t["id"]).upper())
+        if key not in dep_cache:
+            dep_cache[key] = _task_dependency_info(proj_dir, t)
+        return dep_cache[key]
+
+    if ready:
+        items = [
+            (name, proj_dir, t)
+            for name, proj_dir, t in items
+            if str(t["status"]) in ACTIVE_STATUS_ORDER and not _ws_dep_info(proj_dir, t)[0]
+        ]
+
     if limit is not None:
         items = items[:limit]
     if not items:
-        role_note = f", role={role.strip()}" if role is not None else ""
-        sys.stdout.write(f"No matching tasks ({mode}{role_note}) across workspace {workspace_root}\n")
+        notes: list[str] = []
+        if role is not None:
+            notes.append(f"role={role.strip()}")
+        if ready:
+            notes.append("ready")
+        extra = f", {', '.join(notes)}" if notes else ""
+        sys.stdout.write(f"No matching tasks ({mode}{extra}) across workspace {workspace_root}\n")
         return 0
     if full:
         sections: list[str] = []
@@ -1008,10 +1216,12 @@ def cmd_workspace_list(
         sys.stdout.write("\n\n".join(sections) + "\n")
         return 0
     for name, proj_dir, t in items:
+        is_blocked, dep_suffix = _ws_dep_info(proj_dir, t)
         ref = f"{name}:{t['id']}"
-        badge = f"{t['emoji']} [{t['status']}]"
+        emoji = "⏳" if (str(t["status"]) == "NEXT" and is_blocked) else str(t["emoji"])
+        badge = f"{emoji} [{t['status']}]"
         role_badge = _task_role_badge(t)
-        sys.stdout.write(f"  {ref:<28}  {badge:<14}  {role_badge:<10}  {t['title']}\n")
+        sys.stdout.write(f"  {ref:<28}  {badge:<14}  {role_badge:<10}  {t['title']}{dep_suffix}\n")
     return 0
 
 

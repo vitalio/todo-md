@@ -50,7 +50,7 @@ class TestTodoMd(unittest.TestCase):
         self.assertIn("--reopen", rh.stdout)
         self.assertIn("add", rh.stdout)
         self.assertIn("--role ROLE", rh.stdout)
-        self.assertIn("opts: --role ROLE, --limit N, --full", rh.stdout)
+        self.assertIn("opts: --role ROLE, --ready, --limit N, --full", rh.stdout)
         self.assertIn("edit", rh.stdout)
         self.assertIn("append", rh.stdout)
 
@@ -78,7 +78,7 @@ class TestTodoMd(unittest.TestCase):
         self.assertIn("key symbol names (functions/classes) in backticks", bundle_txt)
         self.assertIn("--max-total-bytes N", rule_txt)
         self.assertIn("key symbol names in backticks", rule_txt)
-        self.assertIn("list [active|archive|all|<STATUS>] [--role <role>]", rule_txt)
+        self.assertIn("list [active|archive|all|<STATUS>] [--role <role>] [--ready]", rule_txt)
         self.assertIn("--max-total-lines N", rh.stdout)
         self.assertIn("queue <ID> [--all]", rh.stdout)
         self.assertIn("next-id [<ID>]", rh.stdout)
@@ -1079,6 +1079,122 @@ class TestTodoMd(unittest.TestCase):
         r_syn = self._run([str(SCRIPT), "check"], cwd=str(syn_dir))
         self.assertNotEqual(r_syn.returncode, 0)
         self.assertIn("syntax error", r_syn.stderr)
+
+    def test_list_topo_order_blocked_next_badges_and_ready_filter(self):
+        ws = self.tmp / "ws"
+        proj_a = ws / "proj_a"
+        proj_b = ws / "proj_b"
+        proj_a.mkdir(parents=True)
+        proj_b.mkdir(parents=True)
+        self._run([str(SCRIPT), "init"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "init"], cwd=str(proj_b), check=True)
+
+        # Build chain F1 -> F2 -> F3 and independent F4 in proj_a, with promoted blocked order
+        self._run([str(SCRIPT), "add", "Base task", "--next"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "Middle task", "--depends", "F1"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "Top task", "--depends", "F2"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "Ready task", "--next"], cwd=str(proj_a), check=True)
+        # Promote F3 then F2 via next: F2 depends on F1 and F3 depends on F2, so TODO.md must keep
+        # ready tasks (F4, F1) before blocked tasks (F2, F3), and F2 before F3
+        self._run([str(SCRIPT), "next", "F3"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "next", "F2"], cwd=str(proj_a), check=True)
+
+        todo_txt = (proj_a / "TODO.md").read_text(encoding="utf-8")
+        self.assertIn("# 🎯 [NEXT] F3:", todo_txt)
+        self.assertLess(todo_txt.index("F4:"), todo_txt.index("F2:"))
+        self.assertLess(todo_txt.index("F1:"), todo_txt.index("F2:"))
+        self.assertLess(todo_txt.index("F2:"), todo_txt.index("F3:"))
+
+        # Local list: blocked NEXT items render with ⏳ [NEXT], chain F3 shows <- start: F1, single-step F2 does not
+        r_list = self._run([str(SCRIPT), "list"], cwd=str(proj_a), check=True)
+        rows = {
+            line.split()[0]: line
+            for line in r_list.stdout.splitlines()
+            if line.startswith("  ")
+        }
+        self.assertIn("🎯 [NEXT]", rows["F4"])
+        self.assertIn("🎯 [NEXT]", rows["F1"])
+        self.assertIn("⏳ [NEXT]", rows["F2"])
+        self.assertIn("[blocked: F1 (NEXT)]", rows["F2"])
+        self.assertNotIn("<- start:", rows["F2"])
+        self.assertIn("⏳ [NEXT]", rows["F3"])
+        self.assertIn("[blocked: F2 (NEXT)] <- start: F1", rows["F3"])
+        self.assertLess(r_list.stdout.index("F4"), r_list.stdout.index("F2"))
+        self.assertLess(r_list.stdout.index("F1"), r_list.stdout.index("F2"))
+        self.assertLess(r_list.stdout.index("F2"), r_list.stdout.index("F3"))
+
+        # Multi-stage Depends on: F1 -> F2 on a single task also surfaces <- start: F1
+        self._run([str(SCRIPT), "add", "Stage task", "--next", "--depends", "F1 -> F2"], cwd=str(proj_a), check=True)
+        r_list_stage = self._run([str(SCRIPT), "list", "NEXT"], cwd=str(proj_a), check=True)
+        stage_line = next(l for l in r_list_stage.stdout.splitlines() if l.strip().startswith("F5"))
+        self.assertIn("⏳ [NEXT]", stage_line)
+        self.assertIn("[blocked: F1 (NEXT), F2 (NEXT)] <- start: F1", stage_line)
+
+        # --ready filters local list to active tasks without unresolved deps
+        r_ready = self._run([str(SCRIPT), "list", "--ready"], cwd=str(proj_a), check=True)
+        self.assertIn("F1", r_ready.stdout)
+        self.assertIn("F4", r_ready.stdout)
+        self.assertNotIn("F2", r_ready.stdout)
+        self.assertNotIn("F3", r_ready.stdout)
+        self.assertNotIn("F5", r_ready.stdout)
+
+        # Cross-project dependency in proj_b + workspace list -w and -w --ready
+        self._run([str(SCRIPT), "add", "Cross ready", "--next"], cwd=str(proj_b), check=True)
+        self._run(
+            [str(SCRIPT), "add", "Cross blocked", "--next", "--depends", "proj_a:F3"],
+            cwd=str(proj_b),
+            check=True,
+        )
+        r_ws = self._run([str(SCRIPT), "list", "-w"], cwd=str(proj_a), check=True)
+        ws_rows = {
+            line.split()[0]: line
+            for line in r_ws.stdout.splitlines()
+            if line.startswith("  ")
+        }
+        self.assertIn("⏳ [NEXT]", ws_rows["proj_a:F3"])
+        self.assertIn("[blocked: F2 (NEXT)] <- start: F1", ws_rows["proj_a:F3"])
+        self.assertIn("⏳ [NEXT]", ws_rows["proj_b:F2"])
+        self.assertIn("[blocked: proj_a:F3 (NEXT)] <- start: proj_a:F1", ws_rows["proj_b:F2"])
+        self.assertIn("🎯 [NEXT]", ws_rows["proj_b:F1"])
+
+        r_ws_ready = self._run([str(SCRIPT), "-w", "list", "NEXT", "--ready"], cwd=str(proj_a), check=True)
+        self.assertIn("proj_a:F1", r_ws_ready.stdout)
+        self.assertIn("proj_a:F4", r_ws_ready.stdout)
+        self.assertIn("proj_b:F1", r_ws_ready.stdout)
+        self.assertNotIn("proj_a:F2", r_ws_ready.stdout)
+        self.assertNotIn("proj_b:F2", r_ws_ready.stdout)
+
+        # Completing F1 unblocks F2 -> F2 becomes ready with [deps: DONE] and moves before F3/F5
+        self._run([str(SCRIPT), "done", "F1", "-m", "d1"], cwd=str(proj_a), check=True)
+        r_after_done = self._run([str(SCRIPT), "list", "-w"], cwd=str(proj_a), check=True)
+        ws_after = {
+            line.split()[0]: line
+            for line in r_after_done.stdout.splitlines()
+            if line.startswith("  ")
+        }
+        self.assertIn("🎯 [NEXT]", ws_after["proj_a:F2"])
+        self.assertIn("[deps: DONE]", ws_after["proj_a:F2"])
+        self.assertIn("⏳ [NEXT]", ws_after["proj_a:F3"])
+        self.assertIn("[blocked: F2 (NEXT)]", ws_after["proj_a:F3"])
+        self.assertNotIn("<- start:", ws_after["proj_a:F3"])
+
+        r_none_ready = self._run([str(SCRIPT), "list", "archive", "--ready"], cwd=str(proj_a), check=True)
+        self.assertIn("No matching tasks (archive, ready)", r_none_ready.stdout)
+
+        # CANCELED blocker does not append <- start: and cycle falls back safely to file order
+        cyc = ws / "cyc_list"
+        cyc.mkdir()
+        self._run([str(SCRIPT), "init"], cwd=str(cyc), check=True)
+        (cyc / "TODO.md").write_text(
+            "# 🎯 [NEXT] F1: Cycle A\n\n- Depends on: F2\n\n"
+            "# 🎯 [NEXT] F2: Cycle B\n\n- Depends on: F1\n\n"
+            "# 🎯 [NEXT] F3: Ready C\n\nBody C\n",
+            encoding="utf-8",
+        )
+        r_cyc_list = self._run([str(SCRIPT), "list"], cwd=str(cyc), check=True)
+        self.assertLess(r_cyc_list.stdout.index("F3"), r_cyc_list.stdout.index("F1"))
+        self.assertLess(r_cyc_list.stdout.index("F1"), r_cyc_list.stdout.index("F2"))
+        self.assertIn("⏳ [NEXT]", r_cyc_list.stdout)
 
     def test_install_sh(self):
         bin_dir = self.tmp / "bin"
