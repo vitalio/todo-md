@@ -200,12 +200,57 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit(f"{prog}: usage: {prog} last [<STATUS|archive>]")
         return cmd_last(base_dir, args[1] if len(args) == 2 else None)
     if args[0] in ("files", "--files"):
-        if len(args) > 2:
-            raise SystemExit(f"{prog}: usage: {prog} files [<ID>]")
-        if len(args) == 2:
-            tdir, tid = resolve_project_task_ref(base_dir, args[1], explicit_dir=explicit_dir)
-            return cmd_files(tdir, tid)
-        return cmd_files(base_dir, None)
+        budgets: dict[str, int | None] = {
+            "--max-lines": None,
+            "--max-total-lines": None,
+            "--max-bytes": None,
+            "--max-total-bytes": None,
+        }
+        pos: list[str] = []
+        i = 1
+        while i < len(args):
+            a = args[i]
+            matched_flag = None
+            raw_val: str | None = None
+            for flag in budgets:
+                if a == flag:
+                    if i + 1 >= len(args):
+                        raise SystemExit(f"{prog}: {flag} requires a positive integer argument")
+                    matched_flag = flag
+                    raw_val = args[i + 1]
+                    i += 2
+                    break
+                if a.startswith(f"{flag}="):
+                    matched_flag = flag
+                    raw_val = a.split("=", 1)[1]
+                    i += 1
+                    break
+            if matched_flag is not None:
+                assert raw_val is not None
+                if not raw_val.isdigit() or int(raw_val) < 1:
+                    raise SystemExit(f"{prog}: invalid {matched_flag} value {raw_val!r}; expected a positive integer")
+                budgets[matched_flag] = int(raw_val)
+            elif a.startswith("-"):
+                raise SystemExit(f"{prog}: unknown option for files: {a}")
+            else:
+                pos.append(a)
+                i += 1
+        if len(pos) > 1:
+            raise SystemExit(
+                f"{prog}: usage: {prog} files [<ID>] [--max-lines N] [--max-total-lines N] [--max-bytes N] [--max-total-bytes N]"
+            )
+        if len(pos) == 1:
+            tdir, tid = resolve_project_task_ref(base_dir, pos[0], explicit_dir=explicit_dir)
+        else:
+            tdir, tid = base_dir, None
+        return cmd_files(
+            tdir,
+            tid,
+            max_lines=budgets["--max-lines"],
+            max_total_lines=budgets["--max-total-lines"],
+            max_bytes=budgets["--max-bytes"],
+            max_total_bytes=budgets["--max-total-bytes"],
+        )
     if args[0] in ("next", "top", "--next", "--top"):
         pos, note = _parse_note_arg(args[1:])
         if args[0] == "--top" and not pos and note is None:

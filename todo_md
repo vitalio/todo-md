@@ -20,6 +20,7 @@
   {prog} ids                                 Print highest task IDs in use and next available ID per prefix
   {prog} next-id | --next-id | --top         Print the top WIP or NEXT task ID in TODO.md
   {prog} files [<ID>] | --files [<ID>]       List existing repository file paths referenced in backticks in task <ID>
+                                             Opts: --max-lines N, --max-total-lines N, --max-bytes N, --max-total-bytes N
   {prog} check                               Validate layout, headings, status badges, and unique IDs
   {prog} init [TEXT] [--force]               Create starter TODO.md (with optional project idea from TEXT/stdin) and TODO_ARCHIVE.md
   {prog} update [--force]                    Self-update {prog} from GitHub (vitalio/todo_md)
@@ -55,7 +56,7 @@ import urllib.request
 from datetime import date
 from pathlib import Path
 
-VERSION = "0.12.0"
+VERSION = "0.13.0"
 REPO_MARKER = "todo_md-repo: vitalio/todo_md"
 DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/vitalio/todo_md/main/todo_md"
 FENCE = chr(96) * 3
@@ -1773,14 +1774,42 @@ def extract_task_files(base_dir: Path, section_text: str) -> list[str]:
     return found
 
 
-def cmd_files(base_dir: Path, task_id: str | None = None) -> int:
+def cmd_files(
+    base_dir: Path,
+    task_id: str | None = None,
+    max_lines: int | None = None,
+    max_total_lines: int | None = None,
+    max_bytes: int | None = None,
+    max_total_bytes: int | None = None,
+) -> int:
     target = task_id.strip().upper() if task_id else resolve_top_task_id(base_dir)
     if not target:
         sys.stderr.write(f"{prog_name()}: no active WIP or NEXT task found in TODO.md under {base_dir}\n")
         return 1
+    has_budget = any(
+        cap is not None for cap in (max_lines, max_total_lines, max_bytes, max_total_bytes)
+    )
+    need_lines = max_lines is not None or max_total_lines is not None
+    repo_root = base_dir.resolve()
+    total_lines = 0
+    total_bytes = 0
     for t in collect_all_tasks(base_dir):
         if str(t["id"]).upper() == target:
             for rel_path in extract_task_files(base_dir, str(t["section"])):
+                if has_budget:
+                    raw = (repo_root / rel_path).read_bytes()
+                    n_bytes = len(raw)
+                    if max_bytes is not None and n_bytes > max_bytes:
+                        continue
+                    if max_total_bytes is not None and total_bytes + n_bytes > max_total_bytes:
+                        continue
+                    n_lines = len(raw.splitlines()) if need_lines else 0
+                    if max_lines is not None and n_lines > max_lines:
+                        continue
+                    if max_total_lines is not None and total_lines + n_lines > max_total_lines:
+                        continue
+                    total_bytes += n_bytes
+                    total_lines += n_lines
                 sys.stdout.write(f"{rel_path}\n")
             return 0
     sys.stderr.write(f"{prog_name()}: task {target!r} not found in TODO*.md under {base_dir}\n")
@@ -1989,12 +2018,57 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit(f"{prog}: usage: {prog} last [<STATUS|archive>]")
         return cmd_last(base_dir, args[1] if len(args) == 2 else None)
     if args[0] in ("files", "--files"):
-        if len(args) > 2:
-            raise SystemExit(f"{prog}: usage: {prog} files [<ID>]")
-        if len(args) == 2:
-            tdir, tid = resolve_project_task_ref(base_dir, args[1], explicit_dir=explicit_dir)
-            return cmd_files(tdir, tid)
-        return cmd_files(base_dir, None)
+        budgets: dict[str, int | None] = {
+            "--max-lines": None,
+            "--max-total-lines": None,
+            "--max-bytes": None,
+            "--max-total-bytes": None,
+        }
+        pos: list[str] = []
+        i = 1
+        while i < len(args):
+            a = args[i]
+            matched_flag = None
+            raw_val: str | None = None
+            for flag in budgets:
+                if a == flag:
+                    if i + 1 >= len(args):
+                        raise SystemExit(f"{prog}: {flag} requires a positive integer argument")
+                    matched_flag = flag
+                    raw_val = args[i + 1]
+                    i += 2
+                    break
+                if a.startswith(f"{flag}="):
+                    matched_flag = flag
+                    raw_val = a.split("=", 1)[1]
+                    i += 1
+                    break
+            if matched_flag is not None:
+                assert raw_val is not None
+                if not raw_val.isdigit() or int(raw_val) < 1:
+                    raise SystemExit(f"{prog}: invalid {matched_flag} value {raw_val!r}; expected a positive integer")
+                budgets[matched_flag] = int(raw_val)
+            elif a.startswith("-"):
+                raise SystemExit(f"{prog}: unknown option for files: {a}")
+            else:
+                pos.append(a)
+                i += 1
+        if len(pos) > 1:
+            raise SystemExit(
+                f"{prog}: usage: {prog} files [<ID>] [--max-lines N] [--max-total-lines N] [--max-bytes N] [--max-total-bytes N]"
+            )
+        if len(pos) == 1:
+            tdir, tid = resolve_project_task_ref(base_dir, pos[0], explicit_dir=explicit_dir)
+        else:
+            tdir, tid = base_dir, None
+        return cmd_files(
+            tdir,
+            tid,
+            max_lines=budgets["--max-lines"],
+            max_total_lines=budgets["--max-total-lines"],
+            max_bytes=budgets["--max-bytes"],
+            max_total_bytes=budgets["--max-total-bytes"],
+        )
     if args[0] in ("next", "top", "--next", "--top"):
         pos, note = _parse_note_arg(args[1:])
         if args[0] == "--top" and not pos and note is None:

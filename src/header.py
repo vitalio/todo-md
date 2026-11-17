@@ -20,6 +20,7 @@
   {prog} ids                                 Print highest task IDs in use and next available ID per prefix
   {prog} next-id | --next-id | --top         Print the top WIP or NEXT task ID in TODO.md
   {prog} files [<ID>] | --files [<ID>]       List existing repository file paths referenced in backticks in task <ID>
+                                             Opts: --max-lines N, --max-total-lines N, --max-bytes N, --max-total-bytes N
   {prog} check                               Validate layout, headings, status badges, and unique IDs
   {prog} init [TEXT] [--force]               Create starter TODO.md (with optional project idea from TEXT/stdin) and TODO_ARCHIVE.md
   {prog} update [--force]                    Self-update {prog} from GitHub (vitalio/todo_md)

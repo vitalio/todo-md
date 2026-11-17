@@ -918,14 +918,42 @@ def extract_task_files(base_dir: Path, section_text: str) -> list[str]:
     return found
 
 
-def cmd_files(base_dir: Path, task_id: str | None = None) -> int:
+def cmd_files(
+    base_dir: Path,
+    task_id: str | None = None,
+    max_lines: int | None = None,
+    max_total_lines: int | None = None,
+    max_bytes: int | None = None,
+    max_total_bytes: int | None = None,
+) -> int:
     target = task_id.strip().upper() if task_id else resolve_top_task_id(base_dir)
     if not target:
         sys.stderr.write(f"{prog_name()}: no active WIP or NEXT task found in TODO.md under {base_dir}\n")
         return 1
+    has_budget = any(
+        cap is not None for cap in (max_lines, max_total_lines, max_bytes, max_total_bytes)
+    )
+    need_lines = max_lines is not None or max_total_lines is not None
+    repo_root = base_dir.resolve()
+    total_lines = 0
+    total_bytes = 0
     for t in collect_all_tasks(base_dir):
         if str(t["id"]).upper() == target:
             for rel_path in extract_task_files(base_dir, str(t["section"])):
+                if has_budget:
+                    raw = (repo_root / rel_path).read_bytes()
+                    n_bytes = len(raw)
+                    if max_bytes is not None and n_bytes > max_bytes:
+                        continue
+                    if max_total_bytes is not None and total_bytes + n_bytes > max_total_bytes:
+                        continue
+                    n_lines = len(raw.splitlines()) if need_lines else 0
+                    if max_lines is not None and n_lines > max_lines:
+                        continue
+                    if max_total_lines is not None and total_lines + n_lines > max_total_lines:
+                        continue
+                    total_bytes += n_bytes
+                    total_lines += n_lines
                 sys.stdout.write(f"{rel_path}\n")
             return 0
     sys.stderr.write(f"{prog_name()}: task {target!r} not found in TODO*.md under {base_dir}\n")

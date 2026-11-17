@@ -1,3 +1,19 @@
+# ✅ [DONE] F15: Limit todo_md files preloading by line and byte budget — *2026-11-17*
+
+- Add optional per-file and total budget flags to `todo_md files [<ID>]`
+  (e.g., `--max-lines N`, `--max-total-lines N`, `--max-bytes N`) in
+  `src/commands.py` (`cmd_files`), `src/cli.py`, and `src/header.py`, keeping
+  bare `todo_md files [<ID>]` backward-compatible with no cap by default.
+- Update `src/bundles/todo_md.bundle` (`role=execute` and `role=audit`) to
+  pass sensible size limits to `todo_md files {task:}` so small target files
+  are preloaded while large files are left for selective `grep`/`sed` reads.
+- Clarify in `src/bundles/todo_md.bundle` (`role=plan`) and
+  `src/rules/todo_md.md` that task bodies should reference target file paths
+  and key symbol names (functions/classes) in backticks rather than brittle
+  line ranges.
+- Sync `README.md` and add unit tests in `tests/test_todo_md.py` covering
+  per-file and total budget filtering.
+
 # ✅ [DONE] F24: Forbid implicit reopening of archived tasks (--reopen and todo_md reopen) — *2026-11-17, forbid implicit reopening, add --reopen and reopen*
 
 - Reject transitions from `TODO_ARCHIVE.md` (`DONE` or `CANCELED`) to active statuses (`WIP`, `NEXT`, `NEW`, `HOLD`, `QUESTION`) in `status` and `next` (and reject re-archiving already archived tasks in `done`, `cancel`, and `archive <ID>`) unless `--reopen` is explicitly passed, exiting non-zero with the current archived status, closing note, and a hint to use `--reopen` or `reopen <ID>`.

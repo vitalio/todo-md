@@ -73,7 +73,11 @@ class TestTodoMd(unittest.TestCase):
         self.assertIn("[if task=] var task=$(todo_md next-id)", bundle_txt)
         self.assertIn("Emit your first run_block in this very first reply", bundle_txt)
         self.assertIn("propose the top task shown in the todo_md overview above", bundle_txt)
-        self.assertIn("include $(todo_md files {task:})", bundle_txt)
+        self.assertIn("include $(todo_md files {task:} --max-lines 400 --max-total-lines 1200 --max-bytes 32768)", bundle_txt)
+        self.assertIn("key symbol names (functions/classes) in backticks", bundle_txt)
+        self.assertIn("--max-total-bytes N", rule_txt)
+        self.assertIn("key symbol names in backticks", rule_txt)
+        self.assertIn("--max-total-lines N", rh.stdout)
         self.assertIn("[if task=last] var task=$(todo_md last-id DONE)", bundle_txt)
         self.assertIn("[if task=DONE] var task=$(todo_md last-id DONE)", bundle_txt)
 
@@ -728,6 +732,56 @@ class TestTodoMd(unittest.TestCase):
         self.assertIn("active status", r_bad_st.stderr)
 
         self._run([str(SCRIPT), "check"], cwd=str(proj), check=True)
+
+    def test_files_budget_options(self):
+        ws = self.tmp / "ws"
+        proj = ws / "proj"
+        proj.mkdir(parents=True)
+        self._run([str(SCRIPT), "init"], cwd=str(proj), check=True)
+
+        (proj / "small_a.py").write_text("\n".join(f"a{i}" for i in range(5)) + "\n", encoding="utf-8")
+        (proj / "big.py").write_text("\n".join(f"b{i}" for i in range(25)) + "\n", encoding="utf-8")
+        (proj / "small_b.py").write_text("\n".join(f"c{i}" for i in range(4)) + "\n", encoding="utf-8")
+        (proj / "wide.txt").write_text("x" * 200 + "\n", encoding="utf-8")
+
+        body = "Inspect `small_a.py`, `big.py`, `small_b.py`, and `wide.txt`."
+        self._run([str(SCRIPT), "add", "Budget test", "--next", "-b", body], cwd=str(proj), check=True)
+
+        # Bare files remains uncapped
+        r_all = self._run([str(SCRIPT), "files", "F1"], cwd=str(proj), check=True)
+        self.assertEqual(r_all.stdout.splitlines(), ["small_a.py", "big.py", "small_b.py", "wide.txt"])
+
+        # Per-file line cap skips big.py while keeping small files
+        r_ml = self._run([str(SCRIPT), "files", "--max-lines", "10", "F1"], cwd=str(proj), check=True)
+        self.assertEqual(r_ml.stdout.splitlines(), ["small_a.py", "small_b.py", "wide.txt"])
+
+        # Per-file byte cap skips big.py and wide.txt
+        r_mb = self._run([str(SCRIPT), "files", "F1", "--max-bytes=50"], cwd=str(proj), check=True)
+        self.assertEqual(r_mb.stdout.splitlines(), ["small_a.py", "small_b.py"])
+
+        # Total line cap skips big.py (5 + 25 > 10) and still fits small_b.py (5 + 4 <= 10) and wide.txt (9 + 1 <= 10)
+        r_mtl = self._run([str(SCRIPT), "files", "--max-total-lines", "10"], cwd=str(proj), check=True)
+        self.assertEqual(r_mtl.stdout.splitlines(), ["small_a.py", "small_b.py", "wide.txt"])
+
+        # Combined total byte cap + project:ID addressing
+        r_mtb = self._run(
+            [str(SCRIPT), "files", "proj:F1", "--max-bytes", "50", "--max-total-bytes", "20"],
+            cwd=str(ws),
+            check=True,
+        )
+        self.assertEqual(r_mtb.stdout.splitlines(), ["small_a.py"])
+
+        # Invalid budget flags fail explicitly
+        for bad_args in (
+            ["files", "F1", "--max-lines", "0"],
+            ["files", "F1", "--max-bytes=abc"],
+            ["files", "F1", "--max-total-lines"],
+            ["files", "F1", "--unknown"],
+            ["files", "F1", "F2"],
+        ):
+            with self.subTest(bad_args=bad_args):
+                proc = self._run([str(SCRIPT), *bad_args], cwd=str(proj))
+                self.assertNotEqual(proc.returncode, 0, msg=proc.stdout)
 
     def test_install_sh(self):
         bin_dir = self.tmp / "bin"
