@@ -52,7 +52,7 @@ Global options accepted before subcommands:
 | :--- | :--- |
 | `todo_md [project] [--full] [-w]` | Print `TODO.md` or workspace (`-w`) overview (supports `<project>` and `<project>:<ID>`) |
 | `todo_md projects` | List discovered workspace projects and their open task counts |
-| `todo_md <ID>` / `todo_md show <ID\|last>` | Show `Task:`, optional `Role:`, and `Workdir:` headers plus full Markdown section for task `<ID>` (or `last [<STATUS\|archive>]`) |
+| `todo_md <ID>` / `todo_md show <ID\|last>` | Show `Task:`, `Title:`, optional `Role:`, and `Workdir:` headers plus full Markdown section for task `<ID>` (or `last [<STATUS\|archive>]`) |
 | `todo_md last [<STATUS\|archive>]` | Show full Markdown section for last task in status/archive (default: `NEW`) |
 | `todo_md last-id [<STATUS\|archive>]` | Print ID of last task in status/archive (default: `NEW`) |
 | `todo_md list [filter] [--role ROLE] [--ready] [--limit N] [--full]` | List tasks (`active`, `archive`, `all`, or `<STATUS>`) with optional role/--ready filter, limit, and full sections |

@@ -189,13 +189,6 @@ def _extract_and_remove_task(text: str, target_id: str) -> tuple[dict[str, objec
     return found_info, new_text
 
 
-def _strip_heading_note(title: str) -> tuple[str, str | None]:
-    m = re.match(r"^(.*?)\s+—\s+\*(.*)\*\s*$", title.strip())
-    if m:
-        return m.group(1).strip(), m.group(2).strip()
-    return title.strip(), None
-
-
 def _format_heading(status: str, tid: str, title: str, note: str | None = None) -> str:
     emoji = VALID_STATUSES[status]
     base_title, existing_note = _strip_heading_note(title)

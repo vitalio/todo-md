@@ -1,8 +1,3 @@
-# 🎯 [NEXT] F30: Emit Title header in todo_md show preamble for downstream bundle and TUI display
-
-- Emit `Title: <base_title>` in `cmd_show` (`src/commands.py`) immediately after `Task: <ID>`, stripping any trailing `— *note*` via `_strip_heading_note` so `Task:` stays the bare ID while `Title:` carries the clean task summary.
-- Sync `src/header.py` (`--help`), `src/rules/todo_md.md`, `README.md`, and `tests/test_todo_md.py`, and rebuild `todo_md` via `python3 build.py`.
-
 # 🎯 [NEXT] D2: Design standalone task file mode (-f / --file) for shortlists and ad-hoc task files
 
 - Role: design

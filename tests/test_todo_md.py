@@ -678,73 +678,81 @@ class TestTodoMd(unittest.TestCase):
         proj_a.mkdir()
         self._run([str(SCRIPT), str(proj_a), "init"], check=True)
 
-        # Prefix defaults: D -> design, F/B -> work, P -> omitted when unset
-        self._run([str(SCRIPT), "add", "D", "Explore architecture", "-b", "Design body"], cwd=str(proj_a), check=True)
+        # Prefix defaults: D -> design, F/B -> work, P -> omitted when unset; heading note stripped from Title:
+        self._run([str(SCRIPT), "add", "D", "Explore architecture", "-m", "rfc draft", "-b", "Design body"], cwd=str(proj_a), check=True)
         self._run([str(SCRIPT), "add", "F", "Implement feature", "-b", "Feature body"], cwd=str(proj_a), check=True)
         self._run([str(SCRIPT), "add", "B", "Fix bug", "-b", "Bug body"], cwd=str(proj_a), check=True)
         self._run([str(SCRIPT), "add", "P", "Idea without role", "-b", "Idea body"], cwd=str(proj_a), check=True)
 
         resolved_proj_a = str(proj_a.resolve())
-        for tid, expected_role in [("D1", "design"), ("F1", "work"), ("B1", "work"), ("P1", None)]:
+        cases = [
+            ("D1", "Explore architecture", "design"),
+            ("F1", "Implement feature", "work"),
+            ("B1", "Fix bug", "work"),
+            ("P1", "Idea without role", None),
+        ]
+        for tid, expected_title, expected_role in cases:
             for cmd in ([str(SCRIPT), tid], [str(SCRIPT), "show", tid]):
                 with self.subTest(tid=tid, cmd=cmd):
                     proc = self._run(cmd, cwd=str(proj_a), check=True)
                     lines = proc.stdout.splitlines()
                     if expected_role is not None:
                         self.assertEqual(
-                            lines[:4],
-                            [f"Task: {tid}", f"Role: {expected_role}", f"Workdir: {resolved_proj_a}", ""],
+                            lines[:5],
+                            [f"Task: {tid}", f"Title: {expected_title}", f"Role: {expected_role}", f"Workdir: {resolved_proj_a}", ""],
                         )
-                        self.assertTrue(lines[4].startswith("# TODO.md:"), msg=proc.stdout)
+                        self.assertTrue(lines[5].startswith("# TODO.md:"), msg=proc.stdout)
                     else:
                         self.assertEqual(
-                            lines[:3],
-                            [f"Task: {tid}", f"Workdir: {resolved_proj_a}", ""],
+                            lines[:4],
+                            [f"Task: {tid}", f"Title: {expected_title}", f"Workdir: {resolved_proj_a}", ""],
                         )
                         self.assertNotIn("Role:", proc.stdout)
-                        self.assertTrue(lines[3].startswith("# TODO.md:"), msg=proc.stdout)
+                        self.assertTrue(lines[4].startswith("# TODO.md:"), msg=proc.stdout)
+        r_d1_note = self._run([str(SCRIPT), "D1"], cwd=str(proj_a), check=True)
+        self.assertIn("# ⚪ [NEW] D1: Explore architecture — *rfc draft*", r_d1_note.stdout)
 
         # Explicit --role overrides prefix fallback and works on unmapped prefixes
         self._run([str(SCRIPT), "add", "F", "Audit task", "--role", "review", "--depends", "D1", "-b", "Review body"], cwd=str(proj_a), check=True)
         r_f2 = self._run([str(SCRIPT), "proj_a:F2"], cwd=str(ws), check=True)
         self.assertEqual(
-            r_f2.stdout.splitlines()[:4],
-            ["Task: F2", "Role: review", f"Workdir: {resolved_proj_a}", ""],
+            r_f2.stdout.splitlines()[:5],
+            ["Task: F2", "Title: Audit task", "Role: review", f"Workdir: {resolved_proj_a}", ""],
         )
         self.assertIn("- Depends on: D1", r_f2.stdout)
 
         # edit --role updates or clears - Role: without dropping - Depends on:
         self._run([str(SCRIPT), "edit", "proj_a:F2", "--role", "plan"], cwd=str(ws), check=True)
         r_f2_plan = self._run([str(SCRIPT), "show", "proj_a:F2"], cwd=str(ws), check=True)
-        self.assertEqual(r_f2_plan.stdout.splitlines()[:2], ["Task: F2", "Role: plan"])
+        self.assertEqual(r_f2_plan.stdout.splitlines()[:3], ["Task: F2", "Title: Audit task", "Role: plan"])
         self.assertIn("- Depends on: D1", r_f2_plan.stdout)
 
         self._run([str(SCRIPT), "edit", "F2", "--role", ""], cwd=str(proj_a), check=True)
         r_f2_cleared = self._run([str(SCRIPT), "F2"], cwd=str(proj_a), check=True)
-        self.assertEqual(r_f2_cleared.stdout.splitlines()[:2], ["Task: F2", "Role: work"])
+        self.assertEqual(r_f2_cleared.stdout.splitlines()[:3], ["Task: F2", "Title: Audit task", "Role: work"])
         self.assertIn("- Depends on: D1", r_f2_cleared.stdout)
 
         self._run([str(SCRIPT), "edit", "P1", "--role", "design"], cwd=str(proj_a), check=True)
         r_p1 = self._run([str(SCRIPT), str(proj_a), "P1"], cwd=str(ws), check=True)
         self.assertEqual(
-            r_p1.stdout.splitlines()[:4],
-            ["Task: P1", "Role: design", f"Workdir: {resolved_proj_a}", ""],
+            r_p1.stdout.splitlines()[:5],
+            ["Task: P1", "Title: Idea without role", "Role: design", f"Workdir: {resolved_proj_a}", ""],
         )
 
         # Fenced - Role: inside code block does not override prefix role
         fenced_body = "`" * 3 + "markdown\n- Role: custom\n" + "`" * 3 + "\nDetails."
         self._run([str(SCRIPT), "add", "F", "Fenced role test", "-b", fenced_body], cwd=str(proj_a), check=True)
         r_f3 = self._run([str(SCRIPT), "F3"], cwd=str(proj_a), check=True)
-        self.assertEqual(r_f3.stdout.splitlines()[:2], ["Task: F3", "Role: work"])
+        self.assertEqual(r_f3.stdout.splitlines()[:3], ["Task: F3", "Title: Fenced role test", "Role: work"])
 
         # last / show last emit headers too
         r_last = self._run([str(SCRIPT), "show", "last"], cwd=str(proj_a), check=True)
         self.assertEqual(
-            r_last.stdout.splitlines()[:4],
-            ["Task: F3", "Role: work", f"Workdir: {resolved_proj_a}", ""],
+            r_last.stdout.splitlines()[:5],
+            ["Task: F3", "Title: Fenced role test", "Role: work", f"Workdir: {resolved_proj_a}", ""],
         )
 
-        # Overview and list commands remain unchanged (no Task:/Role:/Workdir: headers)
+        # Overview and list commands remain unchanged (no Task:/Title:/Role:/Workdir: headers)
         for cmd in (
             [str(SCRIPT)],
             [str(SCRIPT), "--full"],
@@ -753,9 +761,11 @@ class TestTodoMd(unittest.TestCase):
             r_ov = self._run(cmd, cwd=str(proj_a), check=True)
             self.assertNotIn("Workdir:", r_ov.stdout, msg=f"cmd={cmd}")
             self.assertNotIn("Task:", r_ov.stdout, msg=f"cmd={cmd}")
+            self.assertNotIn("Title:", r_ov.stdout, msg=f"cmd={cmd}")
         r_ws = self._run([str(SCRIPT), "-w"], cwd=str(ws), check=True)
         self.assertNotIn("Workdir:", r_ws.stdout)
         self.assertNotIn("Task:", r_ws.stdout)
+        self.assertNotIn("Title:", r_ws.stdout)
 
         # Invalid multi-line --role fails explicitly
         r_bad_role = self._run([str(SCRIPT), "add", "Bad role", "--role", "a\nb"], cwd=str(proj_a))

@@ -24,7 +24,7 @@
     overview: full `WIP`/`NEXT`/`QUESTION`, or first `NEW`/`HOLD` task when none
     exist, + compact backlog; supports `<project>:<ID>` and `<project>` addressing),
     `{cmd:todo_md} projects` (list workspace projects and open counts), `{cmd:todo_md} <ID>` /
-    `{cmd:todo_md} show <ID|last> [<STATUS|archive>]` (prints `Task:`, optional `Role:`,
+    `{cmd:todo_md} show <ID|last> [<STATUS|archive>]` (prints `Task:`, `Title:`, optional `Role:`,
     and `Workdir:` headers before `# TODO*.md:<line>`),
     `{cmd:todo_md} last [<STATUS|archive>]` (default: `NEW`),
     `{cmd:todo_md} last-id [<STATUS|archive>]` (default: `NEW`),

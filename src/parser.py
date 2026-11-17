@@ -844,6 +844,13 @@ def cmd_last(base_dir: Path, filt: str | None = None) -> int:
     return cmd_show(base_dir, tid)
 
 
+def _strip_heading_note(title: str) -> tuple[str, str | None]:
+    m = re.match(r"^(.*?)\s+—\s+\*(.*)\*\s*$", title.strip())
+    if m:
+        return m.group(1).strip(), m.group(2).strip()
+    return title.strip(), None
+
+
 def cmd_show(base_dir: Path, task_id: str) -> int:
     target = task_id.strip().upper()
     top = highest_ids_in_use(base_dir)
@@ -851,9 +858,10 @@ def cmd_show(base_dir: Path, task_id: str) -> int:
     for t in collect_all_tasks(base_dir):
         if str(t["id"]).upper() == target:
             tid = str(t["id"]).upper()
+            base_title, _ = _strip_heading_note(str(t["title"]))
             section = str(t["section"])
             role = resolve_task_role(tid, section)
-            header_lines = [f"Task: {tid}"]
+            header_lines = [f"Task: {tid}", f"Title: {base_title}"]
             if role:
                 header_lines.append(f"Role: {role}")
             header_lines.append(f"Workdir: {workdir}")

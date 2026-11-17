@@ -4,7 +4,7 @@
   {prog} [-C DIR|PROJ] [command] [opts]    Run any command against a target directory or workspace project
   {prog} [dir|project] [--full] [-w]         Print TODO.md or workspace overview (full WIP/NEXT/QUESTION or first task + compact)
   {prog} projects                            List discovered workspace projects and open task counts
-  {prog} <ID> | show <ID|last>               Show task <ID> with Task/Role/Workdir headers (or last [<STATUS|archive>], supports <project>:<ID>)
+  {prog} <ID> | show <ID|last>               Show task <ID> with Task/Title/Role/Workdir headers (or last [<STATUS|archive>], supports <project>:<ID>)
   {prog} last [<STATUS|archive>]           Show full section for last task in status/archive (default: NEW)
   {prog} last-id [<STATUS|archive>]        Print ID of last task in status/archive (default: NEW)
   {prog} list [filter] [opts]                List tasks (active | archive | all | <STATUS>; opts: --role ROLE, --ready, --limit N, --full)

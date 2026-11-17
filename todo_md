@@ -4,7 +4,7 @@
   {prog} [-C DIR|PROJ] [command] [opts]    Run any command against a target directory or workspace project
   {prog} [dir|project] [--full] [-w]         Print TODO.md or workspace overview (full WIP/NEXT/QUESTION or first task + compact)
   {prog} projects                            List discovered workspace projects and open task counts
-  {prog} <ID> | show <ID|last>               Show task <ID> with Task/Role/Workdir headers (or last [<STATUS|archive>], supports <project>:<ID>)
+  {prog} <ID> | show <ID|last>               Show task <ID> with Task/Title/Role/Workdir headers (or last [<STATUS|archive>], supports <project>:<ID>)
   {prog} last [<STATUS|archive>]           Show full section for last task in status/archive (default: NEW)
   {prog} last-id [<STATUS|archive>]        Print ID of last task in status/archive (default: NEW)
   {prog} list [filter] [opts]                List tasks (active | archive | all | <STATUS>; opts: --role ROLE, --ready, --limit N, --full)
@@ -67,7 +67,7 @@ import tempfile
 from datetime import date
 from pathlib import Path
 
-VERSION = "0.16.0"
+VERSION = "0.17.0"
 REPO_MARKER = "todo_md-repo: vitalio/todo_md"
 DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/vitalio/todo_md/main/todo_md"
 FENCE = chr(96) * 3
@@ -982,6 +982,13 @@ def cmd_last(base_dir: Path, filt: str | None = None) -> int:
     return cmd_show(base_dir, tid)
 
 
+def _strip_heading_note(title: str) -> tuple[str, str | None]:
+    m = re.match(r"^(.*?)\s+—\s+\*(.*)\*\s*$", title.strip())
+    if m:
+        return m.group(1).strip(), m.group(2).strip()
+    return title.strip(), None
+
+
 def cmd_show(base_dir: Path, task_id: str) -> int:
     target = task_id.strip().upper()
     top = highest_ids_in_use(base_dir)
@@ -989,9 +996,10 @@ def cmd_show(base_dir: Path, task_id: str) -> int:
     for t in collect_all_tasks(base_dir):
         if str(t["id"]).upper() == target:
             tid = str(t["id"]).upper()
+            base_title, _ = _strip_heading_note(str(t["title"]))
             section = str(t["section"])
             role = resolve_task_role(tid, section)
-            header_lines = [f"Task: {tid}"]
+            header_lines = [f"Task: {tid}", f"Title: {base_title}"]
             if role:
                 header_lines.append(f"Role: {role}")
             header_lines.append(f"Workdir: {workdir}")
@@ -1647,13 +1655,6 @@ def _extract_and_remove_task(text: str, target_id: str) -> tuple[dict[str, objec
     remaining = lines[:start_idx] + lines[end_idx:]
     new_text = re.sub(r"\n{3,}", "\n\n", "\n".join(remaining).rstrip()) + "\n"
     return found_info, new_text
-
-
-def _strip_heading_note(title: str) -> tuple[str, str | None]:
-    m = re.match(r"^(.*?)\s+—\s+\*(.*)\*\s*$", title.strip())
-    if m:
-        return m.group(1).strip(), m.group(2).strip()
-    return title.strip(), None
 
 
 def _format_heading(status: str, tid: str, title: str, note: str | None = None) -> str:
