@@ -1,3 +1,14 @@
+# 🎯 [NEXT] F40: Add --by-role execution queue mode to todo_md chain
+
+- Role: work
+- Add a role-tiered queue planner helper (e.g. `plan_execution_chains_by_role()` in `src/parser.py`) over `build_execution_chain_dag()` that partitions active non-held tasks into four topologically sorted queues:
+  1. `Queue 1 (work)`: `role == "work"` with no open transitive dependencies or all transitive dependencies also in `work`.
+  2. `Queue 2 (plan)`: `role == "plan"` with no open transitive dependencies or transitive dependencies in `work`/`plan`.
+  3. `Queue 3 (design)`: `role == "design"`.
+  4. `Queue 4 (deferred work)`: remaining `work` tasks blocked by `plan`/`design` prerequisites (omitted when `--ready` is active).
+- Add `--by-role` option to `todo_md chain` in `main()` (`src/cli.py`) and `cmd_chain()` (`src/commands.py`), reusing `_format_row()` (`[role]`, `[ready]` / `[blocked by: ...]`, `[unblocks N]`) and composing cleanly with `-w`, `--ready`, `--role`, `--limit`, and `--include-hold`.
+- Keep `src/header.py` (`--help`), `src/rules/todo_md.md`, `README.md`, and `tests/test_todo_md.py` in sync, rebuild `./todo_md` via `build.py` (and reinstall via `install.sh` if applicable), and bump `VERSION` for a MINOR release.
+
 # 🎯 [NEXT] F36: Remove bundle vitalio/run_block from .agents_bundle
 
 - Remove `bundle vitalio/run_block` from `.agents_bundle` once `run_block` embeds its own block execution rules.
@@ -9,6 +20,8 @@
 - Document standard task ID prefixes (`F`, `B`, `D`) and custom `A-Z` prefix conventions in `src/rules/todo_md.md`.
 - Update `src/bundles/todo_md.bundle` (`[if role=design]`) so design tasks (`D*`) are closed via `todo_md done <ID>` once architectural invariants are persisted in `AGENTS.md` and follow-up `F*` implementation tasks are created.
 - Rebuild and reinstall `todo_md` via `build.py` and `install.sh`, keep `README.md` and `tests/test_todo_md.py` in sync, and bump `VERSION` for a PATCH release.
+
+- Document in `src/rules/todo_md.md` (and `src/bundles/todo_md.bundle` planning prompt) that non-`D` tasks (`F`/`B`/custom) still lacking backticked target files, a chosen approach, or acceptance criteria must be created/edited with `--role plan` explicitly rather than leaving the default `work` role.
 
 # 🎯 [NEXT] D3: Design explicit HOLD task review workflow and reverse dependency visibility
 
@@ -76,4 +89,8 @@ Allow exporting parsed tasks as JSON for scripting.
 - Define optional filtering by chain name (`todo_md chain "<name>"`) and coordinate questline naming conventions with `AGENTS.md` Quest-Log UX (`F37`) and orchestrator wave summaries.
 - Target files for downstream implementation: `src/parser.py`, `src/commands.py`, `src/cli.py`, `src/header.py`, `src/rules/todo_md.md`, `README.md`, `tests/test_todo_md.py`.
 
-- Role-tiered queue mode: evaluate adding a role-grouped execution map mode (e.g. `--by-role` or `map` subcommand) that orders tasks into Queue 1 (`work` with only `work` prerequisites), Queue 2 (`plan` with `work`/`plan` prerequisites), and Queue 3 (`design`), sorted topologically within each queue.
+# ⚪ [NEW] F41: Show downstream next tasks in todo_md chain --ready output
+
+- Role: work
+- Update the `ready` rendering branch in `cmd_chain()` (`src/commands.py`) using `dependents` from `build_execution_chain_dag()` (`src/parser.py`) so each ready row with `[unblocks N]` also displays its immediate (or downstream) unblocked targets (for example `[ready | unblocks 3 -> F54, F68, ...]` or `leads to: ...`), giving chain continuation context without leaving `--ready`.
+- Keep `src/header.py` (`--help`), `README.md`, and `tests/test_todo_md.py` in sync, rebuild `./todo_md` via `build.py`, and bump `VERSION` for a PATCH release.
