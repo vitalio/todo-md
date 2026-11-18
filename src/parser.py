@@ -1141,6 +1141,13 @@ def validate_all(base_dir: Path) -> tuple[list[str], int]:
                     seen_ids[tid] = loc
                 if fname == "TODO.md" and has_archive and status in ("DONE", "CANCELED"):
                     errors.append(f"{loc}: {status} task {tid} should be moved to TODO_ARCHIVE.md")
+                if fname == "TODO.md" and status not in ("DONE", "CANCELED"):
+                    _, heading_note = _strip_heading_note(title)
+                    if heading_note and STALE_COMPLETION_NOTE_RE.match(heading_note):
+                        errors.append(
+                            f"{loc}: active task {tid} [{status}] retains completion date note "
+                            f"'— *{heading_note}*' (move it back to TODO_ARCHIVE.md or clear the stale note)"
+                        )
                 if fname == "TODO_ARCHIVE.md" and status not in ("DONE", "CANCELED"):
                     errors.append(f"{loc}: non-archived status [{status}] on task {tid} in TODO_ARCHIVE.md")
 

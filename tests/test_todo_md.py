@@ -1694,5 +1694,66 @@ class TestTodoMd(unittest.TestCase):
         r_done_b = self._run([str(SCRIPT), "done", "F1", "-m", "db1"], cwd=str(repo_b), check=True)
         self.assertIn("Unblocked: .todo_projects:F1", r_done_b.stdout)
 
+    def test_check_detects_stale_completion_date_note_on_active_tasks(self):
+        self._run([str(SCRIPT), "init"], check=True)
+        self._run([str(SCRIPT), "add", "Valid priority note", "--next", "-m", "top priority"], check=True)
+        self._run([str(SCRIPT), "add", "Target milestone", "-m", "target 2026-12-01"], check=True)
+        fenced_example = "`" * 3 + "markdown\n# ⚪ [NEW] F99: Fenced — *2026-11-18*\n" + "`" * 3
+        self._run([str(SCRIPT), "add", "Fenced snippet", "-b", fenced_example], check=True)
+        self._run([str(SCRIPT), "add", "Archived item"], check=True)
+        self._run([str(SCRIPT), "done", "F4", "-m", "completed cleanly"], check=True)
+        self._run([str(SCRIPT), "check"], check=True)
+
+        # Active tasks with stale completion date stamps fail check across active statuses
+        for status, emoji, note in (
+            ("NEW", "⚪", "2026-11-18"),
+            ("WIP", "🔵", "2026-11-18, commit abc1234"),
+            ("NEXT", "🎯", "2026-11-18 — implemented"),
+            ("HOLD", "⏸️", "2026-11-18"),
+            ("QUESTION", "❓", "2026-11-18, check"),
+        ):
+            with self.subTest(status=status, note=note):
+                case_dir = self.tmp / f"stale_{status.lower()}"
+                case_dir.mkdir()
+                self._run([str(SCRIPT), "init"], cwd=str(case_dir), check=True)
+                (case_dir / "TODO.md").write_text(
+                    f"# {emoji} [{status}] F1: Reverted task — *{note}*\n\nBody text.\n",
+                    encoding="utf-8",
+                )
+                r_chk = self._run([str(SCRIPT), "check"], cwd=str(case_dir))
+                self.assertNotEqual(r_chk.returncode, 0, msg=r_chk.stdout)
+                self.assertIn("TODO.md:1", r_chk.stderr)
+                self.assertIn("F1", r_chk.stderr)
+                self.assertIn(note, r_chk.stderr)
+                self.assertIn("TODO_ARCHIVE.md", r_chk.stderr)
+                self.assertIn("clear the stale note", r_chk.stderr)
+
+                # Automatic post-mutation validation also catches the stale note
+                r_app = self._run([str(SCRIPT), "append", "F1", "-b", "Extra line"], cwd=str(case_dir))
+                self.assertNotEqual(r_app.returncode, 0, msg=r_app.stdout)
+                self.assertIn("TODO_ARCHIVE.md", r_app.stderr)
+
+        # Clearing the stale note via edit -m "" or moving back via done resolves the error
+        fix_clear = self.tmp / "fix_clear"
+        fix_clear.mkdir()
+        self._run([str(SCRIPT), "init"], cwd=str(fix_clear), check=True)
+        (fix_clear / "TODO.md").write_text(
+            "# ⚪ [NEW] F1: Reopened manually — *2026-11-18, old sha*\n\nBody.\n",
+            encoding="utf-8",
+        )
+        self._run([str(SCRIPT), "edit", "F1", "-m", ""], cwd=str(fix_clear), check=True)
+        self._run([str(SCRIPT), "check"], cwd=str(fix_clear), check=True)
+
+        fix_arch = self.tmp / "fix_arch"
+        fix_arch.mkdir()
+        self._run([str(SCRIPT), "init"], cwd=str(fix_arch), check=True)
+        (fix_arch / "TODO.md").write_text(
+            "# ⚪ [NEW] F1: Accidentally restored — *2026-11-18*\n\nBody.\n",
+            encoding="utf-8",
+        )
+        self._run([str(SCRIPT), "done", "F1"], cwd=str(fix_arch), check=True)
+        self._run([str(SCRIPT), "check"], cwd=str(fix_arch), check=True)
+
+
 if __name__ == "__main__":
     unittest.main()

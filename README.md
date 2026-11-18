@@ -70,7 +70,7 @@ Global options accepted before subcommands:
 | `todo_md chain [--ready] [--limit N] [--include-hold]` | Show connected dependency chains and standalone tasks ranked by unblock impact (`-w` for workspace; `--ready` for actionable tasks only) |
 | `todo_md next-id [<ID>]` / `--top` | Print the top `WIP`/`NEXT` task ID, or first ready task ID in `<ID>`'s queue |
 | `todo_md files [<ID>] [opts]` | List existing repo file paths referenced in backticks in task `<ID>` (`--max-lines N`, `--max-total-lines N`, `--max-bytes N`, `--max-total-bytes N`) |
-| `todo_md check` | Validate task headings, status badges, and unique IDs across `TODO*.md` |
+| `todo_md check` | Validate task headings, status badges, unique IDs, dependencies, and reject stale completion date notes on active tasks across `TODO*.md` |
 | `todo_md init [TEXT] [--force]` | Create starter `TODO.md` (with optional project idea from `TEXT` or `stdin`) and `TODO_ARCHIVE.md` |
 | `todo_md update [--force]` | Self-update `todo_md` from GitHub (`vitalio/todo_md`) |
 | `todo_md check-update` | Check GitHub for a newer version |

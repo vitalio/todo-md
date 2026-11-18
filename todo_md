@@ -68,7 +68,7 @@ import tempfile
 from datetime import date
 from pathlib import Path
 
-VERSION = "0.19.0"
+VERSION = "0.19.1"
 REPO_MARKER = "todo_md-repo: vitalio/todo_md"
 DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/vitalio/todo_md/main/todo_md"
 FENCE = chr(96) * 3
@@ -96,6 +96,7 @@ TASK_FILES = ("TODO.md", "TODO_ARCHIVE.md")
 HEADING_RE = re.compile(
     r"^#\s+(🔵|🎯|⚪|⏸️?|❓|✅|❌)\s+`?\[(WIP|NEXT|NEW|HOLD|QUESTION|DONE|CANCELED)\]`?\s+([A-Z]\d+)\s*:\s*(.+?)\s*$"
 )
+STALE_COMPLETION_NOTE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}(?:\b|$)")
 STATUS_TOKEN_PAT = r"(?:(?:🔵|🎯|⚪|⏸️?|❓|✅|❌)\s+)?`?\[(?:WIP|NEXT|NEW|HOLD|QUESTION|DONE|CANCELED)\]`?"
 ANY_ID_RE = re.compile(
     rf"^(?:#\s+(?:{STATUS_TOKEN_PAT}\s+|[-*o?+c]\s+)?|(?:- \[[ xX~]\]\s+(?:{STATUS_TOKEN_PAT}\s+)?|- |[*o?+c] ))([A-Z]\d+)\b"
@@ -1280,6 +1281,13 @@ def validate_all(base_dir: Path) -> tuple[list[str], int]:
                     seen_ids[tid] = loc
                 if fname == "TODO.md" and has_archive and status in ("DONE", "CANCELED"):
                     errors.append(f"{loc}: {status} task {tid} should be moved to TODO_ARCHIVE.md")
+                if fname == "TODO.md" and status not in ("DONE", "CANCELED"):
+                    _, heading_note = _strip_heading_note(title)
+                    if heading_note and STALE_COMPLETION_NOTE_RE.match(heading_note):
+                        errors.append(
+                            f"{loc}: active task {tid} [{status}] retains completion date note "
+                            f"'— *{heading_note}*' (move it back to TODO_ARCHIVE.md or clear the stale note)"
+                        )
                 if fname == "TODO_ARCHIVE.md" and status not in ("DONE", "CANCELED"):
                     errors.append(f"{loc}: non-archived status [{status}] on task {tid} in TODO_ARCHIVE.md")
 

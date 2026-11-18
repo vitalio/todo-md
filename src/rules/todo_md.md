@@ -71,7 +71,9 @@
     `{cmd:todo_md} cancel <ID> [-m "<reason>"] [-c|--commit]`
   - Validation & commits: mutating commands automatically validate and reorder
     `TODO.md` without git-committing by default (run `{cmd:todo_md} check` to
-    validate manually):
+    validate manually; rejects stale completion date notes `— *YYYY-MM-DD...*`
+    on active tasks in `TODO.md` so they are moved back to `TODO_ARCHIVE.md`
+    or cleared):
     - `role=execute`: do not pass `-c` / `--commit`; stage `TODO.md` and
       `TODO_ARCHIVE.md` into the final code commit so `done` is atomic with
       implementation.
