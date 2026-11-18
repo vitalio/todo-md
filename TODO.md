@@ -66,3 +66,11 @@ Allow exporting parsed tasks as JSON for scripting.
 - In `cmd_chain()` (`src/commands.py`), highlight the target task brightly in bold across `Chain: ...` headers, task rows (`chains`, `standalone`, `--ready`), and `Held branches:` paths.
 - In `cmd_list()` and `cmd_workspace_list()` (`src/parser.py`), highlight matching task rows brightly in bold in both table mode and `--tree` view.
 - Keep `src/header.py` (`--help`), `src/rules/todo_md.md`, `README.md`, and `tests/test_todo_md.py` in sync, rebuild `./todo_md` via `build.py`, and bump `VERSION` for a MINOR release.
+
+# ⚪ [NEW] D4: Design named execution chains, milestone sub-grouping, and questline clarity in todo_md chain
+
+- Role: design
+- Explore adding human-readable names to `todo_md chain` headers (both automatic derivation from a chain's terminal goal task title when unique and an optional explicit `- Chain: <name>` / `--chain` metadata field as override) instead of printing only long `A -> B -> C` ID lists.
+- Evaluate splitting or labeling large merged weakly-connected components (such as multi-wave orchestrator DAGs) by milestone/goal sub-chains (`wave` / `queue`-style subtrees) and distinguishing quick `work` side-quests from `design` tasks in `Standalone tasks:`.
+- Define optional filtering by chain name (`todo_md chain "<name>"`) and coordinate questline naming conventions with `AGENTS.md` Quest-Log UX (`F37`) and orchestrator wave summaries.
+- Target files for downstream implementation: `src/parser.py`, `src/commands.py`, `src/cli.py`, `src/header.py`, `src/rules/todo_md.md`, `README.md`, `tests/test_todo_md.py`.
