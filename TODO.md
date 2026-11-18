@@ -1,3 +1,7 @@
+# 🎯 [NEXT] F36: Remove bundle vitalio/run_block from .agents_bundle
+
+- Remove `bundle vitalio/run_block` from `.agents_bundle` once `run_block` embeds its own block execution rules.
+
 # 🎯 [NEXT] F17: Add CLI prefix legend (F, B, D) and document prefix conventions and design lifecycle
 
 - Define a single canonical prefix metadata table in `src/header.py` (alongside `PREFIX_DEFAULT_ROLES`) mapping standard prefixes `F` (feature, default, role `work`), `B` (bugfix, role `work`), and `D` (design, role `design`) to their descriptions and default roles.
