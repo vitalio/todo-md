@@ -3,6 +3,25 @@
 Universal workflow, language, Git, SemVer, Python CLI, and single-file build
 rules are loaded via `.agents_bundle`.
 
+## Product Philosophy & Quest-Log UX
+
+- Quest-log mental model: build `todo_md` around the clarity and progression
+  feel of an RPG quest journal rather than a flat checklist. Every CLI view
+  (`overview`, `list`, `show`, `queue`, `chain`, `done`) should immediately
+  answer what is actionable now, what is locked, why it is locked, and what
+  completing it unlocks next.
+- At-a-glance state & unlock visibility: distinguish ready quests (`🎯 [NEXT]`,
+  `[ready]`), locked quests (`⏳ [NEXT]`, `[blocked: ...]`), waiting conditions
+  (`⏸️ [HOLD]`), and completed quests (`✅ [DONE]`) using compact visual
+  badges, dependency chains (`->`, `├─`, `└─`), and downstream impact
+  indicators (`[unblocks N]`, `Blocks: ...`).
+- Progressive disclosure: keep default views compact and scannable while
+  letting users drill into full quest details, dependency trees (`--tree`),
+  and execution paths (`queue`, `chain`, `--full`) on demand.
+- Unlock feedback loop: closing a quest (`todo_md done <ID>`) should report
+  newly unlocked downstream quests (`Unblocked: ...`) so the next playable
+  step is obvious without manually re-scanning the backlog.
+
 ## Architecture & Module Boundaries
 
 - `src/header.py` — CLI usage docstring (`-h`/`--help`), standard library
