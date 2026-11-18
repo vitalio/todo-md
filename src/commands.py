@@ -1067,6 +1067,7 @@ def cmd_chain(
     limit: int | None = None,
     include_hold: bool = False,
     ready: bool = False,
+    role: str | None = None,
     workspace: bool = False,
     explicit_dir: str | None = None,
 ) -> int:
@@ -1108,7 +1109,7 @@ def cmd_chain(
         dag,
         include_hold=include_hold,
         ready_only=ready,
-        limit=limit,
+        limit=(None if role is not None else limit),
     )
     active_nodes: list[tuple[Path, str]] = plan["active_nodes"]  # type: ignore[assignment]
     active_unblocks: dict[tuple[Path, str], int] = plan["active_unblocks"]  # type: ignore[assignment]
@@ -1129,6 +1130,13 @@ def cmd_chain(
                 sys.stderr.write(f"ERROR: unresolved blocker {nodes[u]['ref']} ({st})\n")
 
     term_width = _get_terminal_columns()
+    wanted_role = role.strip().lower() if role is not None else None
+
+    def _matches_role(u: tuple[Path, str]) -> bool:
+        if wanted_role is None:
+            return True
+        nd = nodes[u]
+        return bool(nd.get("exists")) and _task_matches_role(nd, wanted_role)
 
     def _format_row(idx: int, u: tuple[Path, str]) -> str:
         nd = nodes[u]
@@ -1146,27 +1154,56 @@ def cmd_chain(
             emoji = "⏳" if (st in ("WIP", "NEXT") and blockers) else str(nd["emoji"])
             badge = f"{emoji} [{st}]"
             marker = f"[blocked by: {', '.join(blockers)}]" if blockers else "[ready]"
+        role_badge = _task_role_badge(nd) if nd.get("exists") else ""
         impact = active_unblocks.get(u, 0)
         impact_tag = f" [unblocks {impact}]" if impact > 0 else ""
-        prefix = f"  {idx:>2}. {_pad_display(ref, 20)}  {_pad_display(badge, 14)}  "
+        prefix = (
+            f"  {idx:>2}. {_pad_display(ref, 20)}  "
+            f"{_pad_display(badge, 14)}  "
+            f"{_pad_display(role_badge, 10)}  "
+        )
         desc = f"{title}  {marker}{impact_tag}"
         return _wrap_table_row(prefix, desc, term_width) + "\n"
 
     if ready:
         ready_tasks: list[tuple[Path, str]] = plan["ready_tasks"]  # type: ignore[assignment]
+        if wanted_role is not None:
+            ready_tasks = [u for u in ready_tasks if _matches_role(u)]
+            if limit is not None:
+                ready_tasks = ready_tasks[:limit]
+        matching_held = [u for u in excluded_hold if _matches_role(u)]
         if ready_tasks:
             sys.stdout.write("Ready tasks:\n")
             for idx, u in enumerate(ready_tasks, start=1):
                 sys.stdout.write(_format_row(idx, u))
-        elif excluded_hold:
+        elif matching_held:
+            role_note = f" matching role={role.strip()}" if role is not None else ""
             sys.stdout.write(
-                f"Ready tasks: (none — {len(excluded_hold)} held task(s); pass --include-hold to include)\n"
+                f"Ready tasks: (none{role_note} — {len(matching_held)} held task(s); pass --include-hold to include)\n"
             )
+        elif role is not None:
+            sys.stdout.write(f"Ready tasks: (none matching role={role.strip()})\n")
         else:
             sys.stdout.write("Ready tasks: (none)\n")
     else:
         chains: list[list[tuple[Path, str]]] = plan["chains"]  # type: ignore[assignment]
         standalone: list[tuple[Path, str]] = plan["standalone"]  # type: ignore[assignment]
+        if wanted_role is not None:
+            chains = [[u for u in comp if _matches_role(u)] for comp in chains]
+            chains = [comp for comp in chains if comp]
+            standalone = [u for u in standalone if _matches_role(u)]
+            if limit is not None:
+                rem = limit
+                limited_chains: list[list[tuple[Path, str]]] = []
+                for comp in chains:
+                    if rem <= 0:
+                        break
+                    take = comp[:rem]
+                    limited_chains.append(take)
+                    rem -= len(take)
+                standalone = standalone[:rem] if rem > 0 else []
+                chains = limited_chains
+        matching_held = [u for u in excluded_hold if _matches_role(u)]
         if chains or standalone:
             row_idx = 1
             wrote_section = False
@@ -1186,10 +1223,13 @@ def cmd_chain(
                 for u in standalone:
                     sys.stdout.write(_format_row(row_idx, u))
                     row_idx += 1
-        elif excluded_hold:
+        elif matching_held:
+            role_note = f" matching role={role.strip()}" if role is not None else ""
             sys.stdout.write(
-                f"Chain: (none — {len(excluded_hold)} held task(s); pass --include-hold to include)\n"
+                f"Chain: (none{role_note} — {len(matching_held)} held task(s); pass --include-hold to include)\n"
             )
+        elif role is not None:
+            sys.stdout.write(f"Chain: (none matching role={role.strip()})\n")
         else:
             sys.stdout.write("Chain: (none)\n")
 
@@ -1212,9 +1252,13 @@ def cmd_chain(
         for r in branch_roots:
             _collect_held_paths(r, [r])
 
-        sys.stdout.write("\nHeld branches:\n")
-        for path in held_paths:
-            rendered = " -> ".join(f"{nodes[k]['ref']} ({nodes[k]['status']})" for k in path)
-            sys.stdout.write(f"  {rendered}\n")
+        if wanted_role is not None:
+            held_paths = [path for path in held_paths if any(_matches_role(k) for k in path)]
+
+        if held_paths:
+            sys.stdout.write("\nHeld branches:\n")
+            for path in held_paths:
+                rendered = " -> ".join(f"{nodes[k]['ref']} ({nodes[k]['status']})" for k in path)
+                sys.stdout.write(f"  {rendered}\n")
 
     return 1 if had_blocker_error else 0

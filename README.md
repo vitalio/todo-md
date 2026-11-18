@@ -67,7 +67,7 @@ Global options accepted before subcommands:
 | `todo_md cancel <ID> [-m REASON]` | Mark task `<ID>` as `❌ [CANCELED]` and move it to `TODO_ARCHIVE.md` |
 | `todo_md ids` | Print highest task IDs in use and next free ID per letter prefix |
 | `todo_md queue <ID> [--all]` | Show topologically sorted execution queue for `<ID>` (use `--all` to include `DONE`) |
-| `todo_md chain [--ready] [--limit N] [--include-hold]` | Show connected dependency chains and standalone tasks ranked by unblock impact (`-w` for workspace; `--ready` for actionable tasks only) |
+| `todo_md chain [--role ROLE] [--ready] [--limit N] [--include-hold]` | Show connected dependency chains and standalone tasks with `[role]` badges ranked by unblock impact (`-w` for workspace; `--role` to filter by role; `--ready` for actionable tasks only) |
 | `todo_md next-id [<ID>]` / `--top` | Print the top `WIP`/`NEXT` task ID, or first ready task ID in `<ID>`'s queue |
 | `todo_md files [<ID>] [opts]` | List existing repo file paths referenced in backticks in task `<ID>` (`--max-lines N`, `--max-total-lines N`, `--max-bytes N`, `--max-total-bytes N`) |
 | `todo_md check` | Validate task headings, status badges, unique IDs, dependencies, and reject stale completion date notes on active tasks across `TODO*.md` |

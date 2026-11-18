@@ -40,9 +40,11 @@
     `{cmd:todo_md} queue <ID> [--all]` (topologically sorted execution queue;
     hides `DONE` unless `--all` is passed; prints `[ready]` / `[blocked by: ...]`
     and `Next actionable: <ref>`),
-    `{cmd:todo_md} chain [--ready] [--limit N] [--include-hold]` (local or `-w`
-    workspace dependency chains `A -> B -> C` separated from standalone tasks,
-    ranked by critical-path unblock impact `[unblocks N]`; `--ready` filters to
+    `{cmd:todo_md} chain [--role <role>] [--ready] [--limit N] [--include-hold]`
+    (local or `-w` workspace dependency chains `A -> B -> C` separated from
+    standalone tasks, showing padded `[role]` badges and ranked by critical-path
+    unblock impact `[unblocks N]`; `--role <role>` filters displayed tasks while
+    preserving DAG validation and unblock context; `--ready` filters to
     highest-leverage ready tasks; excludes `HOLD` and tasks transitively blocked
     by `HOLD` into `Held branches:` unless `--include-hold` is passed; reports
     diagnostics on cycles, syntax errors, or `MISSING` / `CANCELED` blockers),

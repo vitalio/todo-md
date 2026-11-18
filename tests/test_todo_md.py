@@ -187,10 +187,10 @@ class TestTodoMd(unittest.TestCase):
         self.assertIn("[blocked: A (<STATUS>) -> B (<STATUS>)]", rule_txt)
         self.assertIn("--max-total-lines N", rh.stdout)
         self.assertIn("queue <ID> [--all]", rh.stdout)
-        self.assertIn("chain [--ready] [--limit N] [--include-hold]", rh.stdout)
+        self.assertIn("chain [--role ROLE] [--ready] [--limit N] [--include-hold]", rh.stdout)
         self.assertIn("next-id [<ID>]", rh.stdout)
         self.assertIn("queue <ID> [--all]", rule_txt)
-        self.assertIn("chain [--ready] [--limit N] [--include-hold]", rule_txt)
+        self.assertIn("chain [--role <role>] [--ready] [--limit N] [--include-hold]", rule_txt)
         self.assertIn("next-id [<ID>]", rule_txt)
         self.assertIn("A -> B -> C", rule_txt)
         self.assertIn("do not introduce a separate `- Order:` field", rule_txt)
@@ -1655,6 +1655,148 @@ class TestTodoMd(unittest.TestCase):
         self.assertLess(r_out.index("F3"), r_out.index("F1"))
         self.assertLess(r_out.index("F1"), r_out.index("F2"))
 
+    def test_chain_role_badges_and_role_filter(self):
+        ws = self.tmp / "ws_chain_role"
+        proj_a = ws / "proj_a"
+        proj_b = ws / "proj_b"
+        proj_a.mkdir(parents=True)
+        proj_b.mkdir(parents=True)
+        self._run([str(SCRIPT), "init"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "init"], cwd=str(proj_b), check=True)
+
+        # Chain in proj_a: D1 (design) -> F1 (work) -> F2 (plan, explicit)
+        # Standalone in proj_a: P1 (no role), B1 (work)
+        # Held branch in proj_a: D2 (HOLD, design) -> F3 (NEW, work)
+        self._run([str(SCRIPT), "add", "D", "Design schema", "--next"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Build backend", "--depends", "D1"], cwd=str(proj_a), check=True)
+        self._run(
+            [str(SCRIPT), "add", "F", "Plan rollout", "--role", "plan", "--depends", "F1"],
+            cwd=str(proj_a),
+            check=True,
+        )
+        self._run([str(SCRIPT), "add", "P", "Unassigned idea"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "B", "Ready bugfix", "--next"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "D", "Paused design", "--status", "HOLD"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Waiting work", "--depends", "D2"], cwd=str(proj_a), check=True)
+
+        # Cross-project task in proj_b: F1 (work, depends on proj_a:F1)
+        self._run(
+            [str(SCRIPT), "add", "F", "Cross repo work", "--depends", "proj_a:F1"],
+            cwd=str(proj_b),
+            check=True,
+        )
+
+        # 1. Default chain displays aligned [role] column across Chain:, Standalone tasks:, and --ready
+        r_all = self._run([str(SCRIPT), "chain"], cwd=str(proj_a), env={**os.environ, "COLUMNS": "160"}, check=True)
+        rows = self._table_rows(r_all.stdout)
+        self.assertIn("[design]", rows["1."])
+        self.assertIn("[work]", rows["2."])
+        self.assertIn("[plan]", rows["3."])
+        self.assertIn("[work]", rows["4."])
+        self.assertNotIn("[design]", rows["5."])
+        self.assertNotIn("[work]", rows["5."])
+        self.assertNotIn("[plan]", rows["5."])
+        role_cols = {
+            line.index("[design]" if "[design]" in line else ("[work]" if "[work]" in line else "[plan]"))
+            for k, line in rows.items()
+            if k in ("1.", "2.", "3.", "4.")
+        }
+        self.assertEqual(len(role_cols), 1, msg=f"misaligned role column: {rows!r}")
+
+        r_ready_all = self._run([str(SCRIPT), "chain", "--ready"], cwd=str(proj_a), check=True)
+        ready_rows = self._table_rows(r_ready_all.stdout)
+        self.assertIn("[design]", ready_rows["1."])
+        self.assertIn("[work]", ready_rows["2."])
+
+        # 2. --role work filters Chain:, Standalone tasks:, and preserves unblock/blocker context & Held branches
+        r_work = self._run([str(SCRIPT), "chain", "--role", "WORK"], cwd=str(proj_a), check=True)
+        self.assertIn("Chain: F1", r_work.stdout)
+        self.assertIn("[work]", r_work.stdout)
+        self.assertIn("[blocked by: D1]", r_work.stdout)
+        self.assertIn("[unblocks 1]", r_work.stdout)
+        self.assertIn("Standalone tasks:", r_work.stdout)
+        self.assertIn("B1", r_work.stdout)
+        self.assertNotIn("D1: Design schema", r_work.stdout)
+        self.assertNotIn("F2", r_work.stdout)
+        self.assertNotIn("P1", r_work.stdout)
+        self.assertIn("Held branches:", r_work.stdout)
+        self.assertIn("D2 (HOLD) -> F3 (NEW)", r_work.stdout)
+
+        # 3. --role plan hides unrelated held branches and standalone tasks
+        r_plan = self._run([str(SCRIPT), "chain", "--role=plan"], cwd=str(proj_a), check=True)
+        self.assertIn("Chain: F2", r_plan.stdout)
+        self.assertIn("[plan]", r_plan.stdout)
+        self.assertIn("[blocked by: F1]", r_plan.stdout)
+        self.assertNotIn("Standalone tasks:", r_plan.stdout)
+        self.assertNotIn("Held branches:", r_plan.stdout)
+        self.assertNotIn("D1", r_plan.stdout)
+        self.assertNotIn("B1", r_plan.stdout)
+
+        # 4. --role with --ready and -w (workspace) and --limit
+        r_ws_work_ready = self._run(
+            [str(SCRIPT), "chain", "-w", "--role", "work", "--ready"],
+            cwd=str(ws),
+            check=True,
+        )
+        self.assertIn("Ready tasks:", r_ws_work_ready.stdout)
+        self.assertIn("proj_a:B1", r_ws_work_ready.stdout)
+        self.assertIn("[work]", r_ws_work_ready.stdout)
+        self.assertNotIn("proj_a:D1", r_ws_work_ready.stdout)
+        self.assertNotIn("proj_a:F1", r_ws_work_ready.stdout)
+        self.assertNotIn("proj_b:F1", r_ws_work_ready.stdout)
+
+        r_ws_work_lim = self._run(
+            [str(SCRIPT), "chain", "-w", "--role", "work", "--limit", "2"],
+            cwd=str(ws),
+            check=True,
+        )
+        lim_rows = {
+            k: v for k, v in self._table_rows(r_ws_work_lim.stdout).items() if k.endswith(".")
+        }
+        self.assertEqual(sorted(lim_rows), ["1.", "2."], msg=r_ws_work_lim.stdout)
+
+        # 5. Empty role match reports clean message; --include-hold brings in held matching tasks
+        r_none = self._run([str(SCRIPT), "chain", "--role", "review"], cwd=str(proj_a), check=True)
+        self.assertIn("Chain: (none matching role=review)", r_none.stdout)
+
+        r_none_ready = self._run([str(SCRIPT), "chain", "--role", "plan", "--ready"], cwd=str(proj_a), check=True)
+        self.assertIn("Ready tasks: (none matching role=plan)", r_none_ready.stdout)
+
+        r_work_hold = self._run([str(SCRIPT), "chain", "--role", "work", "--include-hold"], cwd=str(proj_a), check=True)
+        self.assertIn("F3", r_work_hold.stdout)
+        self.assertNotIn("Held branches:", r_work_hold.stdout)
+
+        # 6. MISSING placeholder leaves role column blank without crashing and still surfaces DAG error
+        miss_dir = ws / "miss_role"
+        miss_dir.mkdir()
+        self._run([str(SCRIPT), "init"], cwd=str(miss_dir), check=True)
+        (miss_dir / "TODO.md").write_text("# ⚪ [NEW] F1: Orphan\n\n- Depends on: F99\n", encoding="utf-8")
+        r_miss = self._run([str(SCRIPT), "chain"], cwd=str(miss_dir))
+        self.assertNotEqual(r_miss.returncode, 0)
+        self.assertIn("[MISSING]", r_miss.stdout)
+        self.assertIn("[work]", r_miss.stdout)
+        self.assertIn("unresolved blocker F99 (MISSING)", r_miss.stderr)
+        miss_rows = self._table_rows(r_miss.stdout)
+        self.assertNotIn("[work]", miss_rows["1."])
+        self.assertIn("[work]", miss_rows["2."])
+
+        r_miss_role = self._run([str(SCRIPT), "chain", "--role", "work"], cwd=str(miss_dir))
+        self.assertNotEqual(r_miss_role.returncode, 0)
+        self.assertIn("F1", r_miss_role.stdout)
+        self.assertNotIn("[MISSING]", r_miss_role.stdout)
+        self.assertIn("unresolved blocker F99 (MISSING)", r_miss_role.stderr)
+
+        # 7. Invalid --role values fail explicitly
+        for bad_args in (
+            ["chain", "--role"],
+            ["chain", "--role", ""],
+            ["chain", "--role="],
+            ["chain", "--role", "a\nb"],
+        ):
+            with self.subTest(bad_args=bad_args):
+                proc = self._run([str(SCRIPT), *bad_args], cwd=str(proj_a))
+                self.assertNotEqual(proc.returncode, 0, msg=proc.stdout)
+
     def test_done_prints_newly_unblocked_local_and_orchestrator_tasks(self):
         ws = self.tmp / "ws_done"
         repo_a = ws / "repo_a"
@@ -2030,7 +2172,7 @@ class TestTodoMd(unittest.TestCase):
         for l in ws_lines:
             self.assertLessEqual(disp_w(l), 92, msg=f"list -w overflowed 92 cols: {l!r}")
 
-        # 4. Wrapped columns in chain and chain -w (COLUMNS=80 -> avail_first = 80 - 44 = 36 >= 20)
+        # 4. Wrapped columns in chain and chain -w (COLUMNS=80 -> avail_first = 80 - 56 = 24 >= 20)
         for chain_args in (["chain"], ["chain", "-w"]):
             with self.subTest(args=chain_args):
                 r_ch = self._run(
@@ -2046,7 +2188,7 @@ class TestTodoMd(unittest.TestCase):
                 ch_cont = [l for l in row_lines if l.startswith("    ")]
                 self.assertTrue(ch_cont, msg=r_ch.stdout)
                 for cl in ch_cont:
-                    self.assertEqual(len(cl) - len(cl.lstrip(" ")), 44, msg=f"unexpected chain indent: {cl!r}")
+                    self.assertEqual(len(cl) - len(cl.lstrip(" ")), 56, msg=f"unexpected chain indent: {cl!r}")
                 for l in row_lines:
                     self.assertLessEqual(disp_w(l), 80, msg=f"chain row overflowed 80 cols: {l!r}")
 

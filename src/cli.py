@@ -95,6 +95,14 @@ KNOWN_SUBCOMMANDS = (
 )
 
 
+def _validate_role_filter(prog: str, raw_val: str) -> str:
+    raw_role = raw_val.strip()
+    if not raw_role or "\n" in raw_role or "\r" in raw_role:
+        raise SystemExit(
+            f"{prog}: invalid --role value {raw_val!r}; expected a non-empty single-line role"
+        )
+    return raw_role
+
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     prog = prog_name()
@@ -240,6 +248,7 @@ def main(argv: list[str] | None = None) -> int:
         limit: int | None = None
         include_hold = False
         ready = False
+        role_filter: str | None = None
         i = 1
         while i < len(args):
             a = args[i]
@@ -257,6 +266,14 @@ def main(argv: list[str] | None = None) -> int:
                     raise SystemExit(f"{prog}: invalid limit {raw_lim!r}; expected a positive integer")
                 limit = int(raw_lim)
                 i += 1
+            elif a == "--role":
+                if i + 1 >= len(args):
+                    raise SystemExit(f"{prog}: {a} requires a role argument")
+                role_filter = _validate_role_filter(prog, args[i + 1])
+                i += 2
+            elif a.startswith("--role="):
+                role_filter = _validate_role_filter(prog, a.split("=", 1)[1])
+                i += 1
             elif a == "--include-hold":
                 include_hold = True
                 i += 1
@@ -266,7 +283,7 @@ def main(argv: list[str] | None = None) -> int:
             elif a.startswith("-"):
                 raise SystemExit(f"{prog}: unknown option for chain: {a}")
             else:
-                raise SystemExit(f"{prog}: usage: {prog} chain [--ready] [--limit N] [--include-hold]")
+                raise SystemExit(f"{prog}: usage: {prog} chain [--role ROLE] [--ready] [--limit N] [--include-hold]")
         use_ws = workspace
         if not use_ws and not is_todo_project(base_dir) and not (base_dir / "TODO.md").is_file():
             ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
@@ -277,6 +294,7 @@ def main(argv: list[str] | None = None) -> int:
             limit=limit,
             include_hold=include_hold,
             ready=ready,
+            role=role_filter,
             workspace=use_ws,
             explicit_dir=explicit_dir,
         )
@@ -398,17 +416,10 @@ def main(argv: list[str] | None = None) -> int:
             elif a == "--role":
                 if i + 1 >= len(args):
                     raise SystemExit(f"{prog}: {a} requires a role argument")
-                raw_role = args[i + 1].strip()
-                if not raw_role or "\n" in raw_role or "\r" in raw_role:
-                    raise SystemExit(f"{prog}: invalid --role value {args[i + 1]!r}; expected a non-empty single-line role")
-                role_filter = raw_role
+                role_filter = _validate_role_filter(prog, args[i + 1])
                 i += 2
             elif a.startswith("--role="):
-                raw_val = a.split("=", 1)[1]
-                raw_role = raw_val.strip()
-                if not raw_role or "\n" in raw_role or "\r" in raw_role:
-                    raise SystemExit(f"{prog}: invalid --role value {raw_val!r}; expected a non-empty single-line role")
-                role_filter = raw_role
+                role_filter = _validate_role_filter(prog, a.split("=", 1)[1])
                 i += 1
             elif a == "--ready":
                 ready = True
