@@ -655,7 +655,6 @@ def _task_dependency_info(
         return True, f" [blocked: syntax error: {'; '.join(syntax_errs)}]"
     if not blocked and not syntax_errs:
         return False, " [deps: DONE]"
-    start_suffix = ""
     if not syntax_errs and str(task.get("status", "")) in ACTIVE_STATUS_ORDER:
         dag = build_dependency_dag(
             base_dir,
@@ -668,17 +667,49 @@ def _task_dependency_info(
             nodes: dict[tuple[Path, str], dict[str, object]] = dag["nodes"]  # type: ignore[assignment]
             prereqs: dict[tuple[Path, str], list[tuple[Path, str]]] = dag["prereqs"]  # type: ignore[assignment]
             root_key: tuple[Path, str] = dag["root"]  # type: ignore[assignment]
-            has_chain = any(
-                u != root_key
-                and str(nodes[u]["status"]) != "DONE"
-                and any(str(nodes[p]["status"]) != "DONE" for p in prereqs[u])
-                for u in nodes
-            )
-            if has_chain:
-                start_id = _first_actionable_in_dag(dag)
-                if start_id and start_id != str(nodes[root_key]["ref"]):
-                    start_suffix = f" <- start: {start_id}"
-    return True, f" [blocked: {', '.join(blocked)}]{start_suffix}"
+            anc_cache: dict[tuple[Path, str], set[tuple[Path, str]]] = {}
+
+            def _unres_ancestors(u: tuple[Path, str]) -> set[tuple[Path, str]]:
+                if u not in anc_cache:
+                    found: set[tuple[Path, str]] = set()
+                    for p in prereqs.get(u, []):
+                        if str(nodes[p]["status"]) != "DONE":
+                            found.add(p)
+                            found.update(_unres_ancestors(p))
+                    anc_cache[u] = found
+                return anc_cache[u]
+
+            def _reduced_unres_prereqs(u: tuple[Path, str]) -> list[tuple[Path, str]]:
+                raw = [p for p in prereqs.get(u, []) if str(nodes[p]["status"]) != "DONE"]
+                return [
+                    p
+                    for p in raw
+                    if not any(p in _unres_ancestors(other) for other in raw if other != p)
+                ]
+
+            def _paths_to(u: tuple[Path, str]) -> list[list[tuple[Path, str]]]:
+                ups = _reduced_unres_prereqs(u)
+                if not ups:
+                    return [[u]]
+                out: list[list[tuple[Path, str]]] = []
+                for p in ups:
+                    for sub in _paths_to(p):
+                        out.append(sub + [u])
+                return out
+
+            chain_strs: list[str] = []
+            seen_chains: set[str] = set()
+            for direct_blocker in _reduced_unres_prereqs(root_key):
+                for path_nodes in _paths_to(direct_blocker):
+                    rendered = " -> ".join(
+                        f"{nodes[k]['ref']} ({nodes[k]['status']})" for k in path_nodes
+                    )
+                    if rendered not in seen_chains:
+                        seen_chains.add(rendered)
+                        chain_strs.append(rendered)
+            if chain_strs:
+                return True, f" [blocked: {', '.join(chain_strs)}]"
+    return True, f" [blocked: {', '.join(blocked)}]"
 
 
 def _is_task_blocked(
@@ -1196,7 +1227,7 @@ def cmd_list(
     else:
         for t in shown:
             is_blocked, dep_suffix = _dep_info(t)
-            emoji = "⏳" if (str(t["status"]) == "NEXT" and is_blocked) else str(t["emoji"])
+            emoji = "⏳" if (str(t["status"]) in ("WIP", "NEXT") and is_blocked) else str(t["emoji"])
             badge = f"{emoji} [{t['status']}]"
             role_badge = _task_role_badge(t)
             loc = str(t["file"])
@@ -1439,7 +1470,7 @@ def cmd_workspace_list(
     for name, proj_dir, t in items:
         is_blocked, dep_suffix = _ws_dep_info(proj_dir, t)
         ref = f"{name}:{t['id']}"
-        emoji = "⏳" if (str(t["status"]) == "NEXT" and is_blocked) else str(t["emoji"])
+        emoji = "⏳" if (str(t["status"]) in ("WIP", "NEXT") and is_blocked) else str(t["emoji"])
         badge = f"{emoji} [{t['status']}]"
         role_badge = _task_role_badge(t)
         sys.stdout.write(f"  {ref:<28}  {badge:<14}  {role_badge:<10}  {t['title']}{dep_suffix}\n")

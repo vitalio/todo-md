@@ -167,6 +167,8 @@ class TestTodoMd(unittest.TestCase):
         self.assertIn("key symbol names in backticks", rule_txt)
         self.assertIn("-C <dir|project>` or `--project <name>`", rule_txt)
         self.assertIn("list [active|archive|all|<STATUS>] [--role <role>] [--ready]", rule_txt)
+        self.assertIn("⏳ [WIP]` / `⏳ [NEXT]", rule_txt)
+        self.assertIn("[blocked: A (<STATUS>) -> B (<STATUS>)]", rule_txt)
         self.assertIn("--max-total-lines N", rh.stdout)
         self.assertIn("queue <ID> [--all]", rh.stdout)
         self.assertIn("next-id [<ID>]", rh.stdout)
@@ -1203,7 +1205,7 @@ class TestTodoMd(unittest.TestCase):
         self.assertLess(todo_txt.index("F1:"), todo_txt.index("F2:"))
         self.assertLess(todo_txt.index("F2:"), todo_txt.index("F3:"))
 
-        # Local list: blocked NEXT items render with ⏳ [NEXT], chain F3 shows <- start: F1, single-step F2 does not
+        # Local list: blocked NEXT items render with ⏳ [NEXT], chain F3 shows full path, single-step F2 stays single-hop
         r_list = self._run([str(SCRIPT), "list"], cwd=str(proj_a), check=True)
         rows = {
             line.split()[0]: line
@@ -1214,19 +1216,19 @@ class TestTodoMd(unittest.TestCase):
         self.assertIn("🎯 [NEXT]", rows["F1"])
         self.assertIn("⏳ [NEXT]", rows["F2"])
         self.assertIn("[blocked: F1 (NEXT)]", rows["F2"])
-        self.assertNotIn("<- start:", rows["F2"])
+        self.assertNotIn("->", rows["F2"])
         self.assertIn("⏳ [NEXT]", rows["F3"])
-        self.assertIn("[blocked: F2 (NEXT)] <- start: F1", rows["F3"])
+        self.assertIn("[blocked: F1 (NEXT) -> F2 (NEXT)]", rows["F3"])
         self.assertLess(r_list.stdout.index("F4"), r_list.stdout.index("F2"))
         self.assertLess(r_list.stdout.index("F1"), r_list.stdout.index("F2"))
         self.assertLess(r_list.stdout.index("F2"), r_list.stdout.index("F3"))
 
-        # Multi-stage Depends on: F1 -> F2 on a single task also surfaces <- start: F1
+        # Multi-stage Depends on: F1 -> F2 on a single task also surfaces the full ordered chain
         self._run([str(SCRIPT), "add", "Stage task", "--next", "--depends", "F1 -> F2"], cwd=str(proj_a), check=True)
         r_list_stage = self._run([str(SCRIPT), "list", "NEXT"], cwd=str(proj_a), check=True)
         stage_line = next(l for l in r_list_stage.stdout.splitlines() if l.strip().startswith("F5"))
         self.assertIn("⏳ [NEXT]", stage_line)
-        self.assertIn("[blocked: F1 (NEXT), F2 (NEXT)] <- start: F1", stage_line)
+        self.assertIn("[blocked: F1 (NEXT) -> F2 (NEXT)]", stage_line)
 
         # --ready filters local list to active tasks without unresolved deps
         r_ready = self._run([str(SCRIPT), "list", "--ready"], cwd=str(proj_a), check=True)
@@ -1250,9 +1252,9 @@ class TestTodoMd(unittest.TestCase):
             if line.startswith("  ")
         }
         self.assertIn("⏳ [NEXT]", ws_rows["proj_a:F3"])
-        self.assertIn("[blocked: F2 (NEXT)] <- start: F1", ws_rows["proj_a:F3"])
+        self.assertIn("[blocked: F1 (NEXT) -> F2 (NEXT)]", ws_rows["proj_a:F3"])
         self.assertIn("⏳ [NEXT]", ws_rows["proj_b:F2"])
-        self.assertIn("[blocked: proj_a:F3 (NEXT)] <- start: proj_a:F1", ws_rows["proj_b:F2"])
+        self.assertIn("[blocked: proj_a:F1 (NEXT) -> proj_a:F2 (NEXT) -> proj_a:F3 (NEXT)]", ws_rows["proj_b:F2"])
         self.assertIn("🎯 [NEXT]", ws_rows["proj_b:F1"])
 
         r_ws_ready = self._run([str(SCRIPT), "-w", "list", "NEXT", "--ready"], cwd=str(proj_a), check=True)
@@ -1293,6 +1295,42 @@ class TestTodoMd(unittest.TestCase):
         self.assertLess(r_cyc_list.stdout.index("F3"), r_cyc_list.stdout.index("F1"))
         self.assertLess(r_cyc_list.stdout.index("F1"), r_cyc_list.stdout.index("F2"))
         self.assertIn("⏳ [NEXT]", r_cyc_list.stdout)
+
+        # Blocked WIP badge (⏳ [WIP]) and full mixed-status unblock chain in local and workspace list
+        wip_ws = ws / "wip_chain_ws"
+        wip_proj = wip_ws / "alpha"
+        wip_proj.mkdir(parents=True)
+        self._run([str(SCRIPT), "init"], cwd=str(wip_proj), check=True)
+        self._run([str(SCRIPT), "add", "Root WIP", "--status", "WIP"], cwd=str(wip_proj), check=True)
+        self._run([str(SCRIPT), "add", "Mid NEXT", "--next", "--depends", "F1"], cwd=str(wip_proj), check=True)
+        self._run([str(SCRIPT), "add", "Child WIP", "--status", "WIP", "--depends", "F2"], cwd=str(wip_proj), check=True)
+        self._run([str(SCRIPT), "add", "Leaf NEXT", "--next", "--depends", "F3"], cwd=str(wip_proj), check=True)
+
+        r_wip_local = self._run([str(SCRIPT), "list"], cwd=str(wip_proj), check=True)
+        wip_rows = {
+            line.split()[0]: line
+            for line in r_wip_local.stdout.splitlines()
+            if line.startswith("  ")
+        }
+        self.assertIn("🔵 [WIP]", wip_rows["F1"])
+        self.assertIn("⏳ [WIP]", wip_rows["F3"])
+        self.assertIn("[blocked: F1 (WIP) -> F2 (NEXT)]", wip_rows["F3"])
+        self.assertIn("⏳ [NEXT]", wip_rows["F2"])
+        self.assertIn("[blocked: F1 (WIP)]", wip_rows["F2"])
+        self.assertIn("⏳ [NEXT]", wip_rows["F4"])
+        self.assertIn("[blocked: F1 (WIP) -> F2 (NEXT) -> F3 (WIP)]", wip_rows["F4"])
+
+        r_wip_ws = self._run([str(SCRIPT), "list", "-w"], cwd=str(wip_ws), check=True)
+        wip_ws_rows = {
+            line.split()[0]: line
+            for line in r_wip_ws.stdout.splitlines()
+            if line.startswith("  ")
+        }
+        self.assertIn("🔵 [WIP]", wip_ws_rows["alpha:F1"])
+        self.assertIn("⏳ [WIP]", wip_ws_rows["alpha:F3"])
+        self.assertIn("[blocked: F1 (WIP) -> F2 (NEXT)]", wip_ws_rows["alpha:F3"])
+        self.assertIn("⏳ [NEXT]", wip_ws_rows["alpha:F4"])
+        self.assertIn("[blocked: F1 (WIP) -> F2 (NEXT) -> F3 (WIP)]", wip_ws_rows["alpha:F4"])
 
     def test_lazy_urllib_import_and_offline_update(self):
         probe = (
