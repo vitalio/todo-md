@@ -40,8 +40,11 @@ Global options (accepted before subcommands):
   -c, --commit                  Git-commit TODO*.md after mutating commands (opt-in)
   --no-commit                   Accepted as a no-op alias (commits are disabled by default)
 
-Mutating commands automatically validate and status-order TODO.md (pass -c / --commit to also
-git-commit TODO*.md when inside a Git repository; --no-commit is accepted as a no-op alias).
+Tabular views (list, chain, queue, projects) align status badges by display width and wrap long
+descriptions into aligned columns based on terminal width (falling back to a 4-space indent on
+narrow terminals; list --tree truncates to one line). Mutating commands automatically validate and
+status-order TODO.md (pass -c / --commit to also git-commit TODO*.md when inside a Git repository;
+--no-commit is accepted as a no-op alias).
 
 Manages structured Markdown task files in a repository:
   - TODO.md          All open tasks ordered by status (🔵 [WIP], 🎯 [NEXT], ❓ [QUESTION], ⚪ [NEW], ⏸️ [HOLD])
@@ -1171,6 +1174,8 @@ def _task_matches_role(task: dict[str, object], wanted_role: str) -> bool:
 
 DEFAULT_TERMINAL_WIDTH = 100
 MIN_TREE_TITLE_COLS = 12
+MIN_TABLE_DESC_COLS = 20
+COMPACT_CONTINUATION_INDENT = 4
 
 
 def _get_terminal_columns(fallback: int = DEFAULT_TERMINAL_WIDTH) -> int:
@@ -1195,6 +1200,111 @@ def _pad_display(text: str, width: int) -> str:
     if cur >= width:
         return text
     return text + (" " * (width - cur))
+
+def _split_word_by_display_width(word: str, max_cols: int) -> list[str]:
+    if max_cols <= 0 or _display_width(word) <= max_cols:
+        return [word]
+    chunks: list[str] = []
+    cur: list[str] = []
+    cur_w = 0
+    for ch in word:
+        cw = _char_display_width(ch)
+        if cur and cur_w + cw > max_cols:
+            chunks.append("".join(cur))
+            cur = [ch]
+            cur_w = cw
+        else:
+            cur.append(ch)
+            cur_w += cw
+    if cur:
+        chunks.append("".join(cur))
+    return chunks
+
+def _wrap_display_lines(text: str, first_width: int, next_width: int) -> list[str]:
+    if not text:
+        return []
+    lines: list[str] = []
+    cur_parts: list[str] = []
+    cur_w = 0
+    pending_ws = ""
+    budget = max(1, first_width)
+    next_budget = max(1, next_width)
+
+    for tok in re.findall(r"\S+|\s+", text):
+        if tok.isspace():
+            if cur_parts:
+                pending_ws += tok
+            continue
+        ws_w = _display_width(pending_ws)
+        tok_w = _display_width(tok)
+        if cur_parts and cur_w + ws_w + tok_w <= budget:
+            cur_parts.append(pending_ws)
+            cur_parts.append(tok)
+            cur_w += ws_w + tok_w
+            pending_ws = ""
+            continue
+        if cur_parts:
+            lines.append("".join(cur_parts))
+            cur_parts = []
+            cur_w = 0
+            pending_ws = ""
+            budget = next_budget
+        if not lines and budget < next_budget and tok_w > budget:
+            lines.append("")
+            budget = next_budget
+        if tok_w <= budget:
+            cur_parts.append(tok)
+            cur_w = tok_w
+        else:
+            chunks = _split_word_by_display_width(tok, budget)
+            first_chunk = chunks[0]
+            rest_text = tok[len(first_chunk):]
+            if not rest_text:
+                cur_parts.append(first_chunk)
+                cur_w = _display_width(first_chunk)
+            else:
+                lines.append(first_chunk)
+                budget = next_budget
+                rem_chunks = _split_word_by_display_width(rest_text, budget)
+                for ch_piece in rem_chunks[:-1]:
+                    lines.append(ch_piece)
+                cur_parts = [rem_chunks[-1]]
+                cur_w = _display_width(rem_chunks[-1])
+
+    if cur_parts:
+        lines.append("".join(cur_parts))
+    return lines
+
+def _wrap_table_row(
+    prefix: str,
+    description: str,
+    term_width: int | None = None,
+) -> str:
+    if not description:
+        return prefix
+    width = _get_terminal_columns() if term_width is None else term_width
+    prefix_w = _display_width(prefix)
+    avail_first = width - prefix_w
+    if avail_first >= MIN_TABLE_DESC_COLS:
+        cont_indent = " " * prefix_w
+        wrapped = _wrap_display_lines(description, avail_first, avail_first)
+    else:
+        cont_indent = " " * COMPACT_CONTINUATION_INDENT
+        avail_cont = max(1, width - COMPACT_CONTINUATION_INDENT)
+        if avail_first <= 0:
+            wrapped = _wrap_display_lines(description, avail_cont, avail_cont)
+            return "\n".join([prefix.rstrip(), *(f"{cont_indent}{line}" for line in wrapped)])
+        wrapped = _wrap_display_lines(description, avail_first, avail_cont)
+    if not wrapped:
+        return prefix.rstrip()
+    out_lines: list[str] = []
+    if wrapped[0]:
+        out_lines.append(f"{prefix}{wrapped[0]}")
+    else:
+        out_lines.append(prefix.rstrip())
+    for cont in wrapped[1:]:
+        out_lines.append(f"{cont_indent}{cont}")
+    return "\n".join(out_lines)
 
 
 def _truncate_display(text: str, max_cols: int) -> str:
@@ -1486,15 +1596,21 @@ def cmd_list(
         sections = [str(t["section"]).rstrip() for t in shown]
         sys.stdout.write("\n\n".join(sections) + "\n")
     else:
+        term_width = _get_terminal_columns()
         for t in shown:
             is_blocked, dep_suffix = _dep_info(t)
             emoji = "⏳" if (str(t["status"]) in ("WIP", "NEXT") and is_blocked) else str(t["emoji"])
             badge = f"{emoji} [{t['status']}]"
             role_badge = _task_role_badge(t)
             loc = str(t["file"])
-            sys.stdout.write(
-                f"  {str(t['id']):<6}  {badge:<14}  {role_badge:<10}  {loc:<16}  {t['title']}{dep_suffix}\n"
+            prefix = (
+                f"  {_pad_display(str(t['id']), 6)}  "
+                f"{_pad_display(badge, 14)}  "
+                f"{_pad_display(role_badge, 10)}  "
+                f"{_pad_display(loc, 16)}  "
             )
+            desc = f"{t['title']}{dep_suffix}"
+            sys.stdout.write(_wrap_table_row(prefix, desc, term_width) + "\n")
     top = highest_ids_in_use(base_dir)
     sys.stdout.write(f"\nIDs in use: {format_ids_summary(top)}\n")
     return 0
@@ -1609,6 +1725,7 @@ def cmd_projects(base_dir: Path, explicit_dir: str | None = None) -> int:
         sys.stdout.write(f"No todo_md projects found under {ws_root}\n")
         return 0
     sys.stdout.write(f"Workspace: {ws_root} ({len(projects)} project(s))\n")
+    term_width = _get_terminal_columns()
     for name, proj_dir in projects:
         active = parse_tasks_in_text(read_if_exists(proj_dir / "TODO.md"), "TODO.md")
         counts: dict[str, int] = {}
@@ -1616,8 +1733,13 @@ def cmd_projects(base_dir: Path, explicit_dir: str | None = None) -> int:
             st = str(t["status"])
             counts[st] = counts.get(st, 0) + 1
         highlights = [f"{st}: {counts[st]}" for st in ("WIP", "NEXT", "QUESTION") if counts.get(st)]
-        detail = f" ({', '.join(highlights)})" if highlights else ""
-        sys.stdout.write(f"  {name:<26}  {len(active):>3} open{detail}\n")
+        base_prefix = f"  {_pad_display(name, 26)}  {len(active):>3} open"
+        if highlights:
+            sys.stdout.write(
+                _wrap_table_row(f"{base_prefix} ", f"({', '.join(highlights)})", term_width) + "\n"
+            )
+        else:
+            sys.stdout.write(f"{base_prefix}\n")
     return 0
 
 
@@ -1771,13 +1893,20 @@ def cmd_workspace_list(
             sections.append("\n".join(lines))
         sys.stdout.write("\n\n".join(sections) + "\n")
         return 0
+    term_width = _get_terminal_columns()
     for name, proj_dir, t in items:
         is_blocked, dep_suffix = _ws_dep_info(proj_dir, t)
         ref = f"{name}:{t['id']}"
         emoji = "⏳" if (str(t["status"]) in ("WIP", "NEXT") and is_blocked) else str(t["emoji"])
         badge = f"{emoji} [{t['status']}]"
         role_badge = _task_role_badge(t)
-        sys.stdout.write(f"  {ref:<28}  {badge:<14}  {role_badge:<10}  {t['title']}{dep_suffix}\n")
+        prefix = (
+            f"  {_pad_display(ref, 28)}  "
+            f"{_pad_display(badge, 14)}  "
+            f"{_pad_display(role_badge, 10)}  "
+        )
+        desc = f"{t['title']}{dep_suffix}"
+        sys.stdout.write(_wrap_table_row(prefix, desc, term_width) + "\n")
     return 0
 
 
@@ -3160,6 +3289,7 @@ def cmd_queue(
     if not shown:
         sys.stdout.write(f"No pending tasks in queue for {root_node['ref']} (all tasks DONE)\n")
     else:
+        term_width = _get_terminal_columns()
         for idx, u in enumerate(shown, start=1):
             nd = nodes[u]
             st = str(nd["status"])
@@ -3178,8 +3308,9 @@ def cmd_queue(
                 badge = f"{nd['emoji']} [{st}]"
                 blockers = [str(nodes[p]["ref"]) for p in prereqs[u] if str(nodes[p]["status"]) != "DONE"]
                 marker = f"[blocked by: {', '.join(blockers)}]" if blockers else "[ready]"
-            suffix = f"  {marker}" if marker else ""
-            sys.stdout.write(f"  {idx:>2}. {ref:<20}  {badge:<14}  {title}{suffix}\n")
+            desc = f"{title}  {marker}" if marker else title
+            prefix = f"  {idx:>2}. {_pad_display(ref, 20)}  {_pad_display(badge, 14)}  "
+            sys.stdout.write(_wrap_table_row(prefix, desc, term_width) + "\n")
 
     next_act = _first_actionable_in_dag(dag)
     sys.stdout.write(f"Next actionable: {next_act or 'none'}\n")
@@ -3388,6 +3519,8 @@ def cmd_chain(
             else:
                 sys.stderr.write(f"ERROR: unresolved blocker {nodes[u]['ref']} ({st})\n")
 
+    term_width = _get_terminal_columns()
+
     def _format_row(idx: int, u: tuple[Path, str]) -> str:
         nd = nodes[u]
         st = str(nd["status"])
@@ -3406,7 +3539,9 @@ def cmd_chain(
             marker = f"[blocked by: {', '.join(blockers)}]" if blockers else "[ready]"
         impact = active_unblocks.get(u, 0)
         impact_tag = f" [unblocks {impact}]" if impact > 0 else ""
-        return f"  {idx:>2}. {ref:<20}  {badge:<14}  {title}  {marker}{impact_tag}\n"
+        prefix = f"  {idx:>2}. {_pad_display(ref, 20)}  {_pad_display(badge, 14)}  "
+        desc = f"{title}  {marker}{impact_tag}"
+        return _wrap_table_row(prefix, desc, term_width) + "\n"
 
     if ready:
         ready_tasks: list[tuple[Path, str]] = plan["ready_tasks"]  # type: ignore[assignment]

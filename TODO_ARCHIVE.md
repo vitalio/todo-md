@@ -1,3 +1,11 @@
+# ✅ [DONE] F35: Wrap long descriptions into aligned table columns in list, chain, queue, and projects — *2026-11-18, Wrap tabular descriptions into aligned columns across list, chain, queue, and projects*
+
+- Add a shared Unicode-aware column-wrapping helper in `src/parser.py` built on `_get_terminal_columns()`, `_display_width()`, and `_pad_display()` so fixed left columns remain on the first line while the trailing description column wraps at word boundaries with a hanging indent aligned to the description column start.
+- Replace raw Python string width formatting (`f"{badge:<14}"`) with display-width padding (`_pad_display`) across tabular outputs so two-column status emojis align cleanly across rows.
+- Apply tabular column wrapping to `todo_md list` and `todo_md list -w` (`src/parser.py`), `todo_md chain` and `todo_md chain -w` (`src/commands.py`), `todo_md queue` (`src/commands.py`), and `todo_md projects` (`src/parser.py`), falling back to a compact 4-space continuation indent when terminal width leaves fewer than 20 columns for the description column.
+- Keep `todo_md list --tree` single-line truncated, full Markdown section views (`overview`, `show`, `last`, `archive`) unwrapped, and machine-readable commands (`files`, `next-id`, `last-id`, `ids`) single-line per item.
+- Sync CLI help and documentation in `src/header.py` and `README.md`, rebuild/reinstall via `build.py` and `install.sh`, and add unit tests in `tests/test_todo_md.py`.
+
 # ✅ [DONE] F32: Add --tree view to todo_md list with terminal-width title truncation — *2026-11-18, Add --tree dependency hierarchy view to list with terminal-width truncation*
 
 - Role: work

@@ -39,6 +39,22 @@ class TestTodoMd(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
+    def _table_rows(self, output: str) -> dict[str, str]:
+        rows: dict[str, str] = {}
+        cur_key: str | None = None
+        for line in output.splitlines():
+            if not line.startswith("  ") or line.strip().startswith("IDs"):
+                cur_key = None
+                continue
+            if line.startswith("    ") and cur_key is not None:
+                rows[cur_key] = f"{rows[cur_key]} {line.strip()}"
+                continue
+            parts = line.split()
+            if parts:
+                cur_key = parts[0]
+                rows[cur_key] = line
+        return rows
+
     def _assert_ok(
         self, args: list[str], proc: subprocess.CompletedProcess[str]
     ) -> None:
@@ -1248,11 +1264,7 @@ class TestTodoMd(unittest.TestCase):
             check=True,
         )
         r_ws = self._run([str(SCRIPT), "list", "-w"], cwd=str(proj_a), check=True)
-        ws_rows = {
-            line.split()[0]: line
-            for line in r_ws.stdout.splitlines()
-            if line.startswith("  ")
-        }
+        ws_rows = self._table_rows(r_ws.stdout)
         self.assertIn("⏳ [NEXT]", ws_rows["proj_a:F3"])
         self.assertIn("[blocked: F1 (NEXT) -> F2 (NEXT)]", ws_rows["proj_a:F3"])
         self.assertIn("⏳ [NEXT]", ws_rows["proj_b:F2"])
@@ -1309,11 +1321,7 @@ class TestTodoMd(unittest.TestCase):
         self._run([str(SCRIPT), "add", "Leaf NEXT", "--next", "--depends", "F3"], cwd=str(wip_proj), check=True)
 
         r_wip_local = self._run([str(SCRIPT), "list"], cwd=str(wip_proj), check=True)
-        wip_rows = {
-            line.split()[0]: line
-            for line in r_wip_local.stdout.splitlines()
-            if line.startswith("  ")
-        }
+        wip_rows = self._table_rows(r_wip_local.stdout)
         self.assertIn("🔵 [WIP]", wip_rows["F1"])
         self.assertIn("⏳ [WIP]", wip_rows["F3"])
         self.assertIn("[blocked: F1 (WIP) -> F2 (NEXT)]", wip_rows["F3"])
@@ -1323,11 +1331,7 @@ class TestTodoMd(unittest.TestCase):
         self.assertIn("[blocked: F1 (WIP) -> F2 (NEXT) -> F3 (WIP)]", wip_rows["F4"])
 
         r_wip_ws = self._run([str(SCRIPT), "list", "-w"], cwd=str(wip_ws), check=True)
-        wip_ws_rows = {
-            line.split()[0]: line
-            for line in r_wip_ws.stdout.splitlines()
-            if line.startswith("  ")
-        }
+        wip_ws_rows = self._table_rows(r_wip_ws.stdout)
         self.assertIn("🔵 [WIP]", wip_ws_rows["alpha:F1"])
         self.assertIn("⏳ [WIP]", wip_ws_rows["alpha:F3"])
         self.assertIn("[blocked: F1 (WIP) -> F2 (NEXT)]", wip_ws_rows["alpha:F3"])
@@ -1937,6 +1941,211 @@ class TestTodoMd(unittest.TestCase):
         self.assertIn("F1", r_cyc_tree.stdout)
         self.assertIn("F2", r_cyc_tree.stdout)
 
+
+    def test_tabular_column_wrapping_and_emoji_alignment(self):
+        ws = self.tmp / "ws_wrap"
+        proj_a = ws / "proj_a"
+        proj_b = ws / "proj_b"
+        proj_a.mkdir(parents=True)
+        proj_b.mkdir(parents=True)
+        self._run([str(SCRIPT), "init"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "init"], cwd=str(proj_b), check=True)
+
+        long_title_1 = "Wrap long task descriptions cleanly across aligned tabular output columns without breaking words"
+        long_title_2 = "Second chained task with multi-word description verifying hanging indent and emoji width alignment"
+        self._run([str(SCRIPT), "add", long_title_1, "--status", "WIP"], cwd=str(proj_a), check=True)
+        self._run(
+            [str(SCRIPT), "add", long_title_2, "--next", "--depends", "F1"],
+            cwd=str(proj_a),
+            check=True,
+        )
+        self._run([str(SCRIPT), "add", "Question item for alignment check", "--status", "QUESTION"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "Hold item for alignment check", "--status", "HOLD"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "New item for alignment check", "--status", "NEW"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "Done item for alignment check"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "done", "F6", "-m", "done"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "Canceled item for alignment check"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "cancel", "F7", "-m", "canceled"], cwd=str(proj_a), check=True)
+
+        self._run(
+            [str(SCRIPT), "add", "Cross-project dependent task with a lengthy title for workspace views", "--next", "--depends", "proj_a:F2"],
+            cwd=str(proj_b),
+            check=True,
+        )
+        self._run([str(SCRIPT), "add", "Second question in proj_b", "--status", "QUESTION"], cwd=str(proj_b), check=True)
+
+        disp_w = self.todo_md_mod._display_width
+
+        # 1. Emoji alignment across all statuses in list all at wide width (COLUMNS=220)
+        r_all_wide = self._run(
+            [str(SCRIPT), "list", "all"],
+            cwd=str(proj_a),
+            env={**os.environ, "COLUMNS": "220"},
+            check=True,
+        )
+        task_lines = [
+            l for l in r_all_wide.stdout.splitlines() if l.startswith("  ") and not l.strip().startswith("IDs")
+        ]
+        self.assertEqual(len(task_lines), 7)
+        desc_starts = {disp_w(l.split("TODO")[0]) for l in task_lines}
+        self.assertEqual(desc_starts, {38}, msg=f"misaligned loc column: {task_lines!r}")
+        title_starts = set()
+        for l in task_lines:
+            marker = "TODO_ARCHIVE.md   " if "TODO_ARCHIVE.md" in l else "TODO.md           "
+            idx = l.index(marker) + len(marker)
+            title_starts.add(disp_w(l[:idx]))
+        self.assertEqual(title_starts, {56}, msg=f"misaligned title column: {task_lines!r}")
+
+        # 2. Wrapped columns in list (COLUMNS=90 -> avail_first = 90 - 56 = 34 >= 20)
+        r_list_wrap = self._run(
+            [str(SCRIPT), "list", "active"],
+            cwd=str(proj_a),
+            env={**os.environ, "COLUMNS": "90"},
+            check=True,
+        )
+        list_body_lines = [
+            l for l in r_list_wrap.stdout.splitlines() if l.startswith("  ") and not l.strip().startswith("IDs")
+        ]
+        self.assertGreater(len(list_body_lines), 5)
+        cont_lines = [l for l in list_body_lines if l.startswith("    ")]
+        self.assertTrue(cont_lines)
+        for cl in cont_lines:
+            leading_spaces = len(cl) - len(cl.lstrip(" "))
+            self.assertEqual(leading_spaces, 56, msg=f"unexpected list continuation indent: {cl!r}")
+        for l in list_body_lines:
+            self.assertLessEqual(disp_w(l), 90, msg=f"line overflowed 90 cols: {l!r}")
+
+        # 3. Wrapped columns in list -w (COLUMNS=92 -> avail_first = 92 - 60 = 32 >= 20)
+        r_ws_list_wrap = self._run(
+            [str(SCRIPT), "list", "-w", "active"],
+            cwd=str(ws),
+            env={**os.environ, "COLUMNS": "92"},
+            check=True,
+        )
+        ws_lines = [l for l in r_ws_list_wrap.stdout.splitlines() if l.startswith("  ")]
+        ws_cont = [l for l in ws_lines if l.startswith("    ")]
+        self.assertTrue(ws_cont)
+        for cl in ws_cont:
+            self.assertEqual(len(cl) - len(cl.lstrip(" ")), 60, msg=f"unexpected list -w indent: {cl!r}")
+        for l in ws_lines:
+            self.assertLessEqual(disp_w(l), 92, msg=f"list -w overflowed 92 cols: {l!r}")
+
+        # 4. Wrapped columns in chain and chain -w (COLUMNS=80 -> avail_first = 80 - 44 = 36 >= 20)
+        for chain_args in (["chain"], ["chain", "-w"]):
+            with self.subTest(args=chain_args):
+                r_ch = self._run(
+                    [str(SCRIPT), *chain_args],
+                    cwd=str(proj_a),
+                    env={**os.environ, "COLUMNS": "80"},
+                    check=True,
+                )
+                row_lines = [
+                    l for l in r_ch.stdout.splitlines()
+                    if l.startswith("  ") and not l.lstrip().startswith("F4 (HOLD)") and not l.lstrip().startswith("proj_a:F4 (HOLD)")
+                ]
+                ch_cont = [l for l in row_lines if l.startswith("    ")]
+                self.assertTrue(ch_cont, msg=r_ch.stdout)
+                for cl in ch_cont:
+                    self.assertEqual(len(cl) - len(cl.lstrip(" ")), 44, msg=f"unexpected chain indent: {cl!r}")
+                for l in row_lines:
+                    self.assertLessEqual(disp_w(l), 80, msg=f"chain row overflowed 80 cols: {l!r}")
+
+        # 5. Wrapped columns in queue (COLUMNS=78 -> avail_first = 78 - 44 = 34 >= 20)
+        r_q = self._run(
+            [str(SCRIPT), "queue", "F2", "--all"],
+            cwd=str(proj_a),
+            env={**os.environ, "COLUMNS": "78"},
+            check=True,
+        )
+        q_rows = [l for l in r_q.stdout.splitlines() if l.startswith("  ")]
+        q_cont = [l for l in q_rows if l.startswith("    ")]
+        self.assertTrue(q_cont, msg=r_q.stdout)
+        for cl in q_cont:
+            self.assertEqual(len(cl) - len(cl.lstrip(" ")), 44, msg=f"unexpected queue indent: {cl!r}")
+        for l in q_rows:
+            self.assertLessEqual(disp_w(l), 78, msg=f"queue row overflowed 78 cols: {l!r}")
+
+        # 6. Wrapped columns in projects (COLUMNS=60 -> avail_first = 60 - 39 = 21 >= 20)
+        r_proj_wrap = self._run(
+            [str(SCRIPT), "projects"],
+            cwd=str(ws),
+            env={**os.environ, "COLUMNS": "60"},
+            check=True,
+        )
+        proj_rows = [l for l in r_proj_wrap.stdout.splitlines() if l.startswith("  ")]
+        proj_cont = [l for l in proj_rows if l.startswith("    ")]
+        self.assertTrue(proj_cont, msg=r_proj_wrap.stdout)
+        for cl in proj_cont:
+            self.assertEqual(len(cl) - len(cl.lstrip(" ")), 39, msg=f"unexpected projects indent: {cl!r}")
+        for l in proj_rows:
+            self.assertLessEqual(disp_w(l), 60, msg=f"projects row overflowed 60 cols: {l!r}")
+
+        # 7. Narrow terminal fallback to 4-space continuation indent when < 20 cols remain
+        r_narrow_list = self._run(
+            [str(SCRIPT), "list", "WIP"],
+            cwd=str(proj_a),
+            env={**os.environ, "COLUMNS": "68"},
+            check=True,
+        )
+        narrow_lines = [
+            l for l in r_narrow_list.stdout.splitlines() if l.startswith("  ") and not l.strip().startswith("IDs")
+        ]
+        self.assertGreaterEqual(len(narrow_lines), 2)
+        for cl in narrow_lines[1:]:
+            self.assertEqual(len(cl) - len(cl.lstrip(" ")), 4, msg=f"expected 4-space fallback indent: {cl!r}")
+        for l in narrow_lines:
+            self.assertLessEqual(disp_w(l), 68, msg=f"narrow line overflowed 68 cols: {l!r}")
+
+        # Very narrow terminal where prefix itself exceeds COLUMNS (COLUMNS=42)
+        r_very_narrow = self._run(
+            [str(SCRIPT), "list", "WIP"],
+            cwd=str(proj_a),
+            env={**os.environ, "COLUMNS": "42"},
+            check=True,
+        )
+        vn_lines = [
+            l for l in r_very_narrow.stdout.splitlines() if l.startswith("  ") and not l.strip().startswith("IDs")
+        ]
+        self.assertGreaterEqual(len(vn_lines), 2)
+        self.assertEqual(vn_lines[0].strip(), "F1      🔵 [WIP]        [work]      TODO.md")
+        for cl in vn_lines[1:]:
+            self.assertEqual(len(cl) - len(cl.lstrip(" ")), 4)
+            self.assertLessEqual(disp_w(cl), 42, msg=f"very narrow line overflowed 42 cols: {cl!r}")
+
+        # 8. CJK / wide Unicode text and long unbroken tokens wrap cleanly without overflowing
+        cjk_dir = ws / "cjk_proj"
+        cjk_dir.mkdir()
+        self._run([str(SCRIPT), "init"], cwd=str(cjk_dir), check=True)
+        self._run(
+            [str(SCRIPT), "add", "日本語の長いタスク説明文をテーブル列幅に合わせて折り返すテスト https://example.com/very/long/unbroken/path/segment"],
+            cwd=str(cjk_dir),
+            check=True,
+        )
+        r_cjk = self._run(
+            [str(SCRIPT), "list"],
+            cwd=str(cjk_dir),
+            env={**os.environ, "COLUMNS": "82"},
+            check=True,
+        )
+        cjk_lines = [l for l in r_cjk.stdout.splitlines() if l.startswith("  ") and not l.strip().startswith("IDs")]
+        self.assertGreaterEqual(len(cjk_lines), 2)
+        for l in cjk_lines:
+            self.assertLessEqual(disp_w(l), 82, msg=f"CJK/URL line overflowed 82 cols: {l!r}")
+
+        # 9. Full Markdown section views remain unwrapped even on narrow terminals
+        for cmd in ([str(SCRIPT)], [str(SCRIPT), "show", "F1"], [str(SCRIPT), "last", "NEW"], [str(SCRIPT), "archive"]):
+            r_unwrapped = self._run(
+                cmd,
+                cwd=str(proj_a),
+                env={**os.environ, "COLUMNS": "65"},
+                check=True,
+            )
+            if cmd[-1] == "archive":
+                self.assertIn("Canceled item for alignment check", r_unwrapped.stdout)
+            elif cmd[-1] == "NEW":
+                self.assertIn("New item for alignment check", r_unwrapped.stdout)
+            else:
+                self.assertIn(long_title_1, r_unwrapped.stdout)
 
 if __name__ == "__main__":
     unittest.main()

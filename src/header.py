@@ -40,8 +40,11 @@ Global options (accepted before subcommands):
   -c, --commit                  Git-commit TODO*.md after mutating commands (opt-in)
   --no-commit                   Accepted as a no-op alias (commits are disabled by default)
 
-Mutating commands automatically validate and status-order TODO.md (pass -c / --commit to also
-git-commit TODO*.md when inside a Git repository; --no-commit is accepted as a no-op alias).
+Tabular views (list, chain, queue, projects) align status badges by display width and wrap long
+descriptions into aligned columns based on terminal width (falling back to a 4-space indent on
+narrow terminals; list --tree truncates to one line). Mutating commands automatically validate and
+status-order TODO.md (pass -c / --commit to also git-commit TODO*.md when inside a Git repository;
+--no-commit is accepted as a no-op alias).
 
 Manages structured Markdown task files in a repository:
   - TODO.md          All open tasks ordered by status (🔵 [WIP], 🎯 [NEXT], ❓ [QUESTION], ⚪ [NEW], ⏸️ [HOLD])

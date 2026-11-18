@@ -898,6 +898,7 @@ def cmd_queue(
     if not shown:
         sys.stdout.write(f"No pending tasks in queue for {root_node['ref']} (all tasks DONE)\n")
     else:
+        term_width = _get_terminal_columns()
         for idx, u in enumerate(shown, start=1):
             nd = nodes[u]
             st = str(nd["status"])
@@ -916,8 +917,9 @@ def cmd_queue(
                 badge = f"{nd['emoji']} [{st}]"
                 blockers = [str(nodes[p]["ref"]) for p in prereqs[u] if str(nodes[p]["status"]) != "DONE"]
                 marker = f"[blocked by: {', '.join(blockers)}]" if blockers else "[ready]"
-            suffix = f"  {marker}" if marker else ""
-            sys.stdout.write(f"  {idx:>2}. {ref:<20}  {badge:<14}  {title}{suffix}\n")
+            desc = f"{title}  {marker}" if marker else title
+            prefix = f"  {idx:>2}. {_pad_display(ref, 20)}  {_pad_display(badge, 14)}  "
+            sys.stdout.write(_wrap_table_row(prefix, desc, term_width) + "\n")
 
     next_act = _first_actionable_in_dag(dag)
     sys.stdout.write(f"Next actionable: {next_act or 'none'}\n")
@@ -1126,6 +1128,8 @@ def cmd_chain(
             else:
                 sys.stderr.write(f"ERROR: unresolved blocker {nodes[u]['ref']} ({st})\n")
 
+    term_width = _get_terminal_columns()
+
     def _format_row(idx: int, u: tuple[Path, str]) -> str:
         nd = nodes[u]
         st = str(nd["status"])
@@ -1144,7 +1148,9 @@ def cmd_chain(
             marker = f"[blocked by: {', '.join(blockers)}]" if blockers else "[ready]"
         impact = active_unblocks.get(u, 0)
         impact_tag = f" [unblocks {impact}]" if impact > 0 else ""
-        return f"  {idx:>2}. {ref:<20}  {badge:<14}  {title}  {marker}{impact_tag}\n"
+        prefix = f"  {idx:>2}. {_pad_display(ref, 20)}  {_pad_display(badge, 14)}  "
+        desc = f"{title}  {marker}{impact_tag}"
+        return _wrap_table_row(prefix, desc, term_width) + "\n"
 
     if ready:
         ready_tasks: list[tuple[Path, str]] = plan["ready_tasks"]  # type: ignore[assignment]
