@@ -63,11 +63,11 @@ Global options accepted before subcommands:
 | `todo_md status <ID> <STATUS> [-m N] [--reopen]` | Update task status (`WIP`, `NEXT`, `NEW`, `HOLD`, `QUESTION`, `DONE`, `CANCELED`; `--reopen` required if archived) |
 | `todo_md next <ID> [-m NOTE] [--reopen]` | Promote task `<ID>` to `🎯 [NEXT]` priority at the top of `TODO.md` (`--reopen` required if archived) |
 | `todo_md reopen <ID> [--status S] [-m NOTE]` | Reopen archived task `<ID>` back to `TODO.md` (default status `NEW`, clears prior closing note unless `-m` is given) |
-| `todo_md done <ID> [-m NOTE]` | Mark task `<ID>` as `✅ [DONE]` and move it to `TODO_ARCHIVE.md` |
+| `todo_md done <ID> [-m NOTE]` | Mark task `<ID>` as `✅ [DONE]`, move it to `TODO_ARCHIVE.md`, and print any newly `Unblocked:` tasks |
 | `todo_md cancel <ID> [-m REASON]` | Mark task `<ID>` as `❌ [CANCELED]` and move it to `TODO_ARCHIVE.md` |
 | `todo_md ids` | Print highest task IDs in use and next free ID per letter prefix |
 | `todo_md queue <ID> [--all]` | Show topologically sorted execution queue for `<ID>` (use `--all` to include `DONE`) |
-| `todo_md chain [--limit N] [--include-hold]` | Show unified execution chain across open tasks (`-w` for workspace; excludes `HOLD` branches unless `--include-hold`) |
+| `todo_md chain [--ready] [--limit N] [--include-hold]` | Show connected dependency chains and standalone tasks ranked by unblock impact (`-w` for workspace; `--ready` for actionable tasks only) |
 | `todo_md next-id [<ID>]` / `--top` | Print the top `WIP`/`NEXT` task ID, or first ready task ID in `<ID>`'s queue |
 | `todo_md files [<ID>] [opts]` | List existing repo file paths referenced in backticks in task `<ID>` (`--max-lines N`, `--max-total-lines N`, `--max-bytes N`, `--max-total-bytes N`) |
 | `todo_md check` | Validate task headings, status badges, and unique IDs across `TODO*.md` |

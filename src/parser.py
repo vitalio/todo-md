@@ -283,6 +283,10 @@ def resolve_dependency_statuses(
         if pm:
             proj_name, tid = pm.group(1).strip().replace("\\", "/").strip("/"), pm.group(2).upper()
             target_dir = (ws_root / proj_name).resolve()
+            if not is_todo_project(target_dir) and ws_root.name == ".todo_projects":
+                alt_dir = (ws_root.parent / proj_name).resolve()
+                if is_todo_project(alt_dir):
+                    target_dir = alt_dir
             if not is_todo_project(target_dir):
                 results.append((ref, "MISSING", ""))
                 continue
@@ -1492,16 +1496,18 @@ def build_execution_chain_dag(
         for p in prereqs[u]:
             dependents[p].append(u)
 
-    def _sort_key(u: tuple[Path, str]) -> tuple[int, int, str, tuple[Path, str]]:
+    unblocks = compute_unblock_counts(nodes, dependents)
+
+    def _sort_key(u: tuple[Path, str]) -> tuple[int, int, int, str, tuple[Path, str]]:
         st = str(nodes[u]["status"])
         prio = ACTIVE_STATUS_ORDER.get(st, 99)
-        return (prio, order_idx.get(u, 0), str(nodes[u]["ref"]), u)
+        return (prio, -unblocks.get(u, 0), order_idx.get(u, 0), str(nodes[u]["ref"]), u)
 
     avail = [_sort_key(u) for u in nodes if in_degree[u] == 0]
     heapq.heapify(avail)
     topo_order: list[tuple[Path, str]] = []
     while avail:
-        _, _, _, u = heapq.heappop(avail)
+        _, _, _, _, u = heapq.heappop(avail)
         topo_order.append(u)
         for v in dependents[u]:
             in_degree[v] -= 1
@@ -1544,7 +1550,273 @@ def build_execution_chain_dag(
         "nodes": nodes,
         "prereqs": prereqs,
         "dependents": dependents,
+        "unblocks": unblocks,
+        "order_idx": order_idx,
         "topo_order": topo_order,
         "cycle": cycle,
         "syntax_errors": syntax_errors,
     }
+
+
+def compute_unblock_counts(
+    nodes: dict[tuple[Path, str], dict[str, object]],
+    dependents: dict[tuple[Path, str], list[tuple[Path, str]]],
+    allowed: set[tuple[Path, str]] | None = None,
+) -> dict[tuple[Path, str], int]:
+    unblocks: dict[tuple[Path, str], int] = {}
+    for u in nodes:
+        if allowed is not None and u not in allowed:
+            continue
+        visited: set[tuple[Path, str]] = set()
+        stack = list(dependents.get(u, []))
+        while stack:
+            cur = stack.pop()
+            if cur == u or cur in visited:
+                continue
+            if allowed is not None and cur not in allowed:
+                continue
+            visited.add(cur)
+            for nxt in dependents.get(cur, []):
+                if nxt != u and nxt not in visited and (allowed is None or nxt in allowed):
+                    stack.append(nxt)
+        unblocks[u] = len(visited)
+    return unblocks
+
+
+def plan_execution_chains(
+    dag: dict[str, object],
+    include_hold: bool = False,
+    ready_only: bool = False,
+    limit: int | None = None,
+) -> dict[str, object]:
+    nodes: dict[tuple[Path, str], dict[str, object]] = dag["nodes"]  # type: ignore[assignment]
+    prereqs: dict[tuple[Path, str], list[tuple[Path, str]]] = dag["prereqs"]  # type: ignore[assignment]
+    dependents: dict[tuple[Path, str], list[tuple[Path, str]]] = dag["dependents"]  # type: ignore[assignment]
+    topo_order: list[tuple[Path, str]] = dag["topo_order"]  # type: ignore[assignment]
+    order_idx: dict[tuple[Path, str], int] = dag.get("order_idx", {})  # type: ignore[assignment]
+
+    held_nodes: set[tuple[Path, str]] = set()
+    hold_stack = [u for u in topo_order if str(nodes[u]["status"]) == "HOLD"]
+    while hold_stack:
+        cur = hold_stack.pop()
+        if cur in held_nodes:
+            continue
+        held_nodes.add(cur)
+        for nxt in dependents.get(cur, []):
+            if nxt not in held_nodes:
+                hold_stack.append(nxt)
+
+    if include_hold:
+        active_set = set(topo_order)
+        excluded_hold: set[tuple[Path, str]] = set()
+    else:
+        active_set = {u for u in topo_order if u not in held_nodes}
+        excluded_hold = held_nodes
+
+    active_unblocks = compute_unblock_counts(nodes, dependents, allowed=active_set)
+
+    def _node_rank(
+        u: tuple[Path, str],
+        ready_step: int = 0,
+    ) -> tuple[int, int, int, int, str, tuple[Path, str]]:
+        st = str(nodes[u]["status"])
+        prio = ACTIVE_STATUS_ORDER.get(st, 99)
+        return (prio, -active_unblocks.get(u, 0), -ready_step, order_idx.get(u, 0), str(nodes[u]["ref"]), u)
+
+    in_deg = {u: sum(1 for p in prereqs.get(u, []) if p in active_set) for u in active_set}
+    avail = [_node_rank(u, 0) for u in active_set if in_deg[u] == 0]
+    heapq.heapify(avail)
+    ranked_active: list[tuple[Path, str]] = []
+    step_num = 0
+    while avail:
+        _, _, _, _, _, u = heapq.heappop(avail)
+        ranked_active.append(u)
+        step_num += 1
+        for v in dependents.get(u, []):
+            if v in active_set:
+                in_deg[v] -= 1
+                if in_deg[v] == 0:
+                    heapq.heappush(avail, _node_rank(v, step_num))
+    if len(ranked_active) < len(active_set):
+        seen_ranked = set(ranked_active)
+        rest = [u for u in topo_order if u in active_set and u not in seen_ranked]
+        rest.sort(key=_node_rank)
+        ranked_active.extend(rest)
+
+    if ready_only:
+        ready_nodes = [
+            u
+            for u in ranked_active
+            if str(nodes[u]["status"]) in ACTIVE_STATUS_ORDER
+            and (include_hold or str(nodes[u]["status"]) != "HOLD")
+            and not any(str(nodes[p]["status"]) != "DONE" for p in prereqs.get(u, []))
+        ]
+        ready_nodes.sort(key=_node_rank)
+        if limit is not None:
+            ready_nodes = ready_nodes[:limit]
+        return {
+            "active_nodes": ranked_active,
+            "active_unblocks": active_unblocks,
+            "excluded_hold": excluded_hold,
+            "chains": [],
+            "standalone": [],
+            "ready_tasks": ready_nodes,
+        }
+
+    undirected: dict[tuple[Path, str], set[tuple[Path, str]]] = {u: set() for u in active_set}
+    for u in active_set:
+        for p in prereqs.get(u, []):
+            if p in active_set:
+                undirected[u].add(p)
+                undirected[p].add(u)
+
+    rank_pos = {u: idx for idx, u in enumerate(ranked_active)}
+    visited_comp: set[tuple[Path, str]] = set()
+    chains: list[list[tuple[Path, str]]] = []
+    standalone: list[tuple[Path, str]] = []
+    for u in ranked_active:
+        if u in visited_comp:
+            continue
+        comp: list[tuple[Path, str]] = []
+        stack = [u]
+        visited_comp.add(u)
+        while stack:
+            cur = stack.pop()
+            comp.append(cur)
+            for nb in undirected[cur]:
+                if nb not in visited_comp:
+                    visited_comp.add(nb)
+                    stack.append(nb)
+        comp.sort(key=lambda k: rank_pos[k])
+        if len(comp) >= 2:
+            chains.append(comp)
+        else:
+            standalone.append(comp[0])
+
+    chains.sort(key=lambda comp: min(_node_rank(k) for k in comp))
+    standalone.sort(key=_node_rank)
+
+    if limit is not None:
+        rem = limit
+        limited_chains: list[list[tuple[Path, str]]] = []
+        for comp in chains:
+            if rem <= 0:
+                break
+            take = comp[:rem]
+            limited_chains.append(take)
+            rem -= len(take)
+        limited_standalone = standalone[:rem] if rem > 0 else []
+        chains = limited_chains
+        standalone = limited_standalone
+
+    return {
+        "active_nodes": ranked_active,
+        "active_unblocks": active_unblocks,
+        "excluded_hold": excluded_hold,
+        "chains": chains,
+        "standalone": standalone,
+        "ready_tasks": [],
+    }
+
+
+def find_newly_unblocked_tasks(
+    completed_dir: Path,
+    completed_id: str,
+) -> list[str]:
+    comp_res = completed_dir.resolve()
+    comp_tid = completed_id.strip().upper()
+    ws_root = resolve_workspace_root(comp_res)
+    ws_res = ws_root.resolve()
+
+    candidate_dirs: list[Path] = []
+    seen_dirs: set[Path] = set()
+
+    def _add_project(p: Path) -> None:
+        p_res = p.resolve()
+        if p_res not in seen_dirs and is_todo_project(p_res):
+            seen_dirs.add(p_res)
+            candidate_dirs.append(p_res)
+
+    _add_project(comp_res)
+    _add_project(ws_res)
+    for _, proj_dir in discover_projects(ws_res):
+        _add_project(proj_dir)
+
+    probe_roots: list[Path] = [comp_res]
+    for anc in comp_res.parents:
+        probe_roots.append(anc)
+        if anc == ws_res:
+            break
+    if ws_res not in probe_roots:
+        probe_roots.append(ws_res)
+
+    for root in probe_roots:
+        tp = root / ".todo_projects"
+        if tp.is_dir():
+            _add_project(tp)
+            for _, proj_dir in discover_projects(tp):
+                _add_project(proj_dir)
+        elif tp.is_file():
+            for raw_line in read_if_exists(tp).splitlines():
+                entry = raw_line.strip()
+                if not entry or entry.startswith("#"):
+                    continue
+                p_cand = Path(entry).expanduser()
+                if not p_cand.is_absolute():
+                    p_cand = root / p_cand
+                _add_project(p_cand)
+
+    def _format_unblocked_ref(proj_dir: Path, tid: str) -> str:
+        if proj_dir == comp_res:
+            return tid
+        try:
+            rel = proj_dir.relative_to(ws_res).as_posix()
+            if rel and rel != ".":
+                return f"{rel}:{tid}"
+        except ValueError:
+            pass
+        return f"{proj_dir.name}:{tid}"
+
+    unblocked: list[str] = []
+    seen_refs: set[str] = set()
+    for proj_dir in candidate_dirs:
+        todo_path = proj_dir / "TODO.md"
+        if not todo_path.is_file():
+            continue
+        proj_ws = resolve_workspace_root(proj_dir).resolve()
+        for t in parse_tasks_in_text(read_if_exists(todo_path), "TODO.md"):
+            tid = str(t["id"]).upper()
+            if proj_dir == comp_res and tid == comp_tid:
+                continue
+            sec = str(t["section"])
+            _, syntax_errs = parse_dependency_clauses(sec)
+            if syntax_errs:
+                continue
+            deps = parse_task_dependencies(sec)
+            if not deps:
+                continue
+            references_completed = False
+            for ref in deps:
+                pm = PROJECT_TASK_RE.match(ref)
+                if pm:
+                    p_name = pm.group(1).strip().replace("\\", "/").strip("/")
+                    dep_tid = pm.group(2).upper()
+                    cand_targets = {(proj_ws / p_name).resolve(), (ws_res / p_name).resolve()}
+                    if proj_ws.name == ".todo_projects":
+                        cand_targets.add((proj_ws.parent / p_name).resolve())
+                    if comp_res in cand_targets and dep_tid == comp_tid:
+                        references_completed = True
+                        break
+                else:
+                    if proj_dir == comp_res and ref.upper() == comp_tid:
+                        references_completed = True
+                        break
+            if not references_completed:
+                continue
+            resolved = resolve_dependency_statuses(proj_dir, deps)
+            if resolved and all(st == "DONE" for _, st, _ in resolved):
+                label = _format_unblocked_ref(proj_dir, tid)
+                if label not in seen_refs:
+                    seen_refs.add(label)
+                    unblocked.append(label)
+    return unblocked

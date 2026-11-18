@@ -171,10 +171,10 @@ class TestTodoMd(unittest.TestCase):
         self.assertIn("[blocked: A (<STATUS>) -> B (<STATUS>)]", rule_txt)
         self.assertIn("--max-total-lines N", rh.stdout)
         self.assertIn("queue <ID> [--all]", rh.stdout)
-        self.assertIn("chain [--limit N] [--include-hold]", rh.stdout)
+        self.assertIn("chain [--ready] [--limit N] [--include-hold]", rh.stdout)
         self.assertIn("next-id [<ID>]", rh.stdout)
         self.assertIn("queue <ID> [--all]", rule_txt)
-        self.assertIn("chain [--limit N] [--include-hold]", rule_txt)
+        self.assertIn("chain [--ready] [--limit N] [--include-hold]", rule_txt)
         self.assertIn("next-id [<ID>]", rule_txt)
         self.assertIn("A -> B -> C", rule_txt)
         self.assertIn("do not introduce a separate `- Order:` field", rule_txt)
@@ -1603,6 +1603,96 @@ class TestTodoMd(unittest.TestCase):
                 proc = self._run([str(SCRIPT), *bad_args], cwd=str(proj_a))
                 self.assertNotEqual(proc.returncode, 0, msg=proc.stdout)
 
+
+    def test_chain_critical_path_ranking_ready_filter_and_standalone_grouping(self):
+        ws = self.tmp / "ws_rank"
+        proj = ws / "proj"
+        proj.mkdir(parents=True)
+        self._run([str(SCRIPT), "init"], cwd=str(proj), check=True)
+
+        # Standalone tasks only -> no false '->' arrows in Chain: header
+        self._run([str(SCRIPT), "add", "Solo A"], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "add", "Solo B"], cwd=str(proj), check=True)
+        r_solo = self._run([str(SCRIPT), "chain"], cwd=str(proj), check=True)
+        self.assertIn("Standalone tasks:", r_solo.stdout)
+        self.assertNotIn("Chain:", r_solo.stdout)
+        self.assertNotIn("F1 -> F2", r_solo.stdout)
+
+        # Add a medium chain F3 -> F4 (F3 unblocks 1) and a deep chain F5 -> F6 -> F7 (F5 unblocks 2)
+        self._run([str(SCRIPT), "add", "Med root"], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "add", "Med leaf", "--depends", "F3"], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "add", "Deep root"], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "add", "Deep mid", "--depends", "F5"], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "add", "Deep leaf", "--depends", "F6"], cwd=str(proj), check=True)
+
+        r_chain = self._run([str(SCRIPT), "chain"], cwd=str(proj), check=True)
+        out = r_chain.stdout
+        # Deep chain (unblocks 2) ranks before medium chain (unblocks 1), both before Standalone tasks
+        self.assertIn("Chain: F5 -> F6 -> F7", out)
+        self.assertIn("Chain: F3 -> F4", out)
+        self.assertIn("Standalone tasks:", out)
+        self.assertLess(out.index("Chain: F5 -> F6 -> F7"), out.index("Chain: F3 -> F4"))
+        self.assertLess(out.index("Chain: F3 -> F4"), out.index("Standalone tasks:"))
+        self.assertNotIn("F7 -> F3", out)
+        self.assertNotIn("F4 -> F1", out)
+        self.assertNotIn("F1 -> F2", out)
+        self.assertIn("[unblocks 2]", out)
+        self.assertIn("[unblocks 1]", out)
+
+        # --ready filters to ready tasks only and ranks highest-leverage ready tasks first
+        r_ready = self._run([str(SCRIPT), "chain", "--ready"], cwd=str(proj), check=True)
+        r_out = r_ready.stdout
+        self.assertIn("Ready tasks:", r_out)
+        self.assertNotIn("F4", r_out)
+        self.assertNotIn("F6", r_out)
+        self.assertNotIn("F7", r_out)
+        self.assertNotIn("->", r_out)
+        self.assertLess(r_out.index("F5"), r_out.index("F3"))
+        self.assertLess(r_out.index("F3"), r_out.index("F1"))
+        self.assertLess(r_out.index("F1"), r_out.index("F2"))
+
+    def test_done_prints_newly_unblocked_local_and_orchestrator_tasks(self):
+        ws = self.tmp / "ws_done"
+        repo_a = ws / "repo_a"
+        repo_b = ws / "repo_b"
+        orch_dir = ws / ".todo_projects"
+        for d in (repo_a, repo_b, orch_dir):
+            d.mkdir(parents=True)
+            self._run([str(SCRIPT), "init"], cwd=str(d), check=True)
+
+        # Local chain in repo_a: F1 and F2 both required for F4; F3 depends only on F1
+        self._run([str(SCRIPT), "add", "Prereq 1"], cwd=str(repo_a), check=True)
+        self._run([str(SCRIPT), "add", "Prereq 2"], cwd=str(repo_a), check=True)
+        self._run([str(SCRIPT), "add", "Single waiter", "--depends", "F1"], cwd=str(repo_a), check=True)
+        self._run([str(SCRIPT), "add", "Dual waiter", "--depends", "F1, F2"], cwd=str(repo_a), check=True)
+        self._run([str(SCRIPT), "add", "Already ready"], cwd=str(repo_a), check=True)
+
+        # Workspace orchestrator task in .todo_projects depending on repo_a:F1 -> repo_b:F1
+        self._run([str(SCRIPT), "add", "Repo B step"], cwd=str(repo_b), check=True)
+        self._run(
+            [str(SCRIPT), "add", "Orch release", "--depends", "repo_a:F1, repo_b:F1"],
+            cwd=str(orch_dir),
+            check=True,
+        )
+
+        # Completing F1 unblocks local F3, does NOT unblock F4 (still waiting on F2) or F5 (had no deps)
+        r_done1 = self._run([str(SCRIPT), "done", "F1", "-m", "d1"], cwd=str(repo_a), check=True)
+        self.assertIn("Unblocked: F3", r_done1.stdout)
+        self.assertNotIn("F4", r_done1.stdout)
+        self.assertNotIn("F5", r_done1.stdout)
+        self.assertNotIn(".todo_projects:F1", r_done1.stdout)
+
+        # Completing F2 unblocks local F4
+        r_done2 = self._run([str(SCRIPT), "done", "F2", "-m", "d2"], cwd=str(repo_a), check=True)
+        self.assertIn("Unblocked: F4", r_done2.stdout)
+
+        # Completing F3 has no downstream dependents -> no Unblocked: line
+        r_done3 = self._run([str(SCRIPT), "done", "F3", "-m", "d3"], cwd=str(repo_a), check=True)
+        self.assertNotIn("Unblocked:", r_done3.stdout)
+
+        # Completing repo_b:F1 completes all deps for .todo_projects:F1 and reports it
+        r_done_b = self._run([str(SCRIPT), "done", "F1", "-m", "db1"], cwd=str(repo_b), check=True)
+        self.assertIn("Unblocked: .todo_projects:F1", r_done_b.stdout)
 
 if __name__ == "__main__":
     unittest.main()

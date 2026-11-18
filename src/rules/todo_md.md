@@ -37,11 +37,12 @@
     `{cmd:todo_md} queue <ID> [--all]` (topologically sorted execution queue;
     hides `DONE` unless `--all` is passed; prints `[ready]` / `[blocked by: ...]`
     and `Next actionable: <ref>`),
-    `{cmd:todo_md} chain [--limit N] [--include-hold]` (unified local or `-w`
-    workspace execution chain `A -> B -> C` across open tasks; excludes `HOLD`
-    and tasks transitively blocked by `HOLD` into `Held branches:` unless
-    `--include-hold` is passed; reports diagnostics on cycles, syntax errors,
-    or `MISSING` / `CANCELED` blockers),
+    `{cmd:todo_md} chain [--ready] [--limit N] [--include-hold]` (local or `-w`
+    workspace dependency chains `A -> B -> C` separated from standalone tasks,
+    ranked by critical-path unblock impact `[unblocks N]`; `--ready` filters to
+    highest-leverage ready tasks; excludes `HOLD` and tasks transitively blocked
+    by `HOLD` into `Held branches:` unless `--include-hold` is passed; reports
+    diagnostics on cycles, syntax errors, or `MISSING` / `CANCELED` blockers),
     `{cmd:todo_md} next-id [<ID>]` (`--top`, top `WIP`/`NEXT` ID, or with
     `<ID>`/`<project>:<ID>` prints the first unblocked actionable ID in `<ID>`'s
     queue, exiting non-zero on cycles, missing/canceled blockers, or closed targets),
@@ -64,7 +65,9 @@
   - Transition: `{cmd:todo_md} status <ID> <WIP|NEXT|NEW|HOLD|QUESTION> [-m "<note>"] [--reopen] [-c|--commit]`,
     `{cmd:todo_md} next <ID> [-m "<note>"] [--reopen] [-c|--commit]` (promote to `🎯 [NEXT]`),
     `{cmd:todo_md} reopen <ID> [--status <STATUS>] [-m "<note>"] [-c|--commit]` (reopen archived task to `TODO.md`, default `NEW`; transitions from `TODO_ARCHIVE.md` without `--reopen` or `reopen` are rejected)
-  - Close (prepends to `TODO_ARCHIVE.md`): `{cmd:todo_md} done <ID> [-m "<note>"] [-c|--commit]`,
+  - Close (prepends to `TODO_ARCHIVE.md`): `{cmd:todo_md} done <ID> [-m "<note>"] [-c|--commit]`
+    (prints `Unblocked: ...` when closing `<ID>` completes all prerequisites for
+    open tasks in the current repo or workspace orchestrator),
     `{cmd:todo_md} cancel <ID> [-m "<reason>"] [-c|--commit]`
   - Validation & commits: mutating commands automatically validate and reorder
     `TODO.md` without git-committing by default (run `{cmd:todo_md} check` to

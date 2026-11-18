@@ -239,6 +239,7 @@ def main(argv: list[str] | None = None) -> int:
     if args[0] in ("chain", "--chain"):
         limit: int | None = None
         include_hold = False
+        ready = False
         i = 1
         while i < len(args):
             a = args[i]
@@ -259,10 +260,13 @@ def main(argv: list[str] | None = None) -> int:
             elif a == "--include-hold":
                 include_hold = True
                 i += 1
+            elif a == "--ready":
+                ready = True
+                i += 1
             elif a.startswith("-"):
                 raise SystemExit(f"{prog}: unknown option for chain: {a}")
             else:
-                raise SystemExit(f"{prog}: usage: {prog} chain [--limit N] [--include-hold]")
+                raise SystemExit(f"{prog}: usage: {prog} chain [--ready] [--limit N] [--include-hold]")
         use_ws = workspace
         if not use_ws and not is_todo_project(base_dir) and not (base_dir / "TODO.md").is_file():
             ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
@@ -272,6 +276,7 @@ def main(argv: list[str] | None = None) -> int:
             base_dir,
             limit=limit,
             include_hold=include_hold,
+            ready=ready,
             workspace=use_ws,
             explicit_dir=explicit_dir,
         )

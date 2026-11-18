@@ -378,13 +378,18 @@ def cmd_transition(
         sys.stdout.write(f"{prog_name()}: promoted {target} ([{final_status}]) to top of {dest_file}\n")
     else:
         sys.stdout.write(f"{prog_name()}: moved {target} ([{final_status}]) from {source_file} -> {dest_file}\n")
-    return _finalize_mutation(
+    rc = _finalize_mutation(
         base_dir,
         commit_msg,
         commit=commit,
         no_commit=no_commit,
         promote_id=(target if promote_top and dest_file == "TODO.md" else None),
     )
+    if rc == 0 and final_status == "DONE":
+        unblocked = find_newly_unblocked_tasks(base_dir, tid)
+        if unblocked:
+            sys.stdout.write(f"Unblocked: {', '.join(unblocked)}\n")
+    return rc
 
 
 def cmd_reopen(
@@ -1059,6 +1064,7 @@ def cmd_chain(
     base_dir: Path,
     limit: int | None = None,
     include_hold: bool = False,
+    ready: bool = False,
     workspace: bool = False,
     explicit_dir: str | None = None,
 ) -> int:
@@ -1096,23 +1102,15 @@ def cmd_chain(
         sys.stdout.write(f"No open tasks {scope_msg}\n")
         return 0
 
-    held_nodes: set[tuple[Path, str]] = set()
-    hold_stack = [u for u in topo_order if str(nodes[u]["status"]) == "HOLD"]
-    while hold_stack:
-        cur = hold_stack.pop()
-        if cur in held_nodes:
-            continue
-        held_nodes.add(cur)
-        for nxt in dependents.get(cur, []):
-            if nxt not in held_nodes:
-                hold_stack.append(nxt)
-
-    if include_hold:
-        active_nodes = list(topo_order)
-        excluded_hold: set[tuple[Path, str]] = set()
-    else:
-        active_nodes = [u for u in topo_order if u not in held_nodes]
-        excluded_hold = held_nodes
+    plan = plan_execution_chains(
+        dag,
+        include_hold=include_hold,
+        ready_only=ready,
+        limit=limit,
+    )
+    active_nodes: list[tuple[Path, str]] = plan["active_nodes"]  # type: ignore[assignment]
+    active_unblocks: dict[tuple[Path, str], int] = plan["active_unblocks"]  # type: ignore[assignment]
+    excluded_hold: set[tuple[Path, str]] = plan["excluded_hold"]  # type: ignore[assignment]
 
     active_set = set(active_nodes)
     had_blocker_error = False
@@ -1128,33 +1126,66 @@ def cmd_chain(
             else:
                 sys.stderr.write(f"ERROR: unresolved blocker {nodes[u]['ref']} ({st})\n")
 
-    shown_nodes = active_nodes[:limit] if limit is not None else active_nodes
-    if shown_nodes:
-        chain_str = " -> ".join(str(nodes[u]["ref"]) for u in shown_nodes)
-        sys.stdout.write(f"Chain: {chain_str}\n")
-        for idx, u in enumerate(shown_nodes, start=1):
-            nd = nodes[u]
-            st = str(nd["status"])
-            ref = str(nd["ref"])
-            title = str(nd["title"])
-            blockers = [str(nodes[p]["ref"]) for p in prereqs[u] if str(nodes[p]["status"]) != "DONE"]
-            if st == "MISSING":
-                badge = "[MISSING]"
-                marker = "[blocked]"
-            elif st == "CANCELED":
-                badge = f"{nd['emoji']} [CANCELED]"
-                marker = "[blocked]"
-            else:
-                emoji = "⏳" if (st in ("WIP", "NEXT") and blockers) else str(nd["emoji"])
-                badge = f"{emoji} [{st}]"
-                marker = f"[blocked by: {', '.join(blockers)}]" if blockers else "[ready]"
-            sys.stdout.write(f"  {idx:>2}. {ref:<20}  {badge:<14}  {title}  {marker}\n")
-    elif excluded_hold:
-        sys.stdout.write(
-            f"Chain: (none — {len(excluded_hold)} held task(s); pass --include-hold to include)\n"
-        )
+    def _format_row(idx: int, u: tuple[Path, str]) -> str:
+        nd = nodes[u]
+        st = str(nd["status"])
+        ref = str(nd["ref"])
+        title = str(nd["title"])
+        blockers = [str(nodes[p]["ref"]) for p in prereqs[u] if str(nodes[p]["status"]) != "DONE"]
+        if st == "MISSING":
+            badge = "[MISSING]"
+            marker = "[blocked]"
+        elif st == "CANCELED":
+            badge = f"{nd['emoji']} [CANCELED]"
+            marker = "[blocked]"
+        else:
+            emoji = "⏳" if (st in ("WIP", "NEXT") and blockers) else str(nd["emoji"])
+            badge = f"{emoji} [{st}]"
+            marker = f"[blocked by: {', '.join(blockers)}]" if blockers else "[ready]"
+        impact = active_unblocks.get(u, 0)
+        impact_tag = f" [unblocks {impact}]" if impact > 0 else ""
+        return f"  {idx:>2}. {ref:<20}  {badge:<14}  {title}  {marker}{impact_tag}\n"
+
+    if ready:
+        ready_tasks: list[tuple[Path, str]] = plan["ready_tasks"]  # type: ignore[assignment]
+        if ready_tasks:
+            sys.stdout.write("Ready tasks:\n")
+            for idx, u in enumerate(ready_tasks, start=1):
+                sys.stdout.write(_format_row(idx, u))
+        elif excluded_hold:
+            sys.stdout.write(
+                f"Ready tasks: (none — {len(excluded_hold)} held task(s); pass --include-hold to include)\n"
+            )
+        else:
+            sys.stdout.write("Ready tasks: (none)\n")
     else:
-        sys.stdout.write("Chain: (none)\n")
+        chains: list[list[tuple[Path, str]]] = plan["chains"]  # type: ignore[assignment]
+        standalone: list[tuple[Path, str]] = plan["standalone"]  # type: ignore[assignment]
+        if chains or standalone:
+            row_idx = 1
+            wrote_section = False
+            for comp in chains:
+                if wrote_section:
+                    sys.stdout.write("\n")
+                chain_str = " -> ".join(str(nodes[u]["ref"]) for u in comp)
+                sys.stdout.write(f"Chain: {chain_str}\n")
+                for u in comp:
+                    sys.stdout.write(_format_row(row_idx, u))
+                    row_idx += 1
+                wrote_section = True
+            if standalone:
+                if wrote_section:
+                    sys.stdout.write("\n")
+                sys.stdout.write("Standalone tasks:\n")
+                for u in standalone:
+                    sys.stdout.write(_format_row(row_idx, u))
+                    row_idx += 1
+        elif excluded_hold:
+            sys.stdout.write(
+                f"Chain: (none — {len(excluded_hold)} held task(s); pass --include-hold to include)\n"
+            )
+        else:
+            sys.stdout.write("Chain: (none)\n")
 
     if excluded_hold:
         held_in_deg = {u: sum(1 for p in prereqs[u] if p in excluded_hold) for u in excluded_hold}
