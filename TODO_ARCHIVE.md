@@ -1,3 +1,14 @@
+# ✅ [DONE] F40: Add --by-role execution queue mode to todo_md chain — *2026-11-19*
+
+- Role: work
+- Add a role-tiered queue planner helper (e.g. `plan_execution_chains_by_role()` in `src/parser.py`) over `build_execution_chain_dag()` that partitions active non-held tasks into four topologically sorted queues:
+  1. `Queue 1 (work)`: `role == "work"` with no open transitive dependencies or all transitive dependencies also in `work`.
+  2. `Queue 2 (plan)`: `role == "plan"` with no open transitive dependencies or transitive dependencies in `work`/`plan`.
+  3. `Queue 3 (design)`: `role == "design"`.
+  4. `Queue 4 (deferred work)`: remaining `work` tasks blocked by `plan`/`design` prerequisites (omitted when `--ready` is active).
+- Add `--by-role` option to `todo_md chain` in `main()` (`src/cli.py`) and `cmd_chain()` (`src/commands.py`), reusing `_format_row()` (`[role]`, `[ready]` / `[blocked by: ...]`, `[unblocks N]`) and composing cleanly with `-w`, `--ready`, `--role`, `--limit`, and `--include-hold`.
+- Keep `src/header.py` (`--help`), `src/rules/todo_md.md`, `README.md`, and `tests/test_todo_md.py` in sync, rebuild `./todo_md` via `build.py` (and reinstall via `install.sh` if applicable), and bump `VERSION` for a MINOR release.
+
 # ✅ [DONE] F39: Display role badges in todo_md chain and add --role filter — *2026-11-18*
 
 - Role: work

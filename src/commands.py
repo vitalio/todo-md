@@ -1068,6 +1068,7 @@ def cmd_chain(
     include_hold: bool = False,
     ready: bool = False,
     role: str | None = None,
+    by_role: bool = False,
     workspace: bool = False,
     explicit_dir: str | None = None,
 ) -> int:
@@ -1105,12 +1106,21 @@ def cmd_chain(
         sys.stdout.write(f"No open tasks {scope_msg}\n")
         return 0
 
-    plan = plan_execution_chains(
-        dag,
-        include_hold=include_hold,
-        ready_only=ready,
-        limit=(None if role is not None else limit),
-    )
+    if by_role:
+        plan = plan_execution_chains_by_role(
+            dag,
+            include_hold=include_hold,
+            ready_only=ready,
+            limit=limit,
+            role=role,
+        )
+    else:
+        plan = plan_execution_chains(
+            dag,
+            include_hold=include_hold,
+            ready_only=ready,
+            limit=(None if role is not None else limit),
+        )
     active_nodes: list[tuple[Path, str]] = plan["active_nodes"]  # type: ignore[assignment]
     active_unblocks: dict[tuple[Path, str], int] = plan["active_unblocks"]  # type: ignore[assignment]
     excluded_hold: set[tuple[Path, str]] = plan["excluded_hold"]  # type: ignore[assignment]
@@ -1165,7 +1175,29 @@ def cmd_chain(
         desc = f"{title}  {marker}{impact_tag}"
         return _wrap_table_row(prefix, desc, term_width) + "\n"
 
-    if ready:
+    if by_role:
+        queues: list[tuple[str, str, list[tuple[Path, str]]]] = plan["queues"]  # type: ignore[assignment]
+        non_empty_queues = [(q_label, q_items) for _, q_label, q_items in queues if q_items]
+        matching_held = [u for u in excluded_hold if _matches_role(u)]
+        if non_empty_queues:
+            row_idx = 1
+            for sec_idx, (q_label, q_items) in enumerate(non_empty_queues):
+                if sec_idx > 0:
+                    sys.stdout.write("\n")
+                sys.stdout.write(f"{q_label}:\n")
+                for u in q_items:
+                    sys.stdout.write(_format_row(row_idx, u))
+                    row_idx += 1
+        elif matching_held:
+            role_note = f" matching role={role.strip()}" if role is not None else ""
+            sys.stdout.write(
+                f"Queues: (none{role_note} — {len(matching_held)} held task(s); pass --include-hold to include)\n"
+            )
+        elif role is not None:
+            sys.stdout.write(f"Queues: (none matching role={role.strip()})\n")
+        else:
+            sys.stdout.write("Queues: (none)\n")
+    elif ready:
         ready_tasks: list[tuple[Path, str]] = plan["ready_tasks"]  # type: ignore[assignment]
         if wanted_role is not None:
             ready_tasks = [u for u in ready_tasks if _matches_role(u)]

@@ -187,10 +187,10 @@ class TestTodoMd(unittest.TestCase):
         self.assertIn("[blocked: A (<STATUS>) -> B (<STATUS>)]", rule_txt)
         self.assertIn("--max-total-lines N", rh.stdout)
         self.assertIn("queue <ID> [--all]", rh.stdout)
-        self.assertIn("chain [--role ROLE] [--ready] [--limit N] [--include-hold]", rh.stdout)
+        self.assertIn("chain [--by-role] [--role ROLE] [--ready] [--limit N] [--include-hold]", rh.stdout)
         self.assertIn("next-id [<ID>]", rh.stdout)
         self.assertIn("queue <ID> [--all]", rule_txt)
-        self.assertIn("chain [--role <role>] [--ready] [--limit N] [--include-hold]", rule_txt)
+        self.assertIn("chain [--by-role] [--role <role>] [--ready] [--limit N] [--include-hold]", rule_txt)
         self.assertIn("next-id [<ID>]", rule_txt)
         self.assertIn("A -> B -> C", rule_txt)
         self.assertIn("do not introduce a separate `- Order:` field", rule_txt)
@@ -2288,6 +2288,180 @@ class TestTodoMd(unittest.TestCase):
                 self.assertIn("New item for alignment check", r_unwrapped.stdout)
             else:
                 self.assertIn(long_title_1, r_unwrapped.stdout)
+
+    def test_chain_by_role_queues_and_composition(self):
+        ws = self.tmp / "ws_by_role"
+        proj_a = ws / "proj_a"
+        proj_b = ws / "proj_b"
+        proj_a.mkdir(parents=True)
+        proj_b.mkdir(parents=True)
+        self._run([str(SCRIPT), "init"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "init"], cwd=str(proj_b), check=True)
+
+        # Completed prerequisite should not block Queue 1 (work) or Queue 2 (plan)
+        self._run([str(SCRIPT), "add", "D", "Done design prereq"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "done", "D1", "-m", "done"], cwd=str(proj_a), check=True)
+
+        # Queue 1 (work): ready work (F1), work blocked only by work/DONE (F2), standalone work (B1)
+        self._run([str(SCRIPT), "add", "F", "Ready work root", "--next", "--depends", "D1"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Work after work", "--depends", "F1"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "B", "Standalone bugfix"], cwd=str(proj_a), check=True)
+
+        # Queue 2 (plan): ready plan (F3), plan depending on work (F4), plan depending on plan (F5)
+        self._run([str(SCRIPT), "add", "F", "Ready plan", "--role", "plan", "--depends", "D1"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Plan after work", "--role", "plan", "--depends", "F2"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Plan after plan", "--role", "plan", "--depends", "F4"], cwd=str(proj_a), check=True)
+
+        # Queue 3 (design): ready design (D2), design depending on design (D3)
+        self._run([str(SCRIPT), "add", "D", "Core design", "--next"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "D", "Followup design", "--depends", "D2"], cwd=str(proj_a), check=True)
+
+        # Queue 4 (deferred work): work blocked by plan (F6), work blocked by design (F7),
+        # and work blocked transitively by design through work (F8 -> F7 -> D2)
+        self._run([str(SCRIPT), "add", "F", "Work after plan", "--depends", "F4"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Work after design", "--depends", "D2"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Work transitively after design", "--depends", "F7"], cwd=str(proj_a), check=True)
+
+        # Held branch: D4 (HOLD, design) -> F9 (NEW, work)
+        self._run([str(SCRIPT), "add", "D", "Paused design", "--status", "HOLD"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Waiting on held design", "--depends", "D4"], cwd=str(proj_a), check=True)
+
+        # 1. Default --by-role renders all 4 queues in topological order + Held branches
+        r_by_role = self._run(
+            [str(SCRIPT), "chain", "--by-role"],
+            cwd=str(proj_a),
+            env={**os.environ, "COLUMNS": "160"},
+            check=True,
+        )
+        out = r_by_role.stdout
+        self.assertIn("Queue 1 (work):", out)
+        self.assertIn("Queue 2 (plan):", out)
+        self.assertIn("Queue 3 (design):", out)
+        self.assertIn("Queue 4 (deferred work):", out)
+        self.assertIn("Held branches:", out)
+        self.assertIn("D4 (HOLD) -> F9 (NEW)", out)
+        self.assertNotIn("D1", out)
+
+        # Order between queues
+        self.assertLess(out.index("Queue 1 (work):"), out.index("Queue 2 (plan):"))
+        self.assertLess(out.index("Queue 2 (plan):"), out.index("Queue 3 (design):"))
+        self.assertLess(out.index("Queue 3 (design):"), out.index("Queue 4 (deferred work):"))
+
+        # Topological order and membership within queues
+        q1_sec = out[out.index("Queue 1 (work):"):out.index("Queue 2 (plan):")]
+        q2_sec = out[out.index("Queue 2 (plan):"):out.index("Queue 3 (design):")]
+        q3_sec = out[out.index("Queue 3 (design):"):out.index("Queue 4 (deferred work):")]
+        q4_sec = out[out.index("Queue 4 (deferred work):"):out.index("Held branches:")]
+
+        self.assertIn("F1", q1_sec)
+        self.assertIn("F2", q1_sec)
+        self.assertIn("B1", q1_sec)
+        self.assertLess(q1_sec.index("F1"), q1_sec.index("F2"))
+        self.assertIn("[ready]", q1_sec)
+        self.assertIn("[blocked by: F1]", q1_sec)
+        self.assertIn("[unblocks 3]", q1_sec)
+        self.assertNotIn("F6", q1_sec)
+        self.assertNotIn("F7", q1_sec)
+
+        self.assertIn("F3", q2_sec)
+        self.assertIn("F4", q2_sec)
+        self.assertIn("F5", q2_sec)
+        self.assertLess(q2_sec.index("F4"), q2_sec.index("F5"))
+        self.assertIn("[plan]", q2_sec)
+        self.assertIn("[blocked by: F2]", q2_sec)
+
+        self.assertIn("D2", q3_sec)
+        self.assertIn("D3", q3_sec)
+        self.assertLess(q3_sec.index("D2"), q3_sec.index("D3"))
+        self.assertIn("[design]", q3_sec)
+
+        self.assertIn("F6", q4_sec)
+        self.assertIn("F7", q4_sec)
+        self.assertIn("F8", q4_sec)
+        self.assertLess(q4_sec.index("F7"), q4_sec.index("F8"))
+        self.assertIn("[blocked by: F4]", q4_sec)
+        self.assertIn("[blocked by: D2]", q4_sec)
+        self.assertIn("[blocked by: F7]", q4_sec)
+
+        # 2. --by-role --ready filters to ready tasks and omits Queue 4 (deferred work)
+        r_ready = self._run([str(SCRIPT), "chain", "--by-role", "--ready"], cwd=str(proj_a), check=True)
+        r_out = r_ready.stdout
+        self.assertIn("Queue 1 (work):", r_out)
+        self.assertIn("Queue 2 (plan):", r_out)
+        self.assertIn("Queue 3 (design):", r_out)
+        self.assertNotIn("Queue 4 (deferred work):", r_out)
+        self.assertIn("F1", r_out)
+        self.assertIn("B1", r_out)
+        self.assertIn("F3", r_out)
+        self.assertIn("D2", r_out)
+        for blocked_id in ("F2", "F4", "F5", "D3", "F6", "F7", "F8"):
+            self.assertNotIn(blocked_id, r_out)
+
+        # 3. --by-role with --role filters cleanly and omits empty queues
+        r_role_work = self._run([str(SCRIPT), "chain", "--by-role", "--role", "work"], cwd=str(proj_a), check=True)
+        self.assertIn("Queue 1 (work):", r_role_work.stdout)
+        self.assertIn("Queue 4 (deferred work):", r_role_work.stdout)
+        self.assertNotIn("Queue 2 (plan):", r_role_work.stdout)
+        self.assertNotIn("Queue 3 (design):", r_role_work.stdout)
+        self.assertIn("Held branches:", r_role_work.stdout)
+
+        r_role_plan = self._run([str(SCRIPT), "chain", "--by-role", "--role", "plan"], cwd=str(proj_a), check=True)
+        self.assertIn("Queue 2 (plan):", r_role_plan.stdout)
+        self.assertNotIn("Queue 1 (work):", r_role_plan.stdout)
+        self.assertNotIn("Queue 3 (design):", r_role_plan.stdout)
+        self.assertNotIn("Queue 4 (deferred work):", r_role_plan.stdout)
+        self.assertNotIn("Held branches:", r_role_plan.stdout)
+
+        r_role_none = self._run([str(SCRIPT), "chain", "--by-role", "--role", "review"], cwd=str(proj_a), check=True)
+        self.assertIn("Queues: (none matching role=review)", r_role_none.stdout)
+
+        # 4. --by-role with --limit and --include-hold
+        r_lim = self._run([str(SCRIPT), "chain", "--by-role", "--limit", "4"], cwd=str(proj_a), check=True)
+        lim_rows = {k: v for k, v in self._table_rows(r_lim.stdout).items() if k.endswith(".")}
+        self.assertEqual(sorted(lim_rows), ["1.", "2.", "3.", "4."], msg=r_lim.stdout)
+        self.assertNotIn("Queue 3 (design):", r_lim.stdout)
+
+        r_hold = self._run([str(SCRIPT), "chain", "--by-role", "--include-hold"], cwd=str(proj_a), check=True)
+        self.assertNotIn("Held branches:", r_hold.stdout)
+        h_q3 = r_hold.stdout[r_hold.stdout.index("Queue 3 (design):"):r_hold.stdout.index("Queue 4 (deferred work):")]
+        h_q4 = r_hold.stdout[r_hold.stdout.index("Queue 4 (deferred work):"):]
+        self.assertIn("D4", h_q3)
+        self.assertIn("F9", h_q4)
+
+        # 5. Workspace -w --by-role with cross-project design -> work dependency
+        self._run(
+            [str(SCRIPT), "add", "F", "Cross-project deferred work", "--depends", "proj_a:D2"],
+            cwd=str(proj_b),
+            check=True,
+        )
+        self._run(
+            [str(SCRIPT), "add", "F", "Cross-project ready work"],
+            cwd=str(proj_b),
+            check=True,
+        )
+        r_ws = self._run([str(SCRIPT), "chain", "-w", "--by-role"], cwd=str(ws), check=True)
+        ws_q1 = r_ws.stdout[r_ws.stdout.index("Queue 1 (work):"):r_ws.stdout.index("Queue 2 (plan):")]
+        ws_q4 = r_ws.stdout[r_ws.stdout.index("Queue 4 (deferred work):"):r_ws.stdout.index("Held branches:")]
+        self.assertIn("proj_b:F2", ws_q1)
+        self.assertIn("proj_b:F1", ws_q4)
+        self.assertIn("[blocked by: proj_a:D2]", ws_q4)
+
+        # 6. Plan blocked by design and unassigned/custom role tasks go to Other tasks without failing
+        other_dir = ws / "other_roles"
+        other_dir.mkdir()
+        self._run([str(SCRIPT), "init"], cwd=str(other_dir), check=True)
+        self._run([str(SCRIPT), "add", "D", "Design first"], cwd=str(other_dir), check=True)
+        self._run([str(SCRIPT), "add", "F", "Plan after design", "--role", "plan", "--depends", "D1"], cwd=str(other_dir), check=True)
+        self._run([str(SCRIPT), "add", "P", "Unassigned idea"], cwd=str(other_dir), check=True)
+        self._run([str(SCRIPT), "add", "F", "Review diff", "--role", "review"], cwd=str(other_dir), check=True)
+        r_other = self._run([str(SCRIPT), "chain", "--by-role"], cwd=str(other_dir), check=True)
+        self.assertIn("Queue 3 (design):", r_other.stdout)
+        self.assertNotIn("Queue 2 (plan):", r_other.stdout)
+        self.assertIn("Other tasks:", r_other.stdout)
+        other_sec = r_other.stdout[r_other.stdout.index("Other tasks:"):]
+        self.assertIn("F1", other_sec)
+        self.assertIn("P1", other_sec)
+        self.assertIn("F2", other_sec)
 
 if __name__ == "__main__":
     unittest.main()

@@ -2005,11 +2005,9 @@ def compute_unblock_counts(
     return unblocks
 
 
-def plan_execution_chains(
+def _prepare_active_plan(
     dag: dict[str, object],
     include_hold: bool = False,
-    ready_only: bool = False,
-    limit: int | None = None,
 ) -> dict[str, object]:
     nodes: dict[tuple[Path, str], dict[str, object]] = dag["nodes"]  # type: ignore[assignment]
     prereqs: dict[tuple[Path, str], list[tuple[Path, str]]] = dag["prereqs"]  # type: ignore[assignment]
@@ -2065,13 +2063,47 @@ def plan_execution_chains(
         rest.sort(key=_node_rank)
         ranked_active.extend(rest)
 
+    return {
+        "active_set": active_set,
+        "ranked_active": ranked_active,
+        "active_unblocks": active_unblocks,
+        "excluded_hold": excluded_hold,
+        "node_rank": _node_rank,
+    }
+
+def _is_ready_in_dag(
+    nodes: dict[tuple[Path, str], dict[str, object]],
+    prereqs: dict[tuple[Path, str], list[tuple[Path, str]]],
+    u: tuple[Path, str],
+    include_hold: bool = False,
+) -> bool:
+    st = str(nodes[u]["status"])
+    if st not in ACTIVE_STATUS_ORDER:
+        return False
+    if not include_hold and st == "HOLD":
+        return False
+    return not any(str(nodes[p]["status"]) != "DONE" for p in prereqs.get(u, []))
+
+def plan_execution_chains(
+    dag: dict[str, object],
+    include_hold: bool = False,
+    ready_only: bool = False,
+    limit: int | None = None,
+) -> dict[str, object]:
+    nodes: dict[tuple[Path, str], dict[str, object]] = dag["nodes"]  # type: ignore[assignment]
+    prereqs: dict[tuple[Path, str], list[tuple[Path, str]]] = dag["prereqs"]  # type: ignore[assignment]
+    prep = _prepare_active_plan(dag, include_hold=include_hold)
+    active_set: set[tuple[Path, str]] = prep["active_set"]  # type: ignore[assignment]
+    ranked_active: list[tuple[Path, str]] = prep["ranked_active"]  # type: ignore[assignment]
+    active_unblocks: dict[tuple[Path, str], int] = prep["active_unblocks"]  # type: ignore[assignment]
+    excluded_hold: set[tuple[Path, str]] = prep["excluded_hold"]  # type: ignore[assignment]
+    _node_rank = prep["node_rank"]  # type: ignore[assignment]
+
     if ready_only:
         ready_nodes = [
             u
             for u in ranked_active
-            if str(nodes[u]["status"]) in ACTIVE_STATUS_ORDER
-            and (include_hold or str(nodes[u]["status"]) != "HOLD")
-            and not any(str(nodes[p]["status"]) != "DONE" for p in prereqs.get(u, []))
+            if _is_ready_in_dag(nodes, prereqs, u, include_hold=include_hold)
         ]
         ready_nodes.sort(key=_node_rank)
         if limit is not None:
@@ -2138,6 +2170,103 @@ def plan_execution_chains(
         "chains": chains,
         "standalone": standalone,
         "ready_tasks": [],
+    }
+
+def plan_execution_chains_by_role(
+    dag: dict[str, object],
+    include_hold: bool = False,
+    ready_only: bool = False,
+    limit: int | None = None,
+    role: str | None = None,
+) -> dict[str, object]:
+    nodes: dict[tuple[Path, str], dict[str, object]] = dag["nodes"]  # type: ignore[assignment]
+    prereqs: dict[tuple[Path, str], list[tuple[Path, str]]] = dag["prereqs"]  # type: ignore[assignment]
+    prep = _prepare_active_plan(dag, include_hold=include_hold)
+    ranked_active: list[tuple[Path, str]] = prep["ranked_active"]  # type: ignore[assignment]
+    active_unblocks: dict[tuple[Path, str], int] = prep["active_unblocks"]  # type: ignore[assignment]
+    excluded_hold: set[tuple[Path, str]] = prep["excluded_hold"]  # type: ignore[assignment]
+
+    trans_cache: dict[tuple[Path, str], set[tuple[Path, str]]] = {}
+
+    def _trans_prereqs(u: tuple[Path, str]) -> set[tuple[Path, str]]:
+        if u not in trans_cache:
+            seen: set[tuple[Path, str]] = set()
+            stack = list(prereqs.get(u, []))
+            while stack:
+                cur = stack.pop()
+                if cur == u or cur in seen:
+                    continue
+                seen.add(cur)
+                for nxt in prereqs.get(cur, []):
+                    if nxt != u and nxt not in seen:
+                        stack.append(nxt)
+            trans_cache[u] = seen
+        return trans_cache[u]
+
+    def _node_role(u: tuple[Path, str]) -> str | None:
+        nd = nodes[u]
+        if not nd.get("exists"):
+            return None
+        resolved = resolve_task_role(str(nd["id"]), str(nd["section"]))
+        return resolved.strip().lower() if resolved else None
+
+    q_work: list[tuple[Path, str]] = []
+    q_plan: list[tuple[Path, str]] = []
+    q_design: list[tuple[Path, str]] = []
+    q_deferred_work: list[tuple[Path, str]] = []
+    q_other: list[tuple[Path, str]] = []
+
+    wanted_role = role.strip().lower() if role is not None else None
+
+    for u in ranked_active:
+        if ready_only and not _is_ready_in_dag(nodes, prereqs, u, include_hold=include_hold):
+            continue
+        u_role = _node_role(u)
+        if wanted_role is not None and u_role != wanted_role:
+            continue
+        dep_roles = {_node_role(p) for p in _trans_prereqs(u)}
+        if u_role == "work":
+            if not dep_roles or dep_roles <= {"work"}:
+                q_work.append(u)
+            elif not ready_only:
+                q_deferred_work.append(u)
+        elif u_role == "plan":
+            if not dep_roles or dep_roles <= {"work", "plan"}:
+                q_plan.append(u)
+            else:
+                q_other.append(u)
+        elif u_role == "design":
+            q_design.append(u)
+        else:
+            q_other.append(u)
+
+    queues: list[tuple[str, str, list[tuple[Path, str]]]] = [
+        ("work", "Queue 1 (work)", q_work),
+        ("plan", "Queue 2 (plan)", q_plan),
+        ("design", "Queue 3 (design)", q_design),
+    ]
+    if not ready_only:
+        queues.append(("deferred_work", "Queue 4 (deferred work)", q_deferred_work))
+    if q_other:
+        queues.append(("other", "Other tasks", q_other))
+
+    if limit is not None:
+        rem = limit
+        limited_queues: list[tuple[str, str, list[tuple[Path, str]]]] = []
+        for q_key, q_label, q_items in queues:
+            if rem <= 0:
+                limited_queues.append((q_key, q_label, []))
+                continue
+            take = q_items[:rem]
+            limited_queues.append((q_key, q_label, take))
+            rem -= len(take)
+        queues = limited_queues
+
+    return {
+        "active_nodes": ranked_active,
+        "active_unblocks": active_unblocks,
+        "excluded_hold": excluded_hold,
+        "queues": queues,
     }
 
 
