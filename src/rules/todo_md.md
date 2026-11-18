@@ -37,6 +37,11 @@
     `{cmd:todo_md} queue <ID> [--all]` (topologically sorted execution queue;
     hides `DONE` unless `--all` is passed; prints `[ready]` / `[blocked by: ...]`
     and `Next actionable: <ref>`),
+    `{cmd:todo_md} chain [--limit N] [--include-hold]` (unified local or `-w`
+    workspace execution chain `A -> B -> C` across open tasks; excludes `HOLD`
+    and tasks transitively blocked by `HOLD` into `Held branches:` unless
+    `--include-hold` is passed; reports diagnostics on cycles, syntax errors,
+    or `MISSING` / `CANCELED` blockers),
     `{cmd:todo_md} next-id [<ID>]` (`--top`, top `WIP`/`NEXT` ID, or with
     `<ID>`/`<project>:<ID>` prints the first unblocked actionable ID in `<ID>`'s
     queue, exiting non-zero on cycles, missing/canceled blockers, or closed targets),

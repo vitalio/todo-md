@@ -1357,3 +1357,194 @@ def cmd_workspace_check(workspace_root: Path) -> int:
         return 1
     sys.stdout.write(f"{prog_name()}: OK ({total_tasks} task(s) verified across {len(projects)} project(s))\n")
     return 0
+
+
+def build_execution_chain_dag(
+    base_dir: Path,
+    workspace: bool = False,
+    explicit_dir: str | None = None,
+) -> dict[str, object]:
+    ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
+    ws_resolved = ws_root.resolve()
+    disp_resolved = ws_resolved if workspace else base_dir.resolve()
+    disp_is_proj = (not workspace) and is_todo_project(disp_resolved)
+    task_cache: dict[Path, dict[str, dict[str, object]]] = {}
+
+    def _task_map(proj_dir: Path) -> dict[str, dict[str, object]]:
+        p_res = proj_dir.resolve()
+        if p_res not in task_cache:
+            mapping: dict[str, dict[str, object]] = {}
+            if is_todo_project(p_res):
+                for t in collect_all_tasks(p_res):
+                    mapping[str(t["id"]).upper()] = t
+            task_cache[p_res] = mapping
+        return task_cache[p_res]
+
+    def _resolve_ref(cur_dir: Path, ref: str) -> tuple[Path, str]:
+        pm = PROJECT_TASK_RE.match(ref)
+        if pm:
+            proj_name = pm.group(1).strip().replace("\\", "/").strip("/")
+            return (ws_resolved / proj_name).resolve(), pm.group(2).upper()
+        return cur_dir.resolve(), ref.upper()
+
+    def _format_ref(node_key: tuple[Path, str]) -> str:
+        ndir, ntid = node_key
+        if disp_is_proj and ndir == disp_resolved:
+            return ntid
+        try:
+            rel = ndir.relative_to(ws_resolved).as_posix()
+            if rel and rel != ".":
+                return f"{rel}:{ntid}"
+        except ValueError:
+            pass
+        return f"{ndir.name}:{ntid}"
+
+    seeds: list[tuple[Path, str]] = []
+    if workspace:
+        for _, proj_dir in discover_projects(ws_resolved):
+            p_res = proj_dir.resolve()
+            for t in parse_tasks_in_text(read_if_exists(p_res / "TODO.md"), "TODO.md"):
+                seeds.append((p_res, str(t["id"]).upper()))
+    else:
+        p_res = base_dir.resolve()
+        for t in parse_tasks_in_text(read_if_exists(p_res / "TODO.md"), "TODO.md"):
+            seeds.append((p_res, str(t["id"]).upper()))
+
+    nodes: dict[tuple[Path, str], dict[str, object]] = {}
+    prereqs: dict[tuple[Path, str], list[tuple[Path, str]]] = {}
+    prereq_sets: dict[tuple[Path, str], set[tuple[Path, str]]] = {}
+    order_idx: dict[tuple[Path, str], int] = {}
+    syntax_errors: list[str] = []
+
+    def _ensure_node_slot(k: tuple[Path, str]) -> None:
+        if k not in prereqs:
+            prereqs[k] = []
+            prereq_sets[k] = set()
+
+    def _add_prereq(node: tuple[Path, str], dep: tuple[Path, str]) -> None:
+        _ensure_node_slot(node)
+        _ensure_node_slot(dep)
+        if dep not in prereq_sets[node]:
+            prereq_sets[node].add(dep)
+            prereqs[node].append(dep)
+
+    def _is_done(node_key: tuple[Path, str]) -> bool:
+        tdict = _task_map(node_key[0]).get(node_key[1])
+        return tdict is not None and str(tdict["status"]) == "DONE"
+
+    def _visit(node_key: tuple[Path, str]) -> None:
+        if node_key in nodes:
+            return
+        ndir, ntid = node_key
+        tdict = _task_map(ndir).get(ntid)
+        if tdict is None:
+            _ensure_node_slot(node_key)
+            missing_title = "(missing task)" if is_todo_project(ndir) else "(unknown project)"
+            nodes[node_key] = {
+                "id": ntid,
+                "status": "MISSING",
+                "emoji": "",
+                "title": missing_title,
+                "exists": False,
+                "ref": _format_ref(node_key),
+            }
+            order_idx[node_key] = len(order_idx)
+            return
+
+        st = str(tdict["status"])
+        if st == "DONE":
+            return
+
+        _ensure_node_slot(node_key)
+        nodes[node_key] = {
+            **tdict,
+            "exists": True,
+            "ref": _format_ref(node_key),
+        }
+        clauses, errs = parse_dependency_clauses(str(tdict["section"]))
+        for err in errs:
+            syntax_errors.append(f"{_format_ref(node_key)}: {err}")
+
+        to_visit: list[tuple[Path, str]] = []
+        for clause in clauses:
+            resolved_stages = [[_resolve_ref(ndir, r) for r in stage] for stage in clause]
+            for i, stage_keys in enumerate(resolved_stages):
+                for k in stage_keys:
+                    if _is_done(k):
+                        continue
+                    _add_prereq(node_key, k)
+                    to_visit.append(k)
+                    if i > 0:
+                        for prev_k in resolved_stages[i - 1]:
+                            if _is_done(prev_k):
+                                continue
+                            _add_prereq(k, prev_k)
+        for k in to_visit:
+            _visit(k)
+        order_idx[node_key] = len(order_idx)
+
+    for seed in seeds:
+        _visit(seed)
+
+    in_degree: dict[tuple[Path, str], int] = {u: len(prereqs[u]) for u in nodes}
+    dependents: dict[tuple[Path, str], list[tuple[Path, str]]] = {u: [] for u in nodes}
+    for u in nodes:
+        for p in prereqs[u]:
+            dependents[p].append(u)
+
+    def _sort_key(u: tuple[Path, str]) -> tuple[int, int, str, tuple[Path, str]]:
+        st = str(nodes[u]["status"])
+        prio = ACTIVE_STATUS_ORDER.get(st, 99)
+        return (prio, order_idx.get(u, 0), str(nodes[u]["ref"]), u)
+
+    avail = [_sort_key(u) for u in nodes if in_degree[u] == 0]
+    heapq.heapify(avail)
+    topo_order: list[tuple[Path, str]] = []
+    while avail:
+        _, _, _, u = heapq.heappop(avail)
+        topo_order.append(u)
+        for v in dependents[u]:
+            in_degree[v] -= 1
+            if in_degree[v] == 0:
+                heapq.heappush(avail, _sort_key(v))
+
+    cycle: list[str] = []
+    if len(topo_order) < len(nodes):
+        cyclic_nodes = {u for u, deg in in_degree.items() if deg > 0}
+        state: dict[tuple[Path, str], int] = {}
+        stack: list[tuple[Path, str]] = []
+
+        def _find_cycle(u: tuple[Path, str]) -> list[tuple[Path, str]] | None:
+            state[u] = 1
+            stack.append(u)
+            for nxt in prereqs[u]:
+                if nxt not in cyclic_nodes:
+                    continue
+                st_nxt = state.get(nxt, 0)
+                if st_nxt == 1:
+                    idx_start = stack.index(nxt)
+                    return list(reversed(stack[idx_start:] + [nxt]))
+                if st_nxt == 0:
+                    res = _find_cycle(nxt)
+                    if res:
+                        return res
+            stack.pop()
+            state[u] = 2
+            return None
+
+        ordered_cyclic = sorted(cyclic_nodes, key=lambda k: order_idx.get(k, 0))
+        for start_node in ordered_cyclic:
+            if state.get(start_node, 0) == 0:
+                found_cyc = _find_cycle(start_node)
+                if found_cyc:
+                    cycle = [str(nodes[k]["ref"]) for k in found_cyc]
+                    break
+
+    return {
+        "nodes": nodes,
+        "prereqs": prereqs,
+        "dependents": dependents,
+        "topo_order": topo_order,
+        "cycle": cycle,
+        "syntax_errors": syntax_errors,
+    }

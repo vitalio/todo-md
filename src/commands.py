@@ -1053,3 +1053,131 @@ def cmd_files(
             return 0
     sys.stderr.write(f"{prog_name()}: task {target!r} not found in TODO*.md under {base_dir}\n")
     return 1
+
+
+def cmd_chain(
+    base_dir: Path,
+    limit: int | None = None,
+    include_hold: bool = False,
+    workspace: bool = False,
+    explicit_dir: str | None = None,
+) -> int:
+    if workspace:
+        ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
+        if not discover_projects(ws_root):
+            sys.stdout.write(f"No todo_md projects found under {ws_root}\n")
+            return 0
+    elif not (base_dir / "TODO.md").is_file():
+        sys.stderr.write(f"{prog_name()}: no TODO.md found in {base_dir} (run '{prog_name()} init' to create one)\n")
+        return 1
+
+    dag = build_execution_chain_dag(
+        base_dir,
+        workspace=workspace,
+        explicit_dir=explicit_dir,
+    )
+    syntax_errors: list[str] = dag["syntax_errors"]  # type: ignore[assignment]
+    if syntax_errors:
+        for e in syntax_errors:
+            sys.stderr.write(f"ERROR: {e}\n")
+        return 1
+    cycle: list[str] = dag["cycle"]  # type: ignore[assignment]
+    if cycle:
+        sys.stderr.write(f"ERROR: dependency cycle detected: {' -> '.join(cycle)}\n")
+        return 1
+
+    nodes: dict[tuple[Path, str], dict[str, object]] = dag["nodes"]  # type: ignore[assignment]
+    prereqs: dict[tuple[Path, str], list[tuple[Path, str]]] = dag["prereqs"]  # type: ignore[assignment]
+    dependents: dict[tuple[Path, str], list[tuple[Path, str]]] = dag["dependents"]  # type: ignore[assignment]
+    topo_order: list[tuple[Path, str]] = dag["topo_order"]  # type: ignore[assignment]
+
+    if not topo_order:
+        scope_msg = "across workspace projects" if workspace else "in TODO.md"
+        sys.stdout.write(f"No open tasks {scope_msg}\n")
+        return 0
+
+    held_nodes: set[tuple[Path, str]] = set()
+    hold_stack = [u for u in topo_order if str(nodes[u]["status"]) == "HOLD"]
+    while hold_stack:
+        cur = hold_stack.pop()
+        if cur in held_nodes:
+            continue
+        held_nodes.add(cur)
+        for nxt in dependents.get(cur, []):
+            if nxt not in held_nodes:
+                hold_stack.append(nxt)
+
+    if include_hold:
+        active_nodes = list(topo_order)
+        excluded_hold: set[tuple[Path, str]] = set()
+    else:
+        active_nodes = [u for u in topo_order if u not in held_nodes]
+        excluded_hold = held_nodes
+
+    active_set = set(active_nodes)
+    had_blocker_error = False
+    for u in active_nodes:
+        st = str(nodes[u]["status"])
+        if st in ("MISSING", "CANCELED"):
+            had_blocker_error = True
+            blocked_refs = [str(nodes[v]["ref"]) for v in dependents.get(u, []) if v in active_set]
+            if blocked_refs:
+                sys.stderr.write(
+                    f"ERROR: unresolved blocker {nodes[u]['ref']} ({st}) blocks {', '.join(blocked_refs)}\n"
+                )
+            else:
+                sys.stderr.write(f"ERROR: unresolved blocker {nodes[u]['ref']} ({st})\n")
+
+    shown_nodes = active_nodes[:limit] if limit is not None else active_nodes
+    if shown_nodes:
+        chain_str = " -> ".join(str(nodes[u]["ref"]) for u in shown_nodes)
+        sys.stdout.write(f"Chain: {chain_str}\n")
+        for idx, u in enumerate(shown_nodes, start=1):
+            nd = nodes[u]
+            st = str(nd["status"])
+            ref = str(nd["ref"])
+            title = str(nd["title"])
+            blockers = [str(nodes[p]["ref"]) for p in prereqs[u] if str(nodes[p]["status"]) != "DONE"]
+            if st == "MISSING":
+                badge = "[MISSING]"
+                marker = "[blocked]"
+            elif st == "CANCELED":
+                badge = f"{nd['emoji']} [CANCELED]"
+                marker = "[blocked]"
+            else:
+                emoji = "⏳" if (st in ("WIP", "NEXT") and blockers) else str(nd["emoji"])
+                badge = f"{emoji} [{st}]"
+                marker = f"[blocked by: {', '.join(blockers)}]" if blockers else "[ready]"
+            sys.stdout.write(f"  {idx:>2}. {ref:<20}  {badge:<14}  {title}  {marker}\n")
+    elif excluded_hold:
+        sys.stdout.write(
+            f"Chain: (none — {len(excluded_hold)} held task(s); pass --include-hold to include)\n"
+        )
+    else:
+        sys.stdout.write("Chain: (none)\n")
+
+    if excluded_hold:
+        held_in_deg = {u: sum(1 for p in prereqs[u] if p in excluded_hold) for u in excluded_hold}
+        held_deps = {u: [v for v in dependents.get(u, []) if v in excluded_hold] for u in excluded_hold}
+        branch_roots = [u for u in topo_order if u in excluded_hold and held_in_deg[u] == 0]
+        held_paths: list[list[tuple[Path, str]]] = []
+
+        def _collect_held_paths(u: tuple[Path, str], path: list[tuple[Path, str]]) -> None:
+            if len(held_paths) >= 64:
+                return
+            nxts = held_deps[u]
+            if not nxts:
+                held_paths.append(path)
+                return
+            for v in nxts:
+                _collect_held_paths(v, [*path, v])
+
+        for r in branch_roots:
+            _collect_held_paths(r, [r])
+
+        sys.stdout.write("\nHeld branches:\n")
+        for path in held_paths:
+            rendered = " -> ".join(f"{nodes[k]['ref']} ({nodes[k]['status']})" for k in path)
+            sys.stdout.write(f"  {rendered}\n")
+
+    return 1 if had_blocker_error else 0

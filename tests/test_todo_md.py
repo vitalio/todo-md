@@ -171,8 +171,10 @@ class TestTodoMd(unittest.TestCase):
         self.assertIn("[blocked: A (<STATUS>) -> B (<STATUS>)]", rule_txt)
         self.assertIn("--max-total-lines N", rh.stdout)
         self.assertIn("queue <ID> [--all]", rh.stdout)
+        self.assertIn("chain [--limit N] [--include-hold]", rh.stdout)
         self.assertIn("next-id [<ID>]", rh.stdout)
         self.assertIn("queue <ID> [--all]", rule_txt)
+        self.assertIn("chain [--limit N] [--include-hold]", rule_txt)
         self.assertIn("next-id [<ID>]", rule_txt)
         self.assertIn("A -> B -> C", rule_txt)
         self.assertIn("do not introduce a separate `- Order:` field", rule_txt)
@@ -1488,6 +1490,118 @@ class TestTodoMd(unittest.TestCase):
         r = self._run_subprocess(["sh", str(INSTALL_SH), "--dir", str(bin_dir), "--yes"], env=env)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertTrue((bin_dir / "todo_md").is_file())
+
+    def test_chain_command_local_workspace_hold_and_diagnostics(self):
+        ws = self.tmp / "ws"
+        proj_a = ws / "proj_a"
+        proj_b = ws / "proj_b"
+        for d in (proj_a, proj_b):
+            d.mkdir(parents=True)
+            self._run([str(SCRIPT), "init"], cwd=str(d), check=True)
+
+        # Local chain with parallel stage + sequential stage + DONE prerequisite + HOLD branch
+        self._run([str(SCRIPT), "add", "Completed base"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "done", "F1", "-m", "done1"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "Step A", "--next", "--depends", "F1"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "Step B", "--depends", "F2"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "Step C", "--depends", "F3"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "Paused root", "--status", "HOLD"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "Blocked by hold", "--depends", "F5"], cwd=str(proj_a), check=True)
+
+        r_local = self._run([str(SCRIPT), "chain"], cwd=str(proj_a), check=True)
+        self.assertIn("Chain: F2 -> F3 -> F4", r_local.stdout)
+        self.assertNotIn("F1", r_local.stdout)
+        self.assertIn("Held branches:", r_local.stdout)
+        self.assertIn("F5 (HOLD) -> F6 (NEW)", r_local.stdout)
+        self.assertLess(r_local.stdout.index("1. F2"), r_local.stdout.index("2. F3"))
+        self.assertLess(r_local.stdout.index("2. F3"), r_local.stdout.index("3. F4"))
+
+        # --limit N truncates chain summary and rows
+        r_lim = self._run([str(SCRIPT), "chain", "--limit", "2"], cwd=str(proj_a), check=True)
+        self.assertIn("Chain: F2 -> F3", r_lim.stdout)
+        self.assertNotIn("F4", r_lim.stdout)
+        self.assertIn("Held branches:", r_lim.stdout)
+
+        # --include-hold brings HOLD tasks and their dependents into the main chain
+        r_inc = self._run([str(SCRIPT), "chain", "--include-hold"], cwd=str(proj_a), check=True)
+        self.assertIn("F5 -> F6", r_inc.stdout)
+        self.assertNotIn("Held branches:", r_inc.stdout)
+
+        # Cross-project dependency in proj_b resolved locally and across workspace (-w / auto-workspace)
+        self._run(
+            [str(SCRIPT), "add", "Cross child", "--depends", "proj_a:F3"],
+            cwd=str(proj_b),
+            check=True,
+        )
+        self._run(
+            [str(SCRIPT), "add", "Cross leaf", "--depends", "F1"],
+            cwd=str(proj_b),
+            check=True,
+        )
+        r_b_local = self._run([str(SCRIPT), "chain"], cwd=str(proj_b), check=True)
+        self.assertIn("Chain: proj_a:F2 -> proj_a:F3 -> F1 -> F2", r_b_local.stdout)
+
+        r_ws = self._run([str(SCRIPT), "chain", "-w"], cwd=str(proj_a), check=True)
+        self.assertIn("Chain: proj_a:F2 -> proj_a:F3 ->", r_ws.stdout)
+        self.assertIn("proj_b:F1 -> proj_b:F2", r_ws.stdout)
+        self.assertIn("proj_a:F5 (HOLD) -> proj_a:F6 (NEW)", r_ws.stdout)
+
+        # Auto-workspace from workspace root and -C selector
+        r_ws_root = self._run([str(SCRIPT), "chain"], cwd=str(ws), check=True)
+        self.assertIn("proj_b:F1 -> proj_b:F2", r_ws_root.stdout)
+        r_c = self._run([str(SCRIPT), "-C", "proj_b", "chain"], cwd=str(ws), check=True)
+        self.assertIn("Chain: proj_a:F2 -> proj_a:F3 -> F1 -> F2", r_c.stdout)
+
+        # Diagnostics on CANCELED blocker
+        can_dir = ws / "can_chain"
+        can_dir.mkdir()
+        self._run([str(SCRIPT), "init"], cwd=str(can_dir), check=True)
+        self._run([str(SCRIPT), "add", "Dropped base"], cwd=str(can_dir), check=True)
+        self._run([str(SCRIPT), "add", "Waiting child", "--depends", "F1"], cwd=str(can_dir), check=True)
+        self._run([str(SCRIPT), "cancel", "F1", "-m", "wontfix"], cwd=str(can_dir), check=True)
+        r_can = self._run([str(SCRIPT), "chain"], cwd=str(can_dir))
+        self.assertNotEqual(r_can.returncode, 0)
+        self.assertIn("CANCELED", r_can.stderr)
+
+        # Diagnostics on MISSING blocker
+        miss_dir = ws / "miss_chain"
+        miss_dir.mkdir()
+        self._run([str(SCRIPT), "init"], cwd=str(miss_dir), check=True)
+        (miss_dir / "TODO.md").write_text("# ⚪ [NEW] F1: Orphan\n\n- Depends on: F99\n", encoding="utf-8")
+        r_miss = self._run([str(SCRIPT), "chain"], cwd=str(miss_dir))
+        self.assertNotEqual(r_miss.returncode, 0)
+        self.assertIn("MISSING", r_miss.stderr)
+
+        # Diagnostics on cycle and syntax error
+        cyc_dir = ws / "cyc_chain"
+        cyc_dir.mkdir()
+        self._run([str(SCRIPT), "init"], cwd=str(cyc_dir), check=True)
+        (cyc_dir / "TODO.md").write_text(
+            "# ⚪ [NEW] F1: A\n\n- Depends on: F2\n\n# ⚪ [NEW] F2: B\n\n- Depends on: F1\n",
+            encoding="utf-8",
+        )
+        r_cyc = self._run([str(SCRIPT), "chain"], cwd=str(cyc_dir))
+        self.assertNotEqual(r_cyc.returncode, 0)
+        self.assertIn("dependency cycle", r_cyc.stderr)
+
+        syn_dir = ws / "syn_chain"
+        syn_dir.mkdir()
+        self._run([str(SCRIPT), "init"], cwd=str(syn_dir), check=True)
+        (syn_dir / "TODO.md").write_text("# ⚪ [NEW] F1: Bad\n\n- Depends on: F2 -> \n", encoding="utf-8")
+        r_syn = self._run([str(SCRIPT), "chain"], cwd=str(syn_dir))
+        self.assertNotEqual(r_syn.returncode, 0)
+        self.assertIn("empty stage in dependency clause", r_syn.stderr)
+
+        # Invalid flags fail explicitly
+        for bad_args in (
+            ["chain", "--limit", "0"],
+            ["chain", "--limit=abc"],
+            ["chain", "--unknown"],
+            ["chain", "extra"],
+        ):
+            with self.subTest(bad_args=bad_args):
+                proc = self._run([str(SCRIPT), *bad_args], cwd=str(proj_a))
+                self.assertNotEqual(proc.returncode, 0, msg=proc.stdout)
 
 
 if __name__ == "__main__":

@@ -20,6 +20,7 @@
   {prog} cancel <ID> [-m REASON]             Mark task <ID> as CANCELED and move it to TODO_ARCHIVE.md
   {prog} ids                                 Print highest task IDs in use and next available ID per prefix
   {prog} queue <ID> [--all]                  Show topologically sorted execution queue for <ID> (use --all to include DONE)
+  {prog} chain [--limit N] [--include-hold]  Show execution chain across open tasks (supports -w and -C)
   {prog} next-id [<ID>] | --next-id | --top  Print top WIP/NEXT ID, or first ready ID in <ID>'s queue
   {prog} files [<ID>] | --files [<ID>]       List existing repository file paths referenced in backticks in task <ID>
                                              Opts: --max-lines N, --max-total-lines N, --max-bytes N, --max-total-bytes N
@@ -67,7 +68,7 @@ import tempfile
 from datetime import date
 from pathlib import Path
 
-VERSION = "0.17.0"
+VERSION = "0.18.0"
 REPO_MARKER = "todo_md-repo: vitalio/todo_md"
 DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/vitalio/todo_md/main/todo_md"
 FENCE = chr(96) * 3
@@ -1497,6 +1498,197 @@ def cmd_workspace_check(workspace_root: Path) -> int:
     return 0
 
 
+def build_execution_chain_dag(
+    base_dir: Path,
+    workspace: bool = False,
+    explicit_dir: str | None = None,
+) -> dict[str, object]:
+    ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
+    ws_resolved = ws_root.resolve()
+    disp_resolved = ws_resolved if workspace else base_dir.resolve()
+    disp_is_proj = (not workspace) and is_todo_project(disp_resolved)
+    task_cache: dict[Path, dict[str, dict[str, object]]] = {}
+
+    def _task_map(proj_dir: Path) -> dict[str, dict[str, object]]:
+        p_res = proj_dir.resolve()
+        if p_res not in task_cache:
+            mapping: dict[str, dict[str, object]] = {}
+            if is_todo_project(p_res):
+                for t in collect_all_tasks(p_res):
+                    mapping[str(t["id"]).upper()] = t
+            task_cache[p_res] = mapping
+        return task_cache[p_res]
+
+    def _resolve_ref(cur_dir: Path, ref: str) -> tuple[Path, str]:
+        pm = PROJECT_TASK_RE.match(ref)
+        if pm:
+            proj_name = pm.group(1).strip().replace("\\", "/").strip("/")
+            return (ws_resolved / proj_name).resolve(), pm.group(2).upper()
+        return cur_dir.resolve(), ref.upper()
+
+    def _format_ref(node_key: tuple[Path, str]) -> str:
+        ndir, ntid = node_key
+        if disp_is_proj and ndir == disp_resolved:
+            return ntid
+        try:
+            rel = ndir.relative_to(ws_resolved).as_posix()
+            if rel and rel != ".":
+                return f"{rel}:{ntid}"
+        except ValueError:
+            pass
+        return f"{ndir.name}:{ntid}"
+
+    seeds: list[tuple[Path, str]] = []
+    if workspace:
+        for _, proj_dir in discover_projects(ws_resolved):
+            p_res = proj_dir.resolve()
+            for t in parse_tasks_in_text(read_if_exists(p_res / "TODO.md"), "TODO.md"):
+                seeds.append((p_res, str(t["id"]).upper()))
+    else:
+        p_res = base_dir.resolve()
+        for t in parse_tasks_in_text(read_if_exists(p_res / "TODO.md"), "TODO.md"):
+            seeds.append((p_res, str(t["id"]).upper()))
+
+    nodes: dict[tuple[Path, str], dict[str, object]] = {}
+    prereqs: dict[tuple[Path, str], list[tuple[Path, str]]] = {}
+    prereq_sets: dict[tuple[Path, str], set[tuple[Path, str]]] = {}
+    order_idx: dict[tuple[Path, str], int] = {}
+    syntax_errors: list[str] = []
+
+    def _ensure_node_slot(k: tuple[Path, str]) -> None:
+        if k not in prereqs:
+            prereqs[k] = []
+            prereq_sets[k] = set()
+
+    def _add_prereq(node: tuple[Path, str], dep: tuple[Path, str]) -> None:
+        _ensure_node_slot(node)
+        _ensure_node_slot(dep)
+        if dep not in prereq_sets[node]:
+            prereq_sets[node].add(dep)
+            prereqs[node].append(dep)
+
+    def _is_done(node_key: tuple[Path, str]) -> bool:
+        tdict = _task_map(node_key[0]).get(node_key[1])
+        return tdict is not None and str(tdict["status"]) == "DONE"
+
+    def _visit(node_key: tuple[Path, str]) -> None:
+        if node_key in nodes:
+            return
+        ndir, ntid = node_key
+        tdict = _task_map(ndir).get(ntid)
+        if tdict is None:
+            _ensure_node_slot(node_key)
+            missing_title = "(missing task)" if is_todo_project(ndir) else "(unknown project)"
+            nodes[node_key] = {
+                "id": ntid,
+                "status": "MISSING",
+                "emoji": "",
+                "title": missing_title,
+                "exists": False,
+                "ref": _format_ref(node_key),
+            }
+            order_idx[node_key] = len(order_idx)
+            return
+
+        st = str(tdict["status"])
+        if st == "DONE":
+            return
+
+        _ensure_node_slot(node_key)
+        nodes[node_key] = {
+            **tdict,
+            "exists": True,
+            "ref": _format_ref(node_key),
+        }
+        clauses, errs = parse_dependency_clauses(str(tdict["section"]))
+        for err in errs:
+            syntax_errors.append(f"{_format_ref(node_key)}: {err}")
+
+        to_visit: list[tuple[Path, str]] = []
+        for clause in clauses:
+            resolved_stages = [[_resolve_ref(ndir, r) for r in stage] for stage in clause]
+            for i, stage_keys in enumerate(resolved_stages):
+                for k in stage_keys:
+                    if _is_done(k):
+                        continue
+                    _add_prereq(node_key, k)
+                    to_visit.append(k)
+                    if i > 0:
+                        for prev_k in resolved_stages[i - 1]:
+                            if _is_done(prev_k):
+                                continue
+                            _add_prereq(k, prev_k)
+        for k in to_visit:
+            _visit(k)
+        order_idx[node_key] = len(order_idx)
+
+    for seed in seeds:
+        _visit(seed)
+
+    in_degree: dict[tuple[Path, str], int] = {u: len(prereqs[u]) for u in nodes}
+    dependents: dict[tuple[Path, str], list[tuple[Path, str]]] = {u: [] for u in nodes}
+    for u in nodes:
+        for p in prereqs[u]:
+            dependents[p].append(u)
+
+    def _sort_key(u: tuple[Path, str]) -> tuple[int, int, str, tuple[Path, str]]:
+        st = str(nodes[u]["status"])
+        prio = ACTIVE_STATUS_ORDER.get(st, 99)
+        return (prio, order_idx.get(u, 0), str(nodes[u]["ref"]), u)
+
+    avail = [_sort_key(u) for u in nodes if in_degree[u] == 0]
+    heapq.heapify(avail)
+    topo_order: list[tuple[Path, str]] = []
+    while avail:
+        _, _, _, u = heapq.heappop(avail)
+        topo_order.append(u)
+        for v in dependents[u]:
+            in_degree[v] -= 1
+            if in_degree[v] == 0:
+                heapq.heappush(avail, _sort_key(v))
+
+    cycle: list[str] = []
+    if len(topo_order) < len(nodes):
+        cyclic_nodes = {u for u, deg in in_degree.items() if deg > 0}
+        state: dict[tuple[Path, str], int] = {}
+        stack: list[tuple[Path, str]] = []
+
+        def _find_cycle(u: tuple[Path, str]) -> list[tuple[Path, str]] | None:
+            state[u] = 1
+            stack.append(u)
+            for nxt in prereqs[u]:
+                if nxt not in cyclic_nodes:
+                    continue
+                st_nxt = state.get(nxt, 0)
+                if st_nxt == 1:
+                    idx_start = stack.index(nxt)
+                    return list(reversed(stack[idx_start:] + [nxt]))
+                if st_nxt == 0:
+                    res = _find_cycle(nxt)
+                    if res:
+                        return res
+            stack.pop()
+            state[u] = 2
+            return None
+
+        ordered_cyclic = sorted(cyclic_nodes, key=lambda k: order_idx.get(k, 0))
+        for start_node in ordered_cyclic:
+            if state.get(start_node, 0) == 0:
+                found_cyc = _find_cycle(start_node)
+                if found_cyc:
+                    cycle = [str(nodes[k]["ref"]) for k in found_cyc]
+                    break
+
+    return {
+        "nodes": nodes,
+        "prereqs": prereqs,
+        "dependents": dependents,
+        "topo_order": topo_order,
+        "cycle": cycle,
+        "syntax_errors": syntax_errors,
+    }
+
+
 def cmd_check(base_dir: Path) -> int:
     if not (base_dir / "TODO.md").is_file():
         sys.stderr.write(f"{prog_name()}: no TODO.md found in {base_dir} (run '{prog_name()} init' to create one)\n")
@@ -2554,6 +2746,134 @@ def cmd_files(
     return 1
 
 
+def cmd_chain(
+    base_dir: Path,
+    limit: int | None = None,
+    include_hold: bool = False,
+    workspace: bool = False,
+    explicit_dir: str | None = None,
+) -> int:
+    if workspace:
+        ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
+        if not discover_projects(ws_root):
+            sys.stdout.write(f"No todo_md projects found under {ws_root}\n")
+            return 0
+    elif not (base_dir / "TODO.md").is_file():
+        sys.stderr.write(f"{prog_name()}: no TODO.md found in {base_dir} (run '{prog_name()} init' to create one)\n")
+        return 1
+
+    dag = build_execution_chain_dag(
+        base_dir,
+        workspace=workspace,
+        explicit_dir=explicit_dir,
+    )
+    syntax_errors: list[str] = dag["syntax_errors"]  # type: ignore[assignment]
+    if syntax_errors:
+        for e in syntax_errors:
+            sys.stderr.write(f"ERROR: {e}\n")
+        return 1
+    cycle: list[str] = dag["cycle"]  # type: ignore[assignment]
+    if cycle:
+        sys.stderr.write(f"ERROR: dependency cycle detected: {' -> '.join(cycle)}\n")
+        return 1
+
+    nodes: dict[tuple[Path, str], dict[str, object]] = dag["nodes"]  # type: ignore[assignment]
+    prereqs: dict[tuple[Path, str], list[tuple[Path, str]]] = dag["prereqs"]  # type: ignore[assignment]
+    dependents: dict[tuple[Path, str], list[tuple[Path, str]]] = dag["dependents"]  # type: ignore[assignment]
+    topo_order: list[tuple[Path, str]] = dag["topo_order"]  # type: ignore[assignment]
+
+    if not topo_order:
+        scope_msg = "across workspace projects" if workspace else "in TODO.md"
+        sys.stdout.write(f"No open tasks {scope_msg}\n")
+        return 0
+
+    held_nodes: set[tuple[Path, str]] = set()
+    hold_stack = [u for u in topo_order if str(nodes[u]["status"]) == "HOLD"]
+    while hold_stack:
+        cur = hold_stack.pop()
+        if cur in held_nodes:
+            continue
+        held_nodes.add(cur)
+        for nxt in dependents.get(cur, []):
+            if nxt not in held_nodes:
+                hold_stack.append(nxt)
+
+    if include_hold:
+        active_nodes = list(topo_order)
+        excluded_hold: set[tuple[Path, str]] = set()
+    else:
+        active_nodes = [u for u in topo_order if u not in held_nodes]
+        excluded_hold = held_nodes
+
+    active_set = set(active_nodes)
+    had_blocker_error = False
+    for u in active_nodes:
+        st = str(nodes[u]["status"])
+        if st in ("MISSING", "CANCELED"):
+            had_blocker_error = True
+            blocked_refs = [str(nodes[v]["ref"]) for v in dependents.get(u, []) if v in active_set]
+            if blocked_refs:
+                sys.stderr.write(
+                    f"ERROR: unresolved blocker {nodes[u]['ref']} ({st}) blocks {', '.join(blocked_refs)}\n"
+                )
+            else:
+                sys.stderr.write(f"ERROR: unresolved blocker {nodes[u]['ref']} ({st})\n")
+
+    shown_nodes = active_nodes[:limit] if limit is not None else active_nodes
+    if shown_nodes:
+        chain_str = " -> ".join(str(nodes[u]["ref"]) for u in shown_nodes)
+        sys.stdout.write(f"Chain: {chain_str}\n")
+        for idx, u in enumerate(shown_nodes, start=1):
+            nd = nodes[u]
+            st = str(nd["status"])
+            ref = str(nd["ref"])
+            title = str(nd["title"])
+            blockers = [str(nodes[p]["ref"]) for p in prereqs[u] if str(nodes[p]["status"]) != "DONE"]
+            if st == "MISSING":
+                badge = "[MISSING]"
+                marker = "[blocked]"
+            elif st == "CANCELED":
+                badge = f"{nd['emoji']} [CANCELED]"
+                marker = "[blocked]"
+            else:
+                emoji = "⏳" if (st in ("WIP", "NEXT") and blockers) else str(nd["emoji"])
+                badge = f"{emoji} [{st}]"
+                marker = f"[blocked by: {', '.join(blockers)}]" if blockers else "[ready]"
+            sys.stdout.write(f"  {idx:>2}. {ref:<20}  {badge:<14}  {title}  {marker}\n")
+    elif excluded_hold:
+        sys.stdout.write(
+            f"Chain: (none — {len(excluded_hold)} held task(s); pass --include-hold to include)\n"
+        )
+    else:
+        sys.stdout.write("Chain: (none)\n")
+
+    if excluded_hold:
+        held_in_deg = {u: sum(1 for p in prereqs[u] if p in excluded_hold) for u in excluded_hold}
+        held_deps = {u: [v for v in dependents.get(u, []) if v in excluded_hold] for u in excluded_hold}
+        branch_roots = [u for u in topo_order if u in excluded_hold and held_in_deg[u] == 0]
+        held_paths: list[list[tuple[Path, str]]] = []
+
+        def _collect_held_paths(u: tuple[Path, str], path: list[tuple[Path, str]]) -> None:
+            if len(held_paths) >= 64:
+                return
+            nxts = held_deps[u]
+            if not nxts:
+                held_paths.append(path)
+                return
+            for v in nxts:
+                _collect_held_paths(v, [*path, v])
+
+        for r in branch_roots:
+            _collect_held_paths(r, [r])
+
+        sys.stdout.write("\nHeld branches:\n")
+        for path in held_paths:
+            rendered = " -> ".join(f"{nodes[k]['ref']} ({nodes[k]['status']})" for k in path)
+            sys.stdout.write(f"  {rendered}\n")
+
+    return 1 if had_blocker_error else 0
+
+
 def parse_version_from_source(source: str) -> str | None:
     m = re.search(r'^VERSION\s*=\s*["\x27]([^"\x27]+)["\x27]', source, flags=re.MULTILINE)
     return m.group(1) if m else None
@@ -2634,6 +2954,7 @@ KNOWN_SUBCOMMANDS = (
     "reopen",
     "top",
     "queue",
+    "chain",
     "next-id",
     "last-id",
     "last",
@@ -2791,6 +3112,45 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit(f"{prog}: usage: {prog} queue <ID> [--all]")
         tdir, tid = resolve_project_task_ref(base_dir, pos[0], explicit_dir=explicit_dir)
         return cmd_queue(base_dir, tdir, tid, show_all=show_all, explicit_dir=explicit_dir)
+    if args[0] in ("chain", "--chain"):
+        limit: int | None = None
+        include_hold = False
+        i = 1
+        while i < len(args):
+            a = args[i]
+            if a in ("--limit", "-n"):
+                if i + 1 >= len(args):
+                    raise SystemExit(f"{prog}: {a} requires an integer argument")
+                raw_lim = args[i + 1]
+                if not raw_lim.isdigit() or int(raw_lim) < 1:
+                    raise SystemExit(f"{prog}: invalid limit {raw_lim!r}; expected a positive integer")
+                limit = int(raw_lim)
+                i += 2
+            elif a.startswith("--limit="):
+                raw_lim = a.split("=", 1)[1]
+                if not raw_lim.isdigit() or int(raw_lim) < 1:
+                    raise SystemExit(f"{prog}: invalid limit {raw_lim!r}; expected a positive integer")
+                limit = int(raw_lim)
+                i += 1
+            elif a == "--include-hold":
+                include_hold = True
+                i += 1
+            elif a.startswith("-"):
+                raise SystemExit(f"{prog}: unknown option for chain: {a}")
+            else:
+                raise SystemExit(f"{prog}: usage: {prog} chain [--limit N] [--include-hold]")
+        use_ws = workspace
+        if not use_ws and not is_todo_project(base_dir) and not (base_dir / "TODO.md").is_file():
+            ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
+            if discover_projects(ws_root):
+                use_ws = True
+        return cmd_chain(
+            base_dir,
+            limit=limit,
+            include_hold=include_hold,
+            workspace=use_ws,
+            explicit_dir=explicit_dir,
+        )
     if args[0] in ("next-id", "--next-id"):
         if len(args) > 2:
             raise SystemExit(f"{prog}: usage: {prog} next-id [<ID>]")

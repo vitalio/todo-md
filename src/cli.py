@@ -78,6 +78,7 @@ KNOWN_SUBCOMMANDS = (
     "reopen",
     "top",
     "queue",
+    "chain",
     "next-id",
     "last-id",
     "last",
@@ -235,6 +236,45 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit(f"{prog}: usage: {prog} queue <ID> [--all]")
         tdir, tid = resolve_project_task_ref(base_dir, pos[0], explicit_dir=explicit_dir)
         return cmd_queue(base_dir, tdir, tid, show_all=show_all, explicit_dir=explicit_dir)
+    if args[0] in ("chain", "--chain"):
+        limit: int | None = None
+        include_hold = False
+        i = 1
+        while i < len(args):
+            a = args[i]
+            if a in ("--limit", "-n"):
+                if i + 1 >= len(args):
+                    raise SystemExit(f"{prog}: {a} requires an integer argument")
+                raw_lim = args[i + 1]
+                if not raw_lim.isdigit() or int(raw_lim) < 1:
+                    raise SystemExit(f"{prog}: invalid limit {raw_lim!r}; expected a positive integer")
+                limit = int(raw_lim)
+                i += 2
+            elif a.startswith("--limit="):
+                raw_lim = a.split("=", 1)[1]
+                if not raw_lim.isdigit() or int(raw_lim) < 1:
+                    raise SystemExit(f"{prog}: invalid limit {raw_lim!r}; expected a positive integer")
+                limit = int(raw_lim)
+                i += 1
+            elif a == "--include-hold":
+                include_hold = True
+                i += 1
+            elif a.startswith("-"):
+                raise SystemExit(f"{prog}: unknown option for chain: {a}")
+            else:
+                raise SystemExit(f"{prog}: usage: {prog} chain [--limit N] [--include-hold]")
+        use_ws = workspace
+        if not use_ws and not is_todo_project(base_dir) and not (base_dir / "TODO.md").is_file():
+            ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
+            if discover_projects(ws_root):
+                use_ws = True
+        return cmd_chain(
+            base_dir,
+            limit=limit,
+            include_hold=include_hold,
+            workspace=use_ws,
+            explicit_dir=explicit_dir,
+        )
     if args[0] in ("next-id", "--next-id"):
         if len(args) > 2:
             raise SystemExit(f"{prog}: usage: {prog} next-id [<ID>]")
