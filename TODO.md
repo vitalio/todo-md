@@ -51,3 +51,16 @@ Allow exporting parsed tasks as JSON for scripting.
 
 - Update `src/bundles/todo_md.bundle`, `src/rules/todo_md.md`, `README.md`, and unit tests in `tests/test_todo_md.py` to use `role=work` and `role=review` instead of `role=execute` and `role=audit` once the role rename lands in `agents-rules` (coordinated in `todo_flow`, preserving legacy aliases only if needed during transition).
 - Rebuild and reinstall `todo_md` and release a PATCH version.
+
+# ⚪ [NEW] F37: Document Quest-Log chain, side-quest, and priority concepts in AGENTS.md and README.md
+
+- Expand `## Product Philosophy & Quest-Log UX` in `AGENTS.md` to define `chain` (questlines / guild storylines), `standalone` (side quests), `Held branches` (locked branches waiting on `HOLD` conditions), and chain ranking rules (prioritized by status `WIP`/`NEXT` and `[unblocks N]` impact in `plan_execution_chains()`, not by chain length).
+- Add a concise Quest-Log summary in `README.md` explaining `chain`, `queue`, and `done` progression for users (keeping `src/rules/todo_md.md` lean without narrative metaphors).
+
+# ⚪ [NEW] F38: Highlight a target task ID in todo_md chain and todo_md list output
+
+- Update `main()` in `src/cli.py` to accept an optional task reference `<ID>` (or `<project>:<ID>`, resolved via `resolve_project_task_ref()`) on `chain` (`todo_md chain [<ID>] ...`) and `list` (both `todo_md list <ID> ...` when the positional argument matches a task ID and `todo_md list <filter> <ID> ...`).
+- Add a TTY-aware ANSI highlight helper in `src/parser.py` / `src/commands.py` (active when `sys.stdout.isatty()` and `NO_COLOR` is unset, or `FORCE_COLOR` is set; plain text in pipes), ensuring `_display_width()` / `_wrap_table_row()` alignment is unaffected by ANSI escape sequences.
+- In `cmd_chain()` (`src/commands.py`), highlight the target task brightly in bold across `Chain: ...` headers, task rows (`chains`, `standalone`, `--ready`), and `Held branches:` paths.
+- In `cmd_list()` and `cmd_workspace_list()` (`src/parser.py`), highlight matching task rows brightly in bold in both table mode and `--tree` view.
+- Keep `src/header.py` (`--help`), `src/rules/todo_md.md`, `README.md`, and `tests/test_todo_md.py` in sync, rebuild `./todo_md` via `build.py`, and bump `VERSION` for a MINOR release.
