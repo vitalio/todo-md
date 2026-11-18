@@ -1,6 +1,7 @@
-# 🎯 [NEXT] F34: Rank ready tasks by unblock impact in chain and print newly unblocked tasks on done — *Prioritized ready task for critical-path chain ranking and unblock notifications*
+# 🎯 [NEXT] F34: Rank ready tasks by unblock impact in chain and print newly unblocked tasks on done — *Prioritized ready task for critical-path chain ranking, honest chain grouping, and unblock notifications*
 
 - Add `--ready` filtering and critical-path impact ranking (number of transitively unblocked downstream tasks, plus `[unblocks N]` annotations) to `todo_md chain` in `src/parser.py`, `src/cli.py`, and `src/header.py` (`-h`/`--help`) so the highest-leverage ready tasks appear first.
+- Separate connected dependency chains from standalone tasks without dependencies in `todo_md chain` (`src/parser.py`) so independent tasks are not falsely joined with `->` arrows in `Chain:` headers and are grouped clearly as connected chains vs standalone tasks.
 - Extend `cmd_done` in `src/commands.py` (and `src/parser.py`) to detect and print any open tasks in the current repository (and in a workspace orchestrator `.todo_projects` when present) whose dependencies just became completely `DONE` (`Unblocked: ...`).
 - Keep `src/rules/todo_md.md`, `README.md`, and unit tests in `tests/test_todo_md.py` in sync.
 
