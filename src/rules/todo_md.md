@@ -28,11 +28,14 @@
     and `Workdir:` headers before `# TODO*.md:<line>`),
     `{cmd:todo_md} last [<STATUS|archive>]` (default: `NEW`),
     `{cmd:todo_md} last-id [<STATUS|archive>]` (default: `NEW`),
-    `{cmd:todo_md} list [active|archive|all|<STATUS>] [--role <role>] [--ready] [--limit N] [--full]`
+    `{cmd:todo_md} list [active|archive|all|<STATUS>] [--role <role>] [--ready] [--tree] [--limit N] [--full]`
     (orders each status bucket with ready tasks first and prerequisites before dependents;
     renders blocked `WIP`/`NEXT` items as `⏳ [WIP]` / `⏳ [NEXT]` and multi-step chains as full
     ordered paths `[blocked: A (<STATUS>) -> B (<STATUS>)]`;
-    `--ready` filters active tasks to those with no unresolved dependencies),
+    `--ready` filters active tasks to those with no unresolved dependencies;
+    `--tree` renders active dependency chains as an indented hierarchy `├─` / `└─` with
+    prerequisites above blocked dependents across status buckets, truncating titles with `...`
+    to terminal width or falling back to compact ID-only tree lines on narrow terminals),
     `{cmd:todo_md} archive`, `{cmd:todo_md} ids`,
     `{cmd:todo_md} queue <ID> [--all]` (topologically sorted execution queue;
     hides `DONE` unless `--all` is passed; prints `[ready]` / `[blocked by: ...]`

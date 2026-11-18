@@ -55,7 +55,7 @@ Global options accepted before subcommands:
 | `todo_md <ID>` / `todo_md show <ID\|last>` | Show `Task:`, `Title:`, optional `Role:`, and `Workdir:` headers plus full Markdown section for task `<ID>` (or `last [<STATUS\|archive>]`) |
 | `todo_md last [<STATUS\|archive>]` | Show full Markdown section for last task in status/archive (default: `NEW`) |
 | `todo_md last-id [<STATUS\|archive>]` | Print ID of last task in status/archive (default: `NEW`) |
-| `todo_md list [filter] [--role ROLE] [--ready] [--limit N] [--full]` | List tasks (`active`, `archive`, `all`, or `<STATUS>`) in dependency order with `⏳ [WIP]` / `⏳ [NEXT]` badges, full `[blocked: ...]` unblock chains, and optional `--role` / `--ready` filters |
+| `todo_md list [filter] [--role ROLE] [--ready] [--tree] [--limit N] [--full]` | List tasks (`active`, `archive`, `all`, or `<STATUS>`) in dependency order with `⏳ [WIP]` / `⏳ [NEXT]` badges, full `[blocked: ...]` unblock chains, optional `--role` / `--ready` filters, and `--tree` indented dependency view with terminal-width title truncation |
 | `todo_md archive [<ID>] [-m NOTE]` | Print `TODO_ARCHIVE.md`, or archive task `<ID>` to `TODO_ARCHIVE.md` |
 | `todo_md add [<PROJ>] [<PREFIX>] <TITLE> [opts]` | Add a new task with auto-assigned ID (`-p PREFIX`, `--next`, `--status STATUS`, `-m NOTE`, `-b BODY\|-`, `--role ROLE`, `--depends SPEC`) |
 | `todo_md edit <ID> [opts]` | Update task title, note, body, role, or dependencies (`-t TITLE`, `-m NOTE`, `-b BODY\|-`, `--role ROLE`, `--depends SPEC`) |

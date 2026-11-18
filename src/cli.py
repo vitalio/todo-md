@@ -377,6 +377,7 @@ def main(argv: list[str] | None = None) -> int:
         limit: int | None = None
         role_filter: str | None = None
         ready = False
+        tree = False
         i = 1
         while i < len(args):
             a = args[i]
@@ -412,18 +413,21 @@ def main(argv: list[str] | None = None) -> int:
             elif a == "--ready":
                 ready = True
                 i += 1
+            elif a == "--tree":
+                tree = True
+                i += 1
             elif a.startswith("-"):
                 raise SystemExit(f"{prog}: unknown option for list: {a}")
             elif filt is None:
                 filt = a
                 i += 1
             else:
-                raise SystemExit(f"{prog}: usage: {prog} list [filter] [--role ROLE] [--ready] [--limit N] [--full]")
+                raise SystemExit(f"{prog}: usage: {prog} list [filter] [--role ROLE] [--ready] [--tree] [--limit N] [--full]")
         if workspace or (not is_todo_project(base_dir) and not (base_dir / "TODO.md").is_file()):
             ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
             if workspace or discover_projects(ws_root):
-                return cmd_workspace_list(ws_root, filt, limit=limit, full=full, role=role_filter, ready=ready)
-        return cmd_list(base_dir, filt, limit=limit, full=full, role=role_filter, ready=ready)
+                return cmd_workspace_list(ws_root, filt, limit=limit, full=full, role=role_filter, ready=ready, tree=tree)
+        return cmd_list(base_dir, filt, limit=limit, full=full, role=role_filter, ready=ready, tree=tree)
     if args[0] in ("show", "--show"):
         if len(args) < 2 or len(args) > 3:
             raise SystemExit(f"{prog}: usage: {prog} show <ID|last> [<STATUS|archive>]")

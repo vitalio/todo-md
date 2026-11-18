@@ -7,7 +7,7 @@
   {prog} <ID> | show <ID|last>               Show task <ID> with Task/Title/Role/Workdir headers (or last [<STATUS|archive>], supports <project>:<ID>)
   {prog} last [<STATUS|archive>]           Show full section for last task in status/archive (default: NEW)
   {prog} last-id [<STATUS|archive>]        Print ID of last task in status/archive (default: NEW)
-  {prog} list [filter] [opts]                List tasks (active | archive | all | <STATUS>; opts: --role ROLE, --ready, --limit N, --full)
+  {prog} list [filter] [opts]                List tasks (active | archive | all | <STATUS>; opts: --role ROLE, --ready, --tree, --limit N, --full)
   {prog} archive [<ID>] [-m NOTE]            Print TODO_ARCHIVE.md, or archive task <ID>
   {prog} add [<PROJ>] [<PREFIX>] <TITLE>     Add a new task with auto-assigned ID (reads body from -b TEXT|- or stdin)
                                              Opts: -p PREFIX (default: F), --next, --status STATUS, -m NOTE, -b BODY|-, --role ROLE, --depends SPEC
@@ -62,13 +62,15 @@ if __doc__ is None:
 import heapq
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
+import unicodedata
 from datetime import date
 from pathlib import Path
 
-VERSION = "0.19.1"
+VERSION = "0.20.0"
 REPO_MARKER = "todo_md-repo: vitalio/todo_md"
 DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/vitalio/todo_md/main/todo_md"
 FENCE = chr(96) * 3
@@ -1167,6 +1169,231 @@ def _task_matches_role(task: dict[str, object], wanted_role: str) -> bool:
     return role is not None and role.lower() == wanted_role
 
 
+DEFAULT_TERMINAL_WIDTH = 100
+MIN_TREE_TITLE_COLS = 12
+
+
+def _get_terminal_columns(fallback: int = DEFAULT_TERMINAL_WIDTH) -> int:
+    cols = shutil.get_terminal_size(fallback=(fallback, 24)).columns
+    return cols if cols > 0 else fallback
+
+
+def _char_display_width(ch: str) -> int:
+    if unicodedata.category(ch) in ("Mn", "Me", "Cf"):
+        return 0
+    if ch == "\u23f8" or ord(ch) >= 0x1F300 or unicodedata.east_asian_width(ch) in ("W", "F"):
+        return 2
+    return 1
+
+
+def _display_width(text: str) -> int:
+    return sum(_char_display_width(ch) for ch in text)
+
+
+def _pad_display(text: str, width: int) -> str:
+    cur = _display_width(text)
+    if cur >= width:
+        return text
+    return text + (" " * (width - cur))
+
+
+def _truncate_display(text: str, max_cols: int) -> str:
+    if max_cols <= 0:
+        return ""
+    if _display_width(text) <= max_cols:
+        return text
+    if max_cols <= 3:
+        return "." * max_cols
+    budget = max_cols - 3
+    out: list[str] = []
+    cur = 0
+    for ch in text:
+        cw = _char_display_width(ch)
+        if cur + cw > budget:
+            break
+        out.append(ch)
+        cur += cw
+    return "".join(out) + "..."
+
+
+def _build_tree_entries(
+    base_dir: Path,
+    items: list[tuple[str | None, Path, dict[str, object]]],
+    explicit_dir: str | None = None,
+) -> list[tuple[str | None, Path, dict[str, object], int, list[bool], bool]]:
+    if not items:
+        return []
+    ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir).resolve()
+    item_map: dict[tuple[Path, str], tuple[str | None, Path, dict[str, object]]] = {}
+    orig_order: dict[tuple[Path, str], int] = {}
+    ordered_keys: list[tuple[Path, str]] = []
+    for idx, entry in enumerate(items):
+        proj_name, proj_dir, task = entry
+        key = (proj_dir.resolve(), str(task["id"]).upper())
+        if key not in item_map:
+            item_map[key] = entry
+            orig_order[key] = idx
+            ordered_keys.append(key)
+
+    shown_set = set(ordered_keys)
+
+    def _resolve_dep(cur_dir: Path, ref: str) -> tuple[Path, str]:
+        pm = PROJECT_TASK_RE.match(ref)
+        if pm:
+            p_name = pm.group(1).strip().replace("\\", "/").strip("/")
+            cand = (ws_root / p_name).resolve()
+            if not is_todo_project(cand) and ws_root.name == ".todo_projects":
+                alt = (ws_root.parent / p_name).resolve()
+                if is_todo_project(alt):
+                    cand = alt
+            return cand, pm.group(2).upper()
+        return cur_dir.resolve(), ref.upper()
+
+    raw_prereqs: dict[tuple[Path, str], list[tuple[Path, str]]] = {k: [] for k in ordered_keys}
+    raw_prereq_sets: dict[tuple[Path, str], set[tuple[Path, str]]] = {k: set() for k in ordered_keys}
+
+    def _add_edge(prereq_k: tuple[Path, str], dep_k: tuple[Path, str]) -> None:
+        if prereq_k == dep_k or prereq_k not in shown_set or dep_k not in shown_set:
+            return
+        if prereq_k not in raw_prereq_sets[dep_k]:
+            raw_prereq_sets[dep_k].add(prereq_k)
+            raw_prereqs[dep_k].append(prereq_k)
+
+    for key in ordered_keys:
+        _, proj_dir, task = item_map[key]
+        clauses, _ = parse_dependency_clauses(str(task["section"]))
+        for clause in clauses:
+            resolved_stages = [[_resolve_dep(proj_dir, r) for r in stage] for stage in clause]
+            for i, stage_keys in enumerate(resolved_stages):
+                for pk in stage_keys:
+                    _add_edge(pk, key)
+                    if i > 0:
+                        for prev_pk in resolved_stages[i - 1]:
+                            _add_edge(prev_pk, pk)
+
+    anc_cache: dict[tuple[Path, str], set[tuple[Path, str]]] = {}
+
+    def _ancestors(u: tuple[Path, str]) -> set[tuple[Path, str]]:
+        if u not in anc_cache:
+            found: set[tuple[Path, str]] = set()
+            stack = list(raw_prereqs[u])
+            while stack:
+                cur = stack.pop()
+                if cur == u or cur in found:
+                    continue
+                found.add(cur)
+                for nxt in raw_prereqs[cur]:
+                    if nxt != u and nxt not in found:
+                        stack.append(nxt)
+            anc_cache[u] = found
+        return anc_cache[u]
+
+    tree_prereqs: dict[tuple[Path, str], list[tuple[Path, str]]] = {}
+    tree_children: dict[tuple[Path, str], list[tuple[Path, str]]] = {k: [] for k in ordered_keys}
+    for u in ordered_keys:
+        reduced = [
+            p
+            for p in raw_prereqs[u]
+            if not any(p in _ancestors(other) for other in raw_prereqs[u] if other != p)
+        ]
+        tree_prereqs[u] = reduced
+        for p in reduced:
+            tree_children[p].append(u)
+
+    def _node_sort_key(k: tuple[Path, str]) -> tuple[int, int]:
+        st = str(item_map[k][2]["status"])
+        return (ACTIVE_STATUS_ORDER.get(st, 99), orig_order[k])
+
+    for k in ordered_keys:
+        tree_children[k].sort(key=_node_sort_key)
+
+    roots = sorted([k for k in ordered_keys if not tree_prereqs[k]], key=_node_sort_key)
+    all_sorted = sorted(ordered_keys, key=_node_sort_key)
+
+    entries: list[tuple[str | None, Path, dict[str, object], int, list[bool], bool]] = []
+    visited_any: set[tuple[Path, str]] = set()
+    expanded: set[tuple[Path, str]] = set()
+
+    def _dfs(
+        u: tuple[Path, str],
+        depth: int,
+        flags: list[bool],
+        path_stack: set[tuple[Path, str]],
+        is_shared: bool,
+    ) -> None:
+        proj_name, proj_dir, task = item_map[u]
+        entries.append((proj_name, proj_dir, task, depth, list(flags), is_shared))
+        visited_any.add(u)
+        if is_shared or u in expanded:
+            return
+        expanded.add(u)
+        next_stack = path_stack | {u}
+        children = [c for c in tree_children[u] if c not in next_stack]
+        for idx, child in enumerate(children):
+            is_last = idx == len(children) - 1
+            child_shared = child in visited_any
+            _dfs(child, depth + 1, [*flags, is_last], next_stack, child_shared)
+
+    for r in roots:
+        if r not in visited_any:
+            _dfs(r, 0, [], set(), False)
+    for k in all_sorted:
+        if k not in visited_any:
+            _dfs(k, 0, [], set(), False)
+    return entries
+
+
+def _render_tree_lines(
+    entries: list[tuple[str | None, Path, dict[str, object], int, list[bool], bool]],
+    dep_lookup: dict[tuple[Path, str, str], tuple[bool, str]],
+    term_width: int,
+) -> list[str]:
+    if not entries:
+        return []
+    tree_cols: list[str] = []
+    for proj_name, _, task, depth, flags, _ in entries:
+        ref = f"{proj_name}:{task['id']}" if proj_name else str(task["id"])
+        if depth == 0:
+            tree_cols.append(f"  {ref}")
+        else:
+            indent = "".join("    " if was_last else "│   " for was_last in flags[:-1])
+            branch = "└─" if flags[-1] else "├─"
+            tree_cols.append(f"  {indent}{branch} {ref}")
+
+    max_tree_w = max(_display_width(tc) for tc in tree_cols)
+    role_badges = [_task_role_badge(task) for _, _, task, _, _, _ in entries]
+    has_roles = any(rb for rb in role_badges)
+    role_col_w = 10 if has_roles else 0
+    badge_col_w = 14
+    fixed_w = max_tree_w + 2 + badge_col_w + (2 + role_col_w if has_roles else 0) + 2
+    avail_title = term_width - fixed_w
+
+    lines: list[str] = []
+    if avail_title < MIN_TREE_TITLE_COLS:
+        for tc, (_, _, _, _, _, is_shared) in zip(tree_cols, entries):
+            compact = f"{tc} (shared)" if is_shared else tc
+            lines.append(_truncate_display(compact, term_width))
+        return lines
+
+    for tc, rb, (proj_name, proj_dir, task, _, _, is_shared) in zip(tree_cols, role_badges, entries):
+        key = (proj_dir, str(task["file"]), str(task["id"]).upper())
+        is_blocked, dep_suffix = dep_lookup[key]
+        emoji = "⏳" if (str(task["status"]) in ("WIP", "NEXT") and is_blocked) else str(task["emoji"])
+        badge = f"{emoji} [{task['status']}]"
+        padded_tree = _pad_display(tc, max_tree_w)
+        padded_badge = _pad_display(badge, badge_col_w)
+        if has_roles:
+            padded_role = _pad_display(rb, role_col_w)
+            prefix = f"{padded_tree}  {padded_badge}  {padded_role}  "
+        else:
+            prefix = f"{padded_tree}  {padded_badge}  "
+        shared_tag = " (shared)" if is_shared else ""
+        detail = f"{task['title']}{shared_tag}{dep_suffix}"
+        truncated_detail = _truncate_display(detail, avail_title)
+        lines.append(f"{prefix}{truncated_detail}")
+    return lines
+
+
 def cmd_list(
     base_dir: Path,
     filt: str | None = None,
@@ -1174,6 +1401,7 @@ def cmd_list(
     full: bool = False,
     role: str | None = None,
     ready: bool = False,
+    tree: bool = False,
 ) -> int:
     mode = (filt or "active").strip().lower()
     tasks = collect_all_tasks(base_dir)
@@ -1215,6 +1443,33 @@ def cmd_list(
             for t in shown
             if str(t["status"]) in ACTIVE_STATUS_ORDER and not _dep_info(t)[0]
         ]
+
+    if tree:
+        tree_entries = _build_tree_entries(base_dir, [(None, base_dir, t) for t in shown])
+        if limit is not None:
+            tree_entries = tree_entries[:limit]
+        if not tree_entries:
+            notes: list[str] = []
+            if role is not None:
+                notes.append(f"role={role.strip()}")
+            if ready:
+                notes.append("ready")
+            extra = f", {', '.join(notes)}" if notes else ""
+            sys.stdout.write(f"No matching tasks ({mode}{extra}) in {base_dir}\n")
+        elif full:
+            sections = [str(t["section"]).rstrip() for _, _, t, _, _, _ in tree_entries]
+            sys.stdout.write("\n\n".join(sections) + "\n")
+        else:
+            dep_lookup = {
+                (base_dir, str(t["file"]), str(t["id"]).upper()): _dep_info(t)
+                for _, _, t, _, _, _ in tree_entries
+            }
+            term_width = _get_terminal_columns()
+            for line in _render_tree_lines(tree_entries, dep_lookup, term_width):
+                sys.stdout.write(line + "\n")
+        top = highest_ids_in_use(base_dir)
+        sys.stdout.write(f"\nIDs in use: {format_ids_summary(top)}\n")
+        return 0
 
     if limit is not None:
         shown = shown[:limit]
@@ -1414,6 +1669,7 @@ def cmd_workspace_list(
     full: bool = False,
     role: str | None = None,
     ready: bool = False,
+    tree: bool = False,
 ) -> int:
     projects = discover_projects(workspace_root)
     if not projects:
@@ -1459,6 +1715,41 @@ def cmd_workspace_list(
             for name, proj_dir, t in items
             if str(t["status"]) in ACTIVE_STATUS_ORDER and not _ws_dep_info(proj_dir, t)[0]
         ]
+
+    if tree:
+        tree_entries = _build_tree_entries(
+            workspace_root,
+            [(name, proj_dir, t) for name, proj_dir, t in items],
+        )
+        if limit is not None:
+            tree_entries = tree_entries[:limit]
+        if not tree_entries:
+            notes: list[str] = []
+            if role is not None:
+                notes.append(f"role={role.strip()}")
+            if ready:
+                notes.append("ready")
+            extra = f", {', '.join(notes)}" if notes else ""
+            sys.stdout.write(f"No matching tasks ({mode}{extra}) across workspace {workspace_root}\n")
+            return 0
+        if full:
+            sections: list[str] = []
+            for proj_name, _, t, _, _, _ in tree_entries:
+                lines = str(t["section"]).rstrip().splitlines()
+                tid = str(t["id"])
+                if proj_name:
+                    lines[0] = lines[0].replace(f"] {tid}:", f"] {proj_name}:{tid}:", 1)
+                sections.append("\n".join(lines))
+            sys.stdout.write("\n\n".join(sections) + "\n")
+            return 0
+        dep_lookup = {
+            (proj_dir, str(t["file"]), str(t["id"]).upper()): _ws_dep_info(proj_dir, t)
+            for _, proj_dir, t, _, _, _ in tree_entries
+        }
+        term_width = _get_terminal_columns()
+        for line in _render_tree_lines(tree_entries, dep_lookup, term_width):
+            sys.stdout.write(line + "\n")
+        return 0
 
     if limit is not None:
         items = items[:limit]
@@ -3564,6 +3855,7 @@ def main(argv: list[str] | None = None) -> int:
         limit: int | None = None
         role_filter: str | None = None
         ready = False
+        tree = False
         i = 1
         while i < len(args):
             a = args[i]
@@ -3599,18 +3891,21 @@ def main(argv: list[str] | None = None) -> int:
             elif a == "--ready":
                 ready = True
                 i += 1
+            elif a == "--tree":
+                tree = True
+                i += 1
             elif a.startswith("-"):
                 raise SystemExit(f"{prog}: unknown option for list: {a}")
             elif filt is None:
                 filt = a
                 i += 1
             else:
-                raise SystemExit(f"{prog}: usage: {prog} list [filter] [--role ROLE] [--ready] [--limit N] [--full]")
+                raise SystemExit(f"{prog}: usage: {prog} list [filter] [--role ROLE] [--ready] [--tree] [--limit N] [--full]")
         if workspace or (not is_todo_project(base_dir) and not (base_dir / "TODO.md").is_file()):
             ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
             if workspace or discover_projects(ws_root):
-                return cmd_workspace_list(ws_root, filt, limit=limit, full=full, role=role_filter, ready=ready)
-        return cmd_list(base_dir, filt, limit=limit, full=full, role=role_filter, ready=ready)
+                return cmd_workspace_list(ws_root, filt, limit=limit, full=full, role=role_filter, ready=ready, tree=tree)
+        return cmd_list(base_dir, filt, limit=limit, full=full, role=role_filter, ready=ready, tree=tree)
     if args[0] in ("show", "--show"):
         if len(args) < 2 or len(args) > 3:
             raise SystemExit(f"{prog}: usage: {prog} show <ID|last> [<STATUS|archive>]")
