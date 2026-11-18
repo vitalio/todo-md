@@ -1643,17 +1643,24 @@ class TestTodoMd(unittest.TestCase):
         self.assertIn("[unblocks 2]", out)
         self.assertIn("[unblocks 1]", out)
 
-        # --ready filters to ready tasks only and ranks highest-leverage ready tasks first
+        # --ready filters to ready tasks only, ranks highest-leverage ready tasks first,
+        # and shows immediate unblocked targets inline for chain continuation context
         r_ready = self._run([str(SCRIPT), "chain", "--ready"], cwd=str(proj), check=True)
         r_out = r_ready.stdout
         self.assertIn("Ready tasks:", r_out)
-        self.assertNotIn("F4", r_out)
-        self.assertNotIn("F6", r_out)
+        ready_rows = self._table_rows(r_out)
+        self.assertEqual(sorted(ready_rows), ["1.", "2.", "3.", "4."], msg=r_out)
+        self.assertIn("F5", ready_rows["1."])
+        self.assertIn("[ready | unblocks 2 -> F6]", ready_rows["1."])
         self.assertNotIn("F7", r_out)
-        self.assertNotIn("->", r_out)
-        self.assertLess(r_out.index("F5"), r_out.index("F3"))
-        self.assertLess(r_out.index("F3"), r_out.index("F1"))
-        self.assertLess(r_out.index("F1"), r_out.index("F2"))
+        self.assertIn("F3", ready_rows["2."])
+        self.assertIn("[ready | unblocks 1 -> F4]", ready_rows["2."])
+        self.assertIn("F1", ready_rows["3."])
+        self.assertIn("[ready]", ready_rows["3."])
+        self.assertNotIn("unblocks", ready_rows["3."])
+        self.assertIn("F2", ready_rows["4."])
+        self.assertIn("[ready]", ready_rows["4."])
+        self.assertNotIn("unblocks", ready_rows["4."])
 
     def test_chain_role_badges_and_role_filter(self):
         ws = self.tmp / "ws_chain_role"
@@ -2462,6 +2469,83 @@ class TestTodoMd(unittest.TestCase):
         self.assertIn("F1", other_sec)
         self.assertIn("P1", other_sec)
         self.assertIn("F2", other_sec)
+
+    def test_chain_ready_downstream_targets(self):
+        ws = self.tmp / "ws_ready_downstream"
+        proj_a = ws / "proj_a"
+        proj_b = ws / "proj_b"
+        proj_a.mkdir(parents=True)
+        proj_b.mkdir(parents=True)
+        self._run([str(SCRIPT), "init"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "init"], cwd=str(proj_b), check=True)
+
+        # Root D1 (design) unblocks 4 immediate dependents:
+        # F1 (NEW, unblocks 0), F2 (NEXT, unblocks 1 -> F5), F3 (WIP, unblocks 0), F4 (NEW, unblocks 0)
+        # Expected rank order of immediate dependents: F3 (WIP) -> F2 (NEXT) -> F1 (NEW) -> F4 (NEW)
+        self._run([str(SCRIPT), "add", "D", "Root design", "--next"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Low leaf", "--depends", "D1"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Next mid", "--next", "--depends", "D1"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Active branch", "--status", "WIP", "--depends", "D1"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Fourth branch", "--depends", "D1"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Transitive leaf", "--depends", "F2"], cwd=str(proj_a), check=True)
+
+        # Standalone task with a held dependent (excluded by default, included with --include-hold)
+        self._run([str(SCRIPT), "add", "B", "Ready bugfix", "--next"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Held child", "--status", "HOLD", "--depends", "B1"], cwd=str(proj_a), check=True)
+
+        # Cross-project dependent in proj_b
+        self._run([str(SCRIPT), "add", "F", "Cross repo child", "--depends", "proj_a:B1"], cwd=str(proj_b), check=True)
+
+        r_local = self._run(
+            [str(SCRIPT), "chain", "--ready"],
+            cwd=str(proj_a),
+            env={**os.environ, "COLUMNS": "160"},
+            check=True,
+        )
+        rows = {k: v for k, v in self._table_rows(r_local.stdout).items() if k.endswith(".")}
+        self.assertEqual(sorted(rows), ["1.", "2."], msg=r_local.stdout)
+        # D1 has 5 active downstream tasks (F3, F2, F1, F4, F5) and 4 immediate dependents -> top 3 + ...
+        self.assertIn("D1", rows["1."])
+        self.assertIn("[ready | unblocks 5 -> F3, F2, F1, ...]", rows["1."])
+        # B1's only local dependent is HOLD, so without --include-hold it shows plain [ready]
+        self.assertIn("B1", rows["2."])
+        self.assertIn("[ready]", rows["2."])
+        self.assertNotIn("unblocks", rows["2."])
+
+        # --role design --ready keeps downstream targets of mixed roles visible on D1
+        r_role = self._run(
+            [str(SCRIPT), "chain", "--ready", "--role", "design"],
+            cwd=str(proj_a),
+            env={**os.environ, "COLUMNS": "160"},
+            check=True,
+        )
+        role_rows = {k: v for k, v in self._table_rows(r_role.stdout).items() if k.endswith(".")}
+        self.assertEqual(sorted(role_rows), ["1."], msg=r_role.stdout)
+        self.assertIn("[ready | unblocks 5 -> F3, F2, F1, ...]", role_rows["1."])
+
+        # --include-hold includes the held dependent in --ready downstream targets
+        r_hold = self._run(
+            [str(SCRIPT), "chain", "--ready", "--include-hold"],
+            cwd=str(proj_a),
+            env={**os.environ, "COLUMNS": "160"},
+            check=True,
+        )
+        hold_rows = {k: v for k, v in self._table_rows(r_hold.stdout).items() if k.endswith(".")}
+        self.assertIn("B1", hold_rows["2."])
+        self.assertIn("[ready | unblocks 1 -> F6]", hold_rows["2."])
+
+        # Workspace -w --ready renders cross-project downstream target refs
+        r_ws = self._run(
+            [str(SCRIPT), "chain", "-w", "--ready"],
+            cwd=str(ws),
+            env={**os.environ, "COLUMNS": "160"},
+            check=True,
+        )
+        ws_rows = {k: v for k, v in self._table_rows(r_ws.stdout).items() if k.endswith(".")}
+        self.assertIn("proj_a:D1", ws_rows["1."])
+        self.assertIn("[ready | unblocks 5 -> proj_a:F3, proj_a:F2, proj_a:F1, ...]", ws_rows["1."])
+        self.assertIn("proj_a:B1", ws_rows["2."])
+        self.assertIn("[ready | unblocks 1 -> proj_b:F1]", ws_rows["2."])
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,3 +1,9 @@
+# ✅ [DONE] F41: Show downstream next tasks in todo_md chain --ready output — *2026-11-19, Show downstream unblocked targets in chain --ready output*
+
+- Role: work
+- Update the `ready` rendering branch in `cmd_chain()` (`src/commands.py`) using `dependents` from `build_execution_chain_dag()` (`src/parser.py`) so each ready row with `[unblocks N]` also displays its immediate (or downstream) unblocked targets (for example `[ready | unblocks 3 -> F54, F68, ...]` or `leads to: ...`), giving chain continuation context without leaving `--ready`.
+- Keep `src/header.py` (`--help`), `README.md`, and `tests/test_todo_md.py` in sync, rebuild `./todo_md` via `build.py`, and bump `VERSION` for a PATCH release.
+
 # ✅ [DONE] F40: Add --by-role execution queue mode to todo_md chain — *2026-11-19*
 
 - Role: work

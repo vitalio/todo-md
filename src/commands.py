@@ -1141,6 +1141,7 @@ def cmd_chain(
 
     term_width = _get_terminal_columns()
     wanted_role = role.strip().lower() if role is not None else None
+    rank_pos = {node: idx for idx, node in enumerate(active_nodes)}
 
     def _matches_role(u: tuple[Path, str]) -> bool:
         if wanted_role is None:
@@ -1148,31 +1149,47 @@ def cmd_chain(
         nd = nodes[u]
         return bool(nd.get("exists")) and _task_matches_role(nd, wanted_role)
 
-    def _format_row(idx: int, u: tuple[Path, str]) -> str:
+    def _format_row(idx: int, u: tuple[Path, str], show_downstream: bool = False) -> str:
         nd = nodes[u]
         st = str(nd["status"])
         ref = str(nd["ref"])
         title = str(nd["title"])
         blockers = [str(nodes[p]["ref"]) for p in prereqs[u] if str(nodes[p]["status"]) != "DONE"]
+        role_badge = _task_role_badge(nd) if nd.get("exists") else ""
+        impact = active_unblocks.get(u, 0)
         if st == "MISSING":
             badge = "[MISSING]"
-            marker = "[blocked]"
+            status_tag = "[blocked]" + (f" [unblocks {impact}]" if impact > 0 else "")
         elif st == "CANCELED":
             badge = f"{nd['emoji']} [CANCELED]"
-            marker = "[blocked]"
+            status_tag = "[blocked]" + (f" [unblocks {impact}]" if impact > 0 else "")
         else:
             emoji = "⏳" if (st in ("WIP", "NEXT") and blockers) else str(nd["emoji"])
             badge = f"{emoji} [{st}]"
-            marker = f"[blocked by: {', '.join(blockers)}]" if blockers else "[ready]"
-        role_badge = _task_role_badge(nd) if nd.get("exists") else ""
-        impact = active_unblocks.get(u, 0)
-        impact_tag = f" [unblocks {impact}]" if impact > 0 else ""
+            if blockers:
+                status_tag = f"[blocked by: {', '.join(blockers)}]" + (
+                    f" [unblocks {impact}]" if impact > 0 else ""
+                )
+            elif show_downstream and impact > 0:
+                next_nodes = sorted(
+                    [v for v in dependents.get(u, []) if v in active_set],
+                    key=lambda v: rank_pos.get(v, len(active_nodes)),
+                )
+                if next_nodes:
+                    shown_refs = [str(nodes[v]["ref"]) for v in next_nodes[:3]]
+                    if len(next_nodes) > 3:
+                        shown_refs.append("...")
+                    status_tag = f"[ready | unblocks {impact} -> {', '.join(shown_refs)}]"
+                else:
+                    status_tag = f"[ready | unblocks {impact}]"
+            else:
+                status_tag = "[ready]" + (f" [unblocks {impact}]" if impact > 0 else "")
         prefix = (
             f"  {idx:>2}. {_pad_display(ref, 20)}  "
             f"{_pad_display(badge, 14)}  "
             f"{_pad_display(role_badge, 10)}  "
         )
-        desc = f"{title}  {marker}{impact_tag}"
+        desc = f"{title}  {status_tag}"
         return _wrap_table_row(prefix, desc, term_width) + "\n"
 
     if by_role:
@@ -1207,7 +1224,7 @@ def cmd_chain(
         if ready_tasks:
             sys.stdout.write("Ready tasks:\n")
             for idx, u in enumerate(ready_tasks, start=1):
-                sys.stdout.write(_format_row(idx, u))
+                sys.stdout.write(_format_row(idx, u, show_downstream=True))
         elif matching_held:
             role_note = f" matching role={role.strip()}" if role is not None else ""
             sys.stdout.write(

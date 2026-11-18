@@ -20,7 +20,7 @@
   {prog} cancel <ID> [-m REASON]             Mark task <ID> as CANCELED and move it to TODO_ARCHIVE.md
   {prog} ids                                 Print highest task IDs in use and next available ID per prefix
   {prog} queue <ID> [--all]                  Show topologically sorted execution queue for <ID> (use --all to include DONE)
-  {prog} chain [--by-role] [--role ROLE] [--ready] [--limit N] [--include-hold]  Show dependency chains, role queues (--by-role), & ready tasks
+  {prog} chain [--by-role] [--role ROLE] [--ready] [--limit N] [--include-hold]  Show dependency chains, role queues (--by-role), & ready tasks (with next unblocked targets)
   {prog} next-id [<ID>] | --next-id | --top  Print top WIP/NEXT ID, or first ready ID in <ID>'s queue
   {prog} files [<ID>] | --files [<ID>]       List existing repository file paths referenced in backticks in task <ID>
                                              Opts: --max-lines N, --max-total-lines N, --max-bytes N, --max-total-bytes N
