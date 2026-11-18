@@ -1,3 +1,10 @@
+# 🎯 [NEXT] F39: Display role badges in todo_md chain and add --role filter
+
+- Role: work
+- Update `cmd_chain()` (`src/commands.py`) to display a padded `[role]` column (reusing `_task_role_badge()` from `src/parser.py`, matching `cmd_list()` / `cmd_workspace_list()`, and leaving it blank for `MISSING` placeholders where `exists` is false) across `Chain:`, `Standalone tasks:`, and `--ready` rows while preserving `_wrap_table_row()` alignment.
+- Add `--role <role>` (and `--role=<role>`) option to `todo_md chain` in `main()` (`src/cli.py`) and `cmd_chain()` (`src/commands.py`), filtering displayed tasks via `_task_matches_role()` (e.g. `todo_md chain -w --role work --ready` or `--role plan`) while keeping DAG validation and unblock context clear.
+- Keep `src/header.py` (`--help`), `src/rules/todo_md.md`, `README.md`, and `tests/test_todo_md.py` in sync, rebuild `./todo_md` via `build.py` (and reinstall via `install.sh` if applicable), and bump `VERSION` for a MINOR release.
+
 # 🎯 [NEXT] F36: Remove bundle vitalio/run_block from .agents_bundle
 
 - Remove `bundle vitalio/run_block` from `.agents_bundle` once `run_block` embeds its own block execution rules.
@@ -32,6 +39,7 @@
 
 # ⚪ [NEW] P1: JSON output mode (`--json`)
 
+- Role: plan
 Allow exporting parsed tasks as JSON for scripting.
 
 # ⚪ [NEW] F3: Clarify repository scope rule in .bundle to target the owning repository
@@ -74,3 +82,5 @@ Allow exporting parsed tasks as JSON for scripting.
 - Evaluate splitting or labeling large merged weakly-connected components (such as multi-wave orchestrator DAGs) by milestone/goal sub-chains (`wave` / `queue`-style subtrees) and distinguishing quick `work` side-quests from `design` tasks in `Standalone tasks:`.
 - Define optional filtering by chain name (`todo_md chain "<name>"`) and coordinate questline naming conventions with `AGENTS.md` Quest-Log UX (`F37`) and orchestrator wave summaries.
 - Target files for downstream implementation: `src/parser.py`, `src/commands.py`, `src/cli.py`, `src/header.py`, `src/rules/todo_md.md`, `README.md`, `tests/test_todo_md.py`.
+
+- Role-tiered queue mode: evaluate adding a role-grouped execution map mode (e.g. `--by-role` or `map` subcommand) that orders tasks into Queue 1 (`work` with only `work` prerequisites), Queue 2 (`plan` with `work`/`plan` prerequisites), and Queue 3 (`design`), sorted topologically within each queue.
