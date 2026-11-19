@@ -6,10 +6,6 @@
 - In `cmd_list()` and `cmd_workspace_list()` (`src/parser.py`), highlight matching task rows brightly in bold in both table mode and `--tree` view.
 - Keep `src/header.py` (`--help`), `src/rules/todo_md.md`, `README.md`, and `tests/test_todo_md.py` in sync, rebuild `./todo_md` via `build.py`, and bump `VERSION` for a MINOR release.
 
-# 🎯 [NEXT] F36: Remove bundle vitalio/run_block from .agents_bundle
-
-- Remove `bundle vitalio/run_block` from `.agents_bundle` once `run_block` embeds its own block execution rules.
-
 # 🎯 [NEXT] F17: Add CLI prefix legend (F, B, D) and document prefix conventions and design lifecycle
 
 - Define a single canonical prefix metadata table in `src/header.py` (alongside `PREFIX_DEFAULT_ROLES`) mapping standard prefixes `F` (feature, default, role `work`), `B` (bugfix, role `work`), and `D` (design, role `design`) to their descriptions and default roles.

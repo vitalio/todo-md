@@ -1,3 +1,7 @@
+# ✅ [DONE] F36: Remove bundle vitalio/run_block from .agents_bundle — *2026-11-19*
+
+- Remove `bundle vitalio/run_block` from `.agents_bundle` once `run_block` embeds its own block execution rules.
+
 # ✅ [DONE] F16: Migrate workflow bundle and docs from role=execute and role=audit to role=work and role=review — *2026-11-19, migrated workflow bundle, rules, and tests to role=work and role=review*
 
 - Update `src/bundles/todo_md.bundle`, `src/rules/todo_md.md`, `README.md`, and unit tests in `tests/test_todo_md.py` to use `role=work` and `role=review` instead of `role=execute` and `role=audit` once the role rename lands in `agents-rules` (coordinated in `todo_flow`, preserving legacy aliases only if needed during transition).
