@@ -10,8 +10,8 @@
     `❌ [CANCELED]`) newest-first. `NEW` is the default backlog status
     (rendered in compact view by `{cmd:todo_md}`), `NEXT` is promoted in
     `role=plan` for prioritized ready tasks (expanded view), `WIP` is set
-    automatically when starting `role=execute task=<ID>`, and `done` is run
-    before the final commit in `role=execute` so backlog updates are committed
+    automatically when starting `role=work task=<ID>`, and `done` is run
+    before the final commit in `role=work` so backlog updates are committed
     atomically with code changes.
   - Target selection: pass `-C <dir|project>` or `--project <name>` before
     any `{cmd:todo_md}` subcommand (`ids`, `list`, `archive`, `last`, `last-id`,
@@ -84,11 +84,11 @@
     validate manually; rejects stale completion date notes `— *YYYY-MM-DD...*`
     on active tasks in `TODO.md` so they are moved back to `TODO_ARCHIVE.md`
     or cleared):
-    - `role=execute`: do not pass `-c` / `--commit`; stage `TODO.md` and
+    - `role=work`: do not pass `-c` / `--commit`; stage `TODO.md` and
       `TODO_ARCHIVE.md` into the final code commit so `done` is atomic with
       implementation.
-    - `role=plan`, `role=design`, and `role=audit`: batch `{cmd:todo_md}`
+    - `role=plan`, `role=design`, and `role=review`: batch `{cmd:todo_md}`
       mutations without `-c` and commit `TODO*.md` in a single commit once
       backlog updates are finished (via `-c` / `--commit` on the final
       `{cmd:todo_md}` command or `git add TODO*.md && git commit`) before
-      starting `role=execute`.
+      starting `role=work`.

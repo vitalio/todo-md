@@ -1,8 +1,3 @@
-# 🎯 [NEXT] F16: Migrate workflow bundle and docs from role=execute and role=audit to role=work and role=review — *Ready after agents-rules:F9 and agents-rules:F16*
-
-- Update `src/bundles/todo_md.bundle`, `src/rules/todo_md.md`, `README.md`, and unit tests in `tests/test_todo_md.py` to use `role=work` and `role=review` instead of `role=execute` and `role=audit` once the role rename lands in `agents-rules` (coordinated in `todo_flow`, preserving legacy aliases only if needed during transition).
-- Rebuild and reinstall `todo_md` and release a PATCH version.
-
 # 🎯 [NEXT] F38: Highlight a target task ID in todo_md chain and todo_md list output — *Return to NEXT*
 
 - Update `main()` in `src/cli.py` to accept an optional task reference `<ID>` (or `<project>:<ID>`, resolved via `resolve_project_task_ref()`) on `chain` (`todo_md chain [<ID>] ...`) and `list` (both `todo_md list <ID> ...` when the positional argument matches a task ID and `todo_md list <filter> <ID> ...`).

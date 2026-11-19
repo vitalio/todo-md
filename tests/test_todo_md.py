@@ -196,6 +196,14 @@ class TestTodoMd(unittest.TestCase):
         self.assertIn("do not introduce a separate `- Order:` field", rule_txt)
         self.assertIn("[if task=last] var task=$(todo_md last-id DONE)", bundle_txt)
         self.assertIn("[if task=DONE] var task=$(todo_md last-id DONE)", bundle_txt)
+        self.assertIn("[if role=work]", bundle_txt)
+        self.assertIn("[if role=review]", bundle_txt)
+        self.assertNotIn("role=execute", bundle_txt)
+        self.assertNotIn("role=audit", bundle_txt)
+        self.assertIn("role=work", rule_txt)
+        self.assertIn("role=review", rule_txt)
+        self.assertNotIn("role=execute", rule_txt)
+        self.assertNotIn("role=audit", rule_txt)
 
     def test_init_summary_priority_smart_truncation_and_check(self):
         r_init = self._run([str(SCRIPT), "init"])
