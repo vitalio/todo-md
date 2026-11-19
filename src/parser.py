@@ -1850,6 +1850,9 @@ def build_execution_chain_dag(
     prereq_sets: dict[tuple[Path, str], set[tuple[Path, str]]] = {}
     done_prereqs: dict[tuple[Path, str], list[str]] = {}
     done_prereq_sets: dict[tuple[Path, str], set[str]] = {}
+    done_nodes: dict[tuple[Path, str], set[tuple[Path, str]]] = {}
+    done_closure_cache: dict[tuple[Path, str], set[tuple[Path, str]]] = {}
+    done_visiting: set[tuple[Path, str]] = set()
     order_idx: dict[tuple[Path, str], int] = {}
     syntax_errors: list[str] = []
 
@@ -1860,6 +1863,8 @@ def build_execution_chain_dag(
         if k not in done_prereqs:
             done_prereqs[k] = []
             done_prereq_sets[k] = set()
+        if k not in done_nodes:
+            done_nodes[k] = set()
 
     def _add_prereq(node: tuple[Path, str], dep: tuple[Path, str]) -> None:
         _ensure_node_slot(node)
@@ -1868,16 +1873,40 @@ def build_execution_chain_dag(
             prereq_sets[node].add(dep)
             prereqs[node].append(dep)
 
+    def _is_done(node_key: tuple[Path, str]) -> bool:
+        tdict = _task_map(node_key[0]).get(node_key[1])
+        return tdict is not None and str(tdict["status"]) == "DONE"
+
+    def _collect_done_closure(done_key: tuple[Path, str]) -> set[tuple[Path, str]]:
+        if not _is_done(done_key):
+            return set()
+        if done_key in done_closure_cache:
+            return done_closure_cache[done_key]
+        if done_key in done_visiting:
+            return {done_key}
+        done_visiting.add(done_key)
+        closure: set[tuple[Path, str]] = {done_key}
+        ddir, dtid = done_key
+        tdict = _task_map(ddir).get(dtid)
+        if tdict is not None:
+            clauses, _ = parse_dependency_clauses(str(tdict.get("section", "")))
+            for clause in clauses:
+                for stage in clause:
+                    for raw_ref in stage:
+                        dep_k = _resolve_ref(ddir, raw_ref)
+                        if _is_done(dep_k):
+                            closure |= _collect_done_closure(dep_k)
+        done_visiting.remove(done_key)
+        done_closure_cache[done_key] = closure
+        return closure
+
     def _add_done_prereq(node: tuple[Path, str], dep: tuple[Path, str]) -> None:
         _ensure_node_slot(node)
         dep_ref = _format_ref(dep)
         if dep_ref not in done_prereq_sets[node]:
             done_prereq_sets[node].add(dep_ref)
             done_prereqs[node].append(dep_ref)
-
-    def _is_done(node_key: tuple[Path, str]) -> bool:
-        tdict = _task_map(node_key[0]).get(node_key[1])
-        return tdict is not None and str(tdict["status"]) == "DONE"
+        done_nodes[node] |= _collect_done_closure(dep)
 
     def _visit(node_key: tuple[Path, str]) -> None:
         if node_key in nodes:
@@ -1943,10 +1972,13 @@ def build_execution_chain_dag(
 
     unblocks = compute_unblock_counts(nodes, dependents)
 
-    def _sort_key(u: tuple[Path, str]) -> tuple[int, int, int, str, tuple[Path, str]]:
+    def _canon_ref_key(u: tuple[Path, str]) -> tuple[str, str, str]:
+        return (str(nodes[u]["ref"]), u[0].as_posix(), u[1])
+
+    def _sort_key(u: tuple[Path, str]) -> tuple[int, int, int, tuple[str, str, str], tuple[Path, str]]:
         st = str(nodes[u]["status"])
         prio = ACTIVE_STATUS_ORDER.get(st, 99)
-        return (prio, -unblocks.get(u, 0), order_idx.get(u, 0), str(nodes[u]["ref"]), u)
+        return (prio, -unblocks.get(u, 0), order_idx.get(u, 0), _canon_ref_key(u), u)
 
     avail = [_sort_key(u) for u in nodes if in_degree[u] == 0]
     heapq.heapify(avail)
@@ -1958,6 +1990,11 @@ def build_execution_chain_dag(
             in_degree[v] -= 1
             if in_degree[v] == 0:
                 heapq.heappush(avail, _sort_key(v))
+
+    for u in topo_order:
+        _ensure_node_slot(u)
+        for p in prereqs.get(u, []):
+            done_nodes[u] |= done_nodes.get(p, set())
 
     cycle: list[str] = []
     if len(topo_order) < len(nodes):
@@ -1983,7 +2020,7 @@ def build_execution_chain_dag(
             state[u] = 2
             return None
 
-        ordered_cyclic = sorted(cyclic_nodes, key=lambda k: order_idx.get(k, 0))
+        ordered_cyclic = sorted(cyclic_nodes, key=lambda k: (order_idx.get(k, 0), _canon_ref_key(k)))
         for start_node in ordered_cyclic:
             if state.get(start_node, 0) == 0:
                 found_cyc = _find_cycle(start_node)
@@ -1995,6 +2032,7 @@ def build_execution_chain_dag(
         "nodes": nodes,
         "prereqs": prereqs,
         "done_prereqs": done_prereqs,
+        "done_nodes": done_nodes,
         "dependents": dependents,
         "unblocks": unblocks,
         "order_idx": order_idx,
@@ -2043,6 +2081,46 @@ def _is_ready_in_dag(
     return not any(str(nodes[p]["status"]) != "DONE" for p in prereqs.get(u, []))
 
 
+def _canonical_task_ref_key(
+    nodes: dict[tuple[Path, str], dict[str, object]],
+    u: tuple[Path, str],
+) -> tuple[str, str, str]:
+    nd = nodes.get(u)
+    ref = str(nd["ref"]) if nd is not None and "ref" in nd else u[1]
+    return (ref, u[0].as_posix(), u[1])
+
+
+def _is_bug_task_node(
+    nodes: dict[tuple[Path, str], dict[str, object]],
+    u: tuple[Path, str],
+) -> bool:
+    nd = nodes.get(u)
+    raw_id = str(nd.get("id") or u[1]) if nd is not None else u[1]
+    tid = raw_id.split(":")[-1].strip().upper()
+    return tid.startswith("B")
+
+
+def _is_bug_node_key(u: tuple[Path, str]) -> bool:
+    tid = u[1].split(":")[-1].strip().upper()
+    return tid.startswith("B")
+
+
+def _resolve_node_role_ease(
+    nodes: dict[tuple[Path, str], dict[str, object]],
+    u: tuple[Path, str],
+) -> int:
+    nd = nodes.get(u)
+    if nd is None or not nd.get("exists", True):
+        return len(ROLE_EASE_ORDER)
+    raw_role = nd.get("role")
+    if not raw_role:
+        raw_id = str(nd.get("id") or u[1]).split(":")[-1].strip()
+        raw_role = resolve_task_role(raw_id, str(nd.get("section", "")))
+    if not raw_role:
+        return len(ROLE_EASE_ORDER)
+    return ROLE_EASE_ORDER.get(str(raw_role).strip().lower(), len(ROLE_EASE_ORDER))
+
+
 def _prepare_active_plan(
     dag: dict[str, object],
     include_hold: bool = False,
@@ -2050,6 +2128,7 @@ def _prepare_active_plan(
     nodes: dict[tuple[Path, str], dict[str, object]] = dag["nodes"]  # type: ignore[assignment]
     prereqs: dict[tuple[Path, str], list[tuple[Path, str]]] = dag["prereqs"]  # type: ignore[assignment]
     done_prereqs: dict[tuple[Path, str], list[str]] = dag.get("done_prereqs", {})  # type: ignore[assignment]
+    done_nodes: dict[tuple[Path, str], set[tuple[Path, str]]] = dag.get("done_nodes", {})  # type: ignore[assignment]
     dependents: dict[tuple[Path, str], list[tuple[Path, str]]] = dag["dependents"]  # type: ignore[assignment]
     topo_order: list[tuple[Path, str]] = dag["topo_order"]  # type: ignore[assignment]
     order_idx: dict[tuple[Path, str], int] = dag.get("order_idx", {})  # type: ignore[assignment]
@@ -2066,17 +2145,18 @@ def _prepare_active_plan(
                 hold_stack.append(nxt)
 
     if include_hold:
-        active_set = set(topo_order)
+        active_list = list(topo_order)
         excluded_hold: set[tuple[Path, str]] = set()
     else:
-        active_set = {u for u in topo_order if u not in held_nodes}
+        active_list = [u for u in topo_order if u not in held_nodes]
         excluded_hold = held_nodes
+    active_set = set(active_list)
 
     active_unblocks = compute_unblock_counts(nodes, dependents, allowed=active_set)
     finale_set: set[tuple[Path, str]] = {
         u
-        for u in active_set
-        if bool(done_prereqs.get(u))
+        for u in active_list
+        if bool(done_prereqs.get(u) or done_nodes.get(u))
         and _is_ready_in_dag(nodes, prereqs, u, include_hold=include_hold)
         and active_unblocks.get(u, 0) == 0
     }
@@ -2084,14 +2164,22 @@ def _prepare_active_plan(
     def _node_rank(
         u: tuple[Path, str],
         ready_step: int = 0,
-    ) -> tuple[int, int, int, int, int, str, tuple[Path, str]]:
+    ) -> tuple[int, int, int, int, int, tuple[str, str, str], tuple[Path, str]]:
         st = str(nodes[u]["status"])
         prio = ACTIVE_STATUS_ORDER.get(st, 99)
         is_fin = 0 if u in finale_set else 1
-        return (prio, is_fin, -active_unblocks.get(u, 0), -ready_step, order_idx.get(u, 0), str(nodes[u]["ref"]), u)
+        return (
+            prio,
+            is_fin,
+            -active_unblocks.get(u, 0),
+            -ready_step,
+            order_idx.get(u, 0),
+            _canonical_task_ref_key(nodes, u),
+            u,
+        )
 
-    in_deg = {u: sum(1 for p in prereqs.get(u, []) if p in active_set) for u in active_set}
-    avail = [_node_rank(u, 0) for u in active_set if in_deg[u] == 0]
+    in_deg = {u: sum(1 for p in prereqs.get(u, []) if p in active_set) for u in active_list}
+    avail = [_node_rank(u, 0) for u in active_list if in_deg[u] == 0]
     heapq.heapify(avail)
     ranked_active: list[tuple[Path, str]] = []
     step_num = 0
@@ -2104,13 +2192,14 @@ def _prepare_active_plan(
                 in_deg[v] -= 1
                 if in_deg[v] == 0:
                     heapq.heappush(avail, _node_rank(v, step_num))
-    if len(ranked_active) < len(active_set):
+    if len(ranked_active) < len(active_list):
         seen_ranked = set(ranked_active)
-        rest = [u for u in topo_order if u in active_set and u not in seen_ranked]
+        rest = [u for u in active_list if u not in seen_ranked]
         rest.sort(key=_node_rank)
         ranked_active.extend(rest)
 
     return {
+        "active_list": active_list,
         "active_set": active_set,
         "ranked_active": ranked_active,
         "active_unblocks": active_unblocks,
@@ -2128,7 +2217,10 @@ def plan_execution_chains(
 ) -> dict[str, object]:
     nodes: dict[tuple[Path, str], dict[str, object]] = dag["nodes"]  # type: ignore[assignment]
     prereqs: dict[tuple[Path, str], list[tuple[Path, str]]] = dag["prereqs"]  # type: ignore[assignment]
+    done_nodes: dict[tuple[Path, str], set[tuple[Path, str]]] = dag.get("done_nodes", {})  # type: ignore[assignment]
+    order_idx: dict[tuple[Path, str], int] = dag.get("order_idx", {})  # type: ignore[assignment]
     prep = _prepare_active_plan(dag, include_hold=include_hold)
+    active_list: list[tuple[Path, str]] = prep["active_list"]  # type: ignore[assignment]
     active_set: set[tuple[Path, str]] = prep["active_set"]  # type: ignore[assignment]
     ranked_active: list[tuple[Path, str]] = prep["ranked_active"]  # type: ignore[assignment]
     active_unblocks: dict[tuple[Path, str], int] = prep["active_unblocks"]  # type: ignore[assignment]
@@ -2152,21 +2244,26 @@ def plan_execution_chains(
             "finale_set": finale_set,
             "finales": [],
             "chains": [],
+            "chain_stats": [],
             "standalone": [],
             "ready_tasks": ready_nodes,
         }
 
-    undirected: dict[tuple[Path, str], set[tuple[Path, str]]] = {u: set() for u in active_set}
-    for u in active_set:
+    undirected_sets: dict[tuple[Path, str], set[tuple[Path, str]]] = {u: set() for u in active_list}
+    for u in active_list:
         for p in prereqs.get(u, []):
             if p in active_set:
-                undirected[u].add(p)
-                undirected[p].add(u)
+                undirected_sets[u].add(p)
+                undirected_sets[p].add(u)
+    undirected: dict[tuple[Path, str], list[tuple[Path, str]]] = {
+        u: sorted(undirected_sets[u], key=lambda k: _canonical_task_ref_key(nodes, k))
+        for u in active_list
+    }
 
     rank_pos = {u: idx for idx, u in enumerate(ranked_active)}
     visited_comp: set[tuple[Path, str]] = set()
     finales: list[tuple[Path, str]] = []
-    chains: list[list[tuple[Path, str]]] = []
+    raw_chains: list[list[tuple[Path, str]]] = []
     standalone: list[tuple[Path, str]] = []
     for u in ranked_active:
         if u in visited_comp:
@@ -2181,32 +2278,118 @@ def plan_execution_chains(
                 if nb not in visited_comp:
                     visited_comp.add(nb)
                     stack.append(nb)
-        comp.sort(key=lambda k: rank_pos[k])
+        comp.sort(key=lambda k: (rank_pos[k], _canonical_task_ref_key(nodes, k)))
         if len(comp) >= 2:
-            chains.append(comp)
+            raw_chains.append(comp)
         elif comp[0] in finale_set:
             finales.append(comp[0])
         else:
             standalone.append(comp[0])
 
-    finales.sort(key=_node_rank)
-    chains.sort(key=lambda comp: min(_node_rank(k) for k in comp))
-    standalone.sort(key=_node_rank)
+    def _standalone_sort_key(
+        u: tuple[Path, str],
+    ) -> tuple[int, int, int, int, tuple[str, str, str]]:
+        return (
+            0 if _is_bug_task_node(nodes, u) else 1,
+            _resolve_node_role_ease(nodes, u),
+            ACTIVE_STATUS_ORDER.get(str(nodes[u]["status"]), 99),
+            order_idx.get(u, 0),
+            _canonical_task_ref_key(nodes, u),
+        )
+
+    def _build_chain_entry(comp: list[tuple[Path, str]]) -> dict[str, object]:
+        comp_done: set[tuple[Path, str]] = set()
+        for u in comp:
+            comp_done |= done_nodes.get(u, set())
+        open_count = len(comp)
+        done_count = len(comp_done)
+        total_tasks = done_count + open_count
+        progress_pct = round(100 * done_count / total_tasks) if total_tasks > 0 else 0
+
+        ready_in_comp = [
+            u
+            for u in comp
+            if _is_ready_in_dag(nodes, prereqs, u, include_hold=include_hold)
+        ]
+        ready_set = set(ready_in_comp)
+        ready_bugs = sum(1 for u in ready_in_comp if _is_bug_task_node(nodes, u))
+        open_bugs = sum(1 for u in comp if _is_bug_task_node(nodes, u))
+        done_bugs = sum(1 for d in comp_done if _is_bug_node_key(d))
+        total_bugs = open_bugs + done_bugs
+
+        dist: dict[tuple[Path, str], int] = {}
+        for u in comp:
+            if u in ready_set:
+                dist[u] = 0
+            else:
+                parent_dists = [dist[p] for p in prereqs.get(u, []) if p in dist]
+                dist[u] = (min(parent_dists) + 1) if parent_dists else 0
+        open_bug_dists = [dist[u] for u in comp if _is_bug_task_node(nodes, u)]
+        min_bug_dist = min(open_bug_dists) if open_bug_dists else None
+        bug_dist_rank = min_bug_dist if min_bug_dist is not None else 10**9
+
+        open_eases = [_resolve_node_role_ease(nodes, u) for u in comp]
+        ready_eases = [_resolve_node_role_ease(nodes, u) for u in ready_in_comp] or open_eases
+        rem_eases = [_resolve_node_role_ease(nodes, u) for u in comp if u not in ready_set] or open_eases
+        ready_role_ease = min(ready_eases) if ready_eases else len(ROLE_EASE_ORDER)
+        min_rem_ease = min(rem_eases) if rem_eases else len(ROLE_EASE_ORDER)
+        max_rem_ease = max(rem_eases) if rem_eases else len(ROLE_EASE_ORDER)
+        max_open_ease = max(open_eases) if open_eases else len(ROLE_EASE_ORDER)
+        role_ease_key = (ready_role_ease, min_rem_ease, max_rem_ease, max_open_ease)
+
+        best_status = min(ACTIVE_STATUS_ORDER.get(str(nodes[u]["status"]), 99) for u in comp)
+        canon_ref = _canonical_task_ref_key(nodes, comp[0])
+
+        rank_key = (
+            -ready_bugs,
+            -total_bugs,
+            bug_dist_rank,
+            role_ease_key,
+            best_status,
+            -total_tasks,
+            -done_count,
+            canon_ref,
+        )
+        return {
+            "nodes": comp,
+            "done_nodes": comp_done,
+            "open_count": open_count,
+            "done_count": done_count,
+            "total_tasks": total_tasks,
+            "progress_pct": progress_pct,
+            "ready_bugs": ready_bugs,
+            "open_bugs": open_bugs,
+            "done_bugs": done_bugs,
+            "total_bugs": total_bugs,
+            "min_bug_dist": min_bug_dist,
+            "role_ease": role_ease_key,
+            "best_status": best_status,
+            "rank_key": rank_key,
+        }
+
+    finales.sort(key=_standalone_sort_key)
+    chain_entries = [_build_chain_entry(comp) for comp in raw_chains]
+    chain_entries.sort(key=lambda entry: entry["rank_key"])  # type: ignore[arg-type, return-value]
+    chains: list[list[tuple[Path, str]]] = [entry["nodes"] for entry in chain_entries]  # type: ignore[misc]
+    standalone.sort(key=_standalone_sort_key)
 
     if limit is not None:
         rem = limit
         limited_finales = finales[:rem] if rem > 0 else []
         rem -= len(limited_finales)
         limited_chains: list[list[tuple[Path, str]]] = []
-        for comp in chains:
+        limited_stats: list[dict[str, object]] = []
+        for comp, entry in zip(chains, chain_entries):
             if rem <= 0:
                 break
             take = comp[:rem]
             limited_chains.append(take)
+            limited_stats.append({**entry, "nodes": take})
             rem -= len(take)
         limited_standalone = standalone[:rem] if rem > 0 else []
         finales = limited_finales
         chains = limited_chains
+        chain_entries = limited_stats
         standalone = limited_standalone
 
     return {
@@ -2216,6 +2399,7 @@ def plan_execution_chains(
         "finale_set": finale_set,
         "finales": finales,
         "chains": chains,
+        "chain_stats": chain_entries,
         "standalone": standalone,
         "ready_tasks": [],
     }

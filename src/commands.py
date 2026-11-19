@@ -1262,27 +1262,49 @@ def cmd_chain(
     else:
         finales: list[tuple[Path, str]] = plan.get("finales", [])  # type: ignore[assignment]
         chains: list[list[tuple[Path, str]]] = plan["chains"]  # type: ignore[assignment]
+        raw_chain_stats: list[dict[str, object]] = plan.get("chain_stats", [])  # type: ignore[assignment]
+        if len(raw_chain_stats) == len(chains):
+            chains_with_stats: list[tuple[list[tuple[Path, str]], dict[str, object]]] = list(
+                zip(chains, raw_chain_stats)
+            )
+        else:
+            chains_with_stats = [
+                (
+                    comp,
+                    {
+                        "open_count": len(comp),
+                        "done_count": 0,
+                        "total_tasks": len(comp),
+                        "progress_pct": 0,
+                    },
+                )
+                for comp in chains
+            ]
         standalone: list[tuple[Path, str]] = plan["standalone"]  # type: ignore[assignment]
         if wanted_role is not None:
             finales = [u for u in finales if _matches_role(u)]
-            chains = [[u for u in comp if _matches_role(u)] for comp in chains]
-            chains = [comp for comp in chains if comp]
+            filtered_chains_with_stats: list[tuple[list[tuple[Path, str]], dict[str, object]]] = []
+            for comp, st_info in chains_with_stats:
+                f_comp = [u for u in comp if _matches_role(u)]
+                if f_comp:
+                    filtered_chains_with_stats.append((f_comp, st_info))
+            chains_with_stats = filtered_chains_with_stats
             standalone = [u for u in standalone if _matches_role(u)]
             if limit is not None:
                 rem = limit
                 finales = finales[:rem] if rem > 0 else []
                 rem -= len(finales)
-                limited_chains: list[list[tuple[Path, str]]] = []
-                for comp in chains:
+                limited_chains_with_stats: list[tuple[list[tuple[Path, str]], dict[str, object]]] = []
+                for comp, st_info in chains_with_stats:
                     if rem <= 0:
                         break
                     take = comp[:rem]
-                    limited_chains.append(take)
+                    limited_chains_with_stats.append((take, st_info))
                     rem -= len(take)
                 standalone = standalone[:rem] if rem > 0 else []
-                chains = limited_chains
+                chains_with_stats = limited_chains_with_stats
         matching_held = [u for u in excluded_hold if _matches_role(u)]
-        if finales or chains or standalone:
+        if finales or chains_with_stats or standalone:
             row_idx = 1
             wrote_section = False
             if finales:
@@ -1291,11 +1313,16 @@ def cmd_chain(
                     sys.stdout.write(_format_row(row_idx, u))
                     row_idx += 1
                 wrote_section = True
-            for comp in chains:
+            for chain_idx, (comp, st_info) in enumerate(chains_with_stats, start=1):
                 if wrote_section:
                     sys.stdout.write("\n")
-                chain_str = " -> ".join(str(nodes[u]["ref"]) for u in comp)
-                sys.stdout.write(f"Chain: {chain_str}\n")
+                total_t = int(st_info.get("total_tasks", len(comp)))
+                pct = int(st_info.get("progress_pct", 0))
+                done_c = int(st_info.get("done_count", 0))
+                open_c = int(st_info.get("open_count", len(comp)))
+                sys.stdout.write(
+                    f"Chain {chain_idx} ({total_t} tasks, {pct}% | {done_c} done, {open_c} open):\n"
+                )
                 for u in comp:
                     sys.stdout.write(_format_row(row_idx, u))
                     row_idx += 1

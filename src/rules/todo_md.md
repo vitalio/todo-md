@@ -42,9 +42,11 @@
     and `Next actionable: <ref>`),
     `{cmd:todo_md} chain [--by-role] [--role <role>] [--ready] [--limit N] [--include-hold]`
     (local or `-w` workspace chain finales `[ready | after: ...]` with all
-    prerequisites resolved shown first before dependency chains `A -> B -> C`
-    and standalone tasks, showing padded `[role]` badges and ranked by
-    critical-path unblock impact `[unblocks N]`; `--by-role` partitions active
+    prerequisites resolved shown first before numbered RPG progress chains
+    `Chain <N> (<total> tasks, <pct>% | <done> done, <open> open):` and
+    standalone tasks, showing padded `[role]` badges, `[unblocks N]`, and
+    ranking by bug priority `B*`, role execution ease, status, and total chain
+    value; `--by-role` partitions active
     tasks into
     topologically sorted role queues: `Queue 1 (work)` with only `work`
     transitive deps, `Queue 2 (plan)` with `work`/`plan` transitive deps,

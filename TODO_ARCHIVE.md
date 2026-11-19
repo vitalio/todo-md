@@ -1,3 +1,14 @@
+# ✅ [DONE] F46: Number execution chains with RPG progress stats and rank chains and standalone tasks by bugs, role ease, and total value — *2026-11-20, Numbered RPG progress chain headers and deterministic bug/role/value chain ranking*
+
+- Role: work
+- In `build_execution_chain_dag()` (`src/parser.py`), recursively traverse `- Depends on:` clauses of `DONE` prerequisites (across both local `TODO_ARCHIVE.md` and cross-project `<project>:<ID>` archives in `-w` workspace mode) while excluding `CANCELED` and `MISSING` tasks, recording the transitive `DONE` node set (`done_nodes`) for each active task and connected chain component.
+- Make connected-component traversal and DAG ordering in `build_execution_chain_dag()` and `plan_execution_chains()` (`src/parser.py`) strictly deterministic by sorting `undirected` neighbors and tie-breakers with a canonical task reference key rather than relying on Python `set` iteration order.
+- Compute non-decreasing chain value and RPG progress metrics for each chain in `plan_execution_chains()` (`src/parser.py`): `open_count`, `done_count` (unique transitive `DONE` tasks linked to the chain), `total_tasks = done_count + open_count`, `progress_pct = round(100 * done_count / total_tasks)`, bug metrics (`ready` `B*` count, `total_bugs = open_bugs + done_bugs`, minimum dependency distance to an open `B*` task), and role execution ease (`work` < `plan` < `design` < other, based on the ready step role and remaining open task roles).
+- Rank chains deterministically in `plan_execution_chains()` by: (1) bug priority (ready `B*` task, `total_bugs`, shortest distance to open `B*`), (2) role execution ease (`work` before `plan` before `design`), (3) highest active status (`WIP` -> `NEXT` -> `QUESTION` -> `NEW`), (4) non-decreasing chain value (`-total_tasks`) and completion progress (`-done_count`), and (5) canonical `ref`.
+- Sort `Standalone tasks:` (and `Chain finales:`) in `plan_execution_chains()` (`src/parser.py`) with bug tasks (`B*`, matched on task `id` in both local and `-w` `<project>:<ID>` modes) always at the top, then by role ease (`work` -> `plan` -> `design` -> other), then by status (`WIP` -> `NEXT` -> `QUESTION` -> `NEW` -> `HOLD`), then `order_idx` and canonical `ref`.
+- In `cmd_chain()` (`src/commands.py`), replace verbose duplicate `Chain: A -> B -> C` headers with numbered RPG progress headers `Chain <N> (<total> tasks, <pct>% | <done> done, <open> open):`.
+- Keep `src/header.py` (`--help`), `src/rules/todo_md.md`, `README.md`, and `tests/test_todo_md.py` in sync, rebuild `./todo_md` via `build.py` (and reinstall via `install.sh`), and bump `VERSION` for a MINOR release.
+
 # ✅ [DONE] B1: Filter todo_md next-id by --role and readiness and pass --role work in todo_md.bundle — *2026-11-20*
 
 - Role: work
