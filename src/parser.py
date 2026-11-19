@@ -494,13 +494,19 @@ def build_dependency_dag(
     }
 
 
-def _first_actionable_in_dag(dag: dict[str, object]) -> str | None:
+def _first_actionable_in_dag(
+    dag: dict[str, object],
+    role: str | None = None,
+) -> str | None:
     nodes: dict[tuple[Path, str], dict[str, object]] = dag["nodes"]  # type: ignore[assignment]
     prereqs: dict[tuple[Path, str], list[tuple[Path, str]]] = dag["prereqs"]  # type: ignore[assignment]
     topo_order: list[tuple[Path, str]] = dag["topo_order"]  # type: ignore[assignment]
+    wanted_role = role.strip().lower() if role is not None else None
     for u in topo_order:
         nd = nodes[u]
         if str(nd["status"]) not in ACTIVE_STATUS_ORDER:
+            continue
+        if wanted_role is not None and not _task_matches_role(nd, wanted_role):
             continue
         blockers = [p for p in prereqs[u] if str(nodes[p]["status"]) != "DONE"]
         if not blockers:

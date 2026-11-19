@@ -304,14 +304,36 @@ def main(argv: list[str] | None = None) -> int:
             explicit_dir=explicit_dir,
         )
     if args[0] in ("next-id", "--next-id"):
-        if len(args) > 2:
-            raise SystemExit(f"{prog}: usage: {prog} next-id [<ID>]")
-        if len(args) == 2:
-            if args[1].startswith("-"):
-                raise SystemExit(f"{prog}: unknown option for next-id: {args[1]}")
-            tdir, tid = resolve_project_task_ref(base_dir, args[1], explicit_dir=explicit_dir)
-            return cmd_next_id(base_dir, target_dir=tdir, task_id=tid, explicit_dir=explicit_dir)
-        return cmd_next_id(base_dir)
+        role_filter: str | None = None
+        pos: list[str] = []
+        i = 1
+        while i < len(args):
+            a = args[i]
+            if a == "--role":
+                if i + 1 >= len(args):
+                    raise SystemExit(f"{prog}: {a} requires a role argument")
+                role_filter = _validate_role_filter(prog, args[i + 1])
+                i += 2
+            elif a.startswith("--role="):
+                role_filter = _validate_role_filter(prog, a.split("=", 1)[1])
+                i += 1
+            elif a.startswith("-"):
+                raise SystemExit(f"{prog}: unknown option for next-id: {a}")
+            else:
+                pos.append(a)
+                i += 1
+        if len(pos) > 1:
+            raise SystemExit(f"{prog}: usage: {prog} next-id [<ID>] [--role ROLE]")
+        if len(pos) == 1:
+            tdir, tid = resolve_project_task_ref(base_dir, pos[0], explicit_dir=explicit_dir)
+            return cmd_next_id(
+                base_dir,
+                target_dir=tdir,
+                task_id=tid,
+                explicit_dir=explicit_dir,
+                role=role_filter,
+            )
+        return cmd_next_id(base_dir, explicit_dir=explicit_dir, role=role_filter)
     if args[0] in ("last-id", "--last-id"):
         if len(args) > 2:
             raise SystemExit(f"{prog}: usage: {prog} last-id [<STATUS|archive>]")
@@ -375,7 +397,7 @@ def main(argv: list[str] | None = None) -> int:
     if args[0] in ("next", "top", "--next", "--top"):
         pos, note = _parse_note_arg(args[1:])
         if args[0] == "--top" and not pos and note is None:
-            return cmd_next_id(base_dir)
+            return cmd_next_id(base_dir, explicit_dir=explicit_dir)
         reopen = "--reopen" in pos
         pos = [p for p in pos if p != "--reopen"]
         bad_flags = [p for p in pos if p.startswith("-")]

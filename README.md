@@ -68,7 +68,7 @@ Global options accepted before subcommands:
 | `todo_md ids` | Print highest task IDs in use and next free ID per letter prefix |
 | `todo_md queue <ID> [--all]` | Show topologically sorted execution queue for `<ID>` (use `--all` to include `DONE`) |
 | `todo_md chain [--by-role] [--role ROLE] [--ready] [--limit N] [--include-hold]` | Show ready chain finales (`[ready \| after: ...]`), connected dependency chains, and standalone tasks (or role-tiered queues with `--by-role`) with `[role]` badges ranked by unblock impact (`-w` for workspace; `--role` to filter by role; `--ready` for actionable tasks with next unblocked targets) |
-| `todo_md next-id [<ID>]` / `--top` | Print the top `WIP`/`NEXT` task ID, or first ready task ID in `<ID>`'s queue |
+| `todo_md next-id [<ID>] [--role ROLE]` / `--top` | Print the top ready `WIP`/`NEXT` task ID (filtered by optional `--role`), or first ready task ID in `<ID>`'s queue |
 | `todo_md files [<ID>] [opts]` | List existing repo file paths referenced in backticks in task `<ID>` (`--max-lines N`, `--max-total-lines N`, `--max-bytes N`, `--max-total-bytes N`) |
 | `todo_md check` | Validate task headings, status badges, unique IDs, dependencies, and reject stale completion date notes on active tasks across `TODO*.md` |
 | `todo_md init [TEXT] [--force]` | Create starter `TODO.md` (with optional project idea from `TEXT` or `stdin`) and `TODO_ARCHIVE.md` |

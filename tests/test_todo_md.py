@@ -174,7 +174,7 @@ class TestTodoMd(unittest.TestCase):
         self.assertNotIn("task=next", bundle_txt)
         self.assertIn("$ todo_md status {task:} WIP", bundle_txt)
         self.assertIn("todo_md next-id", bundle_txt)
-        self.assertIn("[if task=] var task=$(todo_md next-id)", bundle_txt)
+        self.assertIn("[if task=] var task=$(todo_md next-id --role work)", bundle_txt)
         self.assertIn("Emit your first run_block in this very first reply", bundle_txt)
         self.assertIn("propose the top task shown in the todo_md overview above", bundle_txt)
         self.assertIn("include $(todo_md files {task:} --max-lines 400 --max-total-lines 1200 --max-bytes 32768)", bundle_txt)
@@ -188,10 +188,10 @@ class TestTodoMd(unittest.TestCase):
         self.assertIn("--max-total-lines N", rh.stdout)
         self.assertIn("queue <ID> [--all]", rh.stdout)
         self.assertIn("chain [--by-role] [--role ROLE] [--ready] [--limit N] [--include-hold]", rh.stdout)
-        self.assertIn("next-id [<ID>]", rh.stdout)
+        self.assertIn("next-id [<ID>] [--role ROLE]", rh.stdout)
         self.assertIn("queue <ID> [--all]", rule_txt)
         self.assertIn("chain [--by-role] [--role <role>] [--ready] [--limit N] [--include-hold]", rule_txt)
-        self.assertIn("next-id [<ID>]", rule_txt)
+        self.assertIn("next-id [<ID>] [--role <role>]", rule_txt)
         self.assertIn("A -> B -> C", rule_txt)
         self.assertIn("do not introduce a separate `- Order:` field", rule_txt)
         self.assertIn("[if task=last] var task=$(todo_md last-id DONE)", bundle_txt)
@@ -405,6 +405,72 @@ class TestTodoMd(unittest.TestCase):
         self.assertEqual(r_pipe.returncode, 0)
         self.assertIn("# 🎯 [NEXT] F1: Next task", r_pipe.stdout)
         self.assertEqual(r_pipe.stderr, "")
+
+        # next-id filters by readiness (skips blocked WIP/NEXT) and --role / --role=
+        role_dir = self.tmp / "role_ready_nid"
+        role_dir.mkdir()
+        self._run([str(SCRIPT), "init"], cwd=str(role_dir), check=True)
+        # D1 is a ready NEXT design task (prefix D defaults to role=design)
+        self._run([str(SCRIPT), "add", "D", "Design spec", "--next"], cwd=str(role_dir), check=True)
+        # P1 is a ready NEXT plan task with explicit --role plan
+        self._run([str(SCRIPT), "add", "P", "Plan breakdown", "--next", "--role", "plan"], cwd=str(role_dir), check=True)
+        # F1 is a NEXT work task blocked by D1
+        self._run([str(SCRIPT), "add", "F", "Blocked work", "--next", "--depends", "D1"], cwd=str(role_dir), check=True)
+
+        # Unfiltered next-id picks top ready NEXT task (P1 was prepended after D1)
+        r_unfiltered = self._run([str(SCRIPT), "next-id"], cwd=str(role_dir), check=True)
+        self.assertEqual(r_unfiltered.stdout.strip(), "P1")
+        r_design = self._run([str(SCRIPT), "next-id", "--role", "design"], cwd=str(role_dir), check=True)
+        self.assertEqual(r_design.stdout.strip(), "D1")
+        r_plan = self._run([str(SCRIPT), "next-id", "--role=plan"], cwd=str(role_dir), check=True)
+        self.assertEqual(r_plan.stdout.strip(), "P1")
+        # Work task F1 is blocked by D1, so next-id --role work finds no ready work task
+        r_work_blocked = self._run([str(SCRIPT), "next-id", "--role", "work"], cwd=str(role_dir))
+        self.assertEqual(r_work_blocked.returncode, 1)
+        self.assertIn("no active WIP or NEXT task (role=work)", r_work_blocked.stderr)
+
+        # Even if blocked F1 is promoted to WIP, unfiltered next-id skips it and returns ready P1
+        self._run([str(SCRIPT), "status", "F1", "WIP"], cwd=str(role_dir), check=True)
+        self.assertEqual(self._run([str(SCRIPT), "next-id"], cwd=str(role_dir), check=True).stdout.strip(), "P1")
+        self.assertEqual(self._run([str(SCRIPT), "next-id", "--role", "work"], cwd=str(role_dir)).returncode, 1)
+
+        # Add ready NEXT work task B1 -> next-id --role work skips blocked WIP F1 and returns B1
+        self._run([str(SCRIPT), "add", "B", "Ready bugfix", "--next"], cwd=str(role_dir), check=True)
+        self.assertEqual(
+            self._run([str(SCRIPT), "next-id", "--role", "work"], cwd=str(role_dir), check=True).stdout.strip(),
+            "B1",
+        )
+        # With target <ID>, next-id <ID> --role filters actionable tasks in <ID>'s queue
+        self.assertEqual(
+            self._run([str(SCRIPT), "next-id", "F1", "--role", "design"], cwd=str(role_dir), check=True).stdout.strip(),
+            "D1",
+        )
+        self.assertEqual(
+            self._run([str(SCRIPT), "next-id", "F1", "--role=work"], cwd=str(role_dir)).returncode,
+            1,
+        )
+
+        # Once D1 is done, F1 is unblocked and becomes the top WIP work task
+        self._run([str(SCRIPT), "done", "D1", "-m", "designed"], cwd=str(role_dir), check=True)
+        self.assertEqual(
+            self._run([str(SCRIPT), "next-id", "--role", "work"], cwd=str(role_dir), check=True).stdout.strip(),
+            "F1",
+        )
+        self.assertEqual(
+            self._run([str(SCRIPT), "next-id", "F1", "--role=work"], cwd=str(role_dir), check=True).stdout.strip(),
+            "F1",
+        )
+
+        # Invalid next-id options rejected
+        for bad_args in (
+            ["next-id", "--role"],
+            ["next-id", "--role="],
+            ["next-id", "--unknown"],
+            ["next-id", "F1", "B1"],
+        ):
+            with self.subTest(bad_args=bad_args):
+                r_bad = self._run([str(SCRIPT), *bad_args], cwd=str(role_dir))
+                self.assertNotEqual(r_bad.returncode, 0)
 
     def test_last_last_id_and_list_options(self):
         self._run([str(SCRIPT), "init"], check=True)
@@ -1445,11 +1511,13 @@ class TestTodoMd(unittest.TestCase):
         self._run([str(SCRIPT), "-C", "proj_a", "check"], cwd=str(outside), env=env_ws, check=True)
         r_nid_sub = self._run([str(SCRIPT), "-C", "sub_proj", "next-id", "F1"], cwd=str(outside), env=env_ws, check=True)
         self.assertEqual(r_nid_sub.stdout.strip(), "proj_a:B1")
+        r_nid_blocked = self._run([str(SCRIPT), "-C", "sub_proj", "next-id"], cwd=str(outside), env=env_ws)
+        self.assertEqual(r_nid_blocked.returncode, 1)
+
+        # Complete and archive via -C, then verify sub_proj next-id unblocks, inspect archive and reopen
+        self._run([str(SCRIPT), "-C", "proj_a", "done", "B1", "-m", "fixed"], cwd=str(outside), env=env_ws, check=True)
         r_nid_top = self._run([str(SCRIPT), "-C", "sub_proj", "next-id"], cwd=str(outside), env=env_ws, check=True)
         self.assertEqual(r_nid_top.stdout.strip(), "F1")
-
-        # Complete and archive via -C, then inspect archive and reopen
-        self._run([str(SCRIPT), "-C", "proj_a", "done", "B1", "-m", "fixed"], cwd=str(outside), env=env_ws, check=True)
         r_arch = self._run([str(SCRIPT), "-C", "proj_a", "archive"], cwd=str(outside), env=env_ws, check=True)
         self.assertIn("B1: Bug from -C", r_arch.stdout)
         self._run([str(SCRIPT), "-C", "sub_proj", "cancel", "F1", "-m", "dropped"], cwd=str(outside), env=env_ws, check=True)

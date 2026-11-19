@@ -9,13 +9,6 @@
 - In `cmd_chain()` (`src/commands.py`), replace verbose duplicate `Chain: A -> B -> C` headers with numbered RPG progress headers `Chain <N> (<total> tasks, <pct>% | <done> done, <open> open):`.
 - Keep `src/header.py` (`--help`), `src/rules/todo_md.md`, `README.md`, and `tests/test_todo_md.py` in sync, rebuild `./todo_md` via `build.py` (and reinstall via `install.sh`), and bump `VERSION` for a MINOR release.
 
-# 🎯 [NEXT] B1: Filter todo_md next-id by --role and readiness and pass --role work in todo_md.bundle
-
-- Role: work
-- Update `resolve_top_task_id()` and `cmd_next_id()` (`src/commands.py`) and CLI parsing in `main()` (`src/cli.py`) to accept `--role <role>` (and `--role=<role>`) on `todo_md next-id`, and ensure `resolve_top_task_id()` skips tasks with unresolved `- Depends on:` blockers as well as tasks not matching `--role` when specified.
-- Update `src/bundles/todo_md.bundle` (`[if role=work]`) to invoke `var task=$(todo_md next-id --role work)` so `role=work` never auto-selects or transitions `design` or `plan` tasks (or blocked tasks) to `WIP`.
-- Keep `src/header.py` (`--help`), `src/rules/todo_md.md`, `README.md`, and `tests/test_todo_md.py` in sync, rebuild `./todo_md` via `build.py` (and reinstall via `install.sh`), and bump `VERSION` for a MINOR release.
-
 # 🎯 [NEXT] F44: Sync with git upstream (git pull --ff-only) before mutating backlog commands
 
 - Role: work

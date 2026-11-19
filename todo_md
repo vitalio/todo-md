@@ -21,7 +21,7 @@
   {prog} ids                                 Print highest task IDs in use and next available ID per prefix
   {prog} queue <ID> [--all]                  Show topologically sorted execution queue for <ID> (use --all to include DONE)
   {prog} chain [--by-role] [--role ROLE] [--ready] [--limit N] [--include-hold]  Show chain finales, dependency chains, role queues (--by-role), & ready tasks
-  {prog} next-id [<ID>] | --next-id | --top  Print top WIP/NEXT ID, or first ready ID in <ID>'s queue
+  {prog} next-id [<ID>] [--role ROLE] | --top  Print top ready WIP/NEXT ID, or first ready ID in <ID>'s queue
   {prog} files [<ID>] | --files [<ID>]       List existing repository file paths referenced in backticks in task <ID>
                                              Opts: --max-lines N, --max-total-lines N, --max-bytes N, --max-total-bytes N
   {prog} check                               Validate layout, headings, status badges, and unique IDs
@@ -73,7 +73,7 @@ import unicodedata
 from datetime import date
 from pathlib import Path
 
-VERSION = "0.23.0"
+VERSION = "0.24.0"
 REPO_MARKER = "todo_md-repo: vitalio/todo_md"
 DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/vitalio/todo_md/main/todo_md"
 FENCE = chr(96) * 3
@@ -639,13 +639,19 @@ def build_dependency_dag(
     }
 
 
-def _first_actionable_in_dag(dag: dict[str, object]) -> str | None:
+def _first_actionable_in_dag(
+    dag: dict[str, object],
+    role: str | None = None,
+) -> str | None:
     nodes: dict[tuple[Path, str], dict[str, object]] = dag["nodes"]  # type: ignore[assignment]
     prereqs: dict[tuple[Path, str], list[tuple[Path, str]]] = dag["prereqs"]  # type: ignore[assignment]
     topo_order: list[tuple[Path, str]] = dag["topo_order"]  # type: ignore[assignment]
+    wanted_role = role.strip().lower() if role is not None else None
     for u in topo_order:
         nd = nodes[u]
         if str(nd["status"]) not in ACTIVE_STATUS_ORDER:
+            continue
+        if wanted_role is not None and not _task_matches_role(nd, wanted_role):
             continue
         blockers = [p for p in prereqs[u] if str(nodes[p]["status"]) != "DONE"]
         if not blockers:
@@ -3414,15 +3420,25 @@ def cmd_append(base_dir: Path, argv: list[str], commit: bool = False, no_commit:
     return 1
 
 
-def resolve_top_task_id(base_dir: Path) -> str | None:
+def resolve_top_task_id(
+    base_dir: Path,
+    role: str | None = None,
+    explicit_dir: str | None = None,
+) -> str | None:
     todo_path = base_dir / "TODO.md"
     if not todo_path.is_file():
         return None
     active_tasks = parse_tasks_in_text(read_if_exists(todo_path), "TODO.md")
+    wanted_role = role.strip().lower() if role is not None else None
     for wanted in ("WIP", "NEXT"):
         for t in active_tasks:
-            if str(t["status"]) == wanted:
-                return str(t["id"]).upper()
+            if str(t["status"]) != wanted:
+                continue
+            if wanted_role is not None and not _task_matches_role(t, wanted_role):
+                continue
+            if _is_task_blocked(base_dir, t, explicit_dir=explicit_dir):
+                continue
+            return str(t["id"]).upper()
     return None
 
 
@@ -3495,11 +3511,15 @@ def cmd_next_id(
     target_dir: Path | None = None,
     task_id: str | None = None,
     explicit_dir: str | None = None,
+    role: str | None = None,
 ) -> int:
     if task_id is None:
-        tid = resolve_top_task_id(base_dir)
+        tid = resolve_top_task_id(base_dir, role=role, explicit_dir=explicit_dir)
         if not tid:
-            sys.stderr.write(f"{prog_name()}: no active WIP or NEXT task found in TODO.md under {base_dir}\n")
+            role_note = f" (role={role.strip()})" if role is not None else ""
+            sys.stderr.write(
+                f"{prog_name()}: no active WIP or NEXT task{role_note} found in TODO.md under {base_dir}\n"
+            )
             return 1
         sys.stdout.write(f"{tid}\n")
         return 0
@@ -3542,9 +3562,12 @@ def cmd_next_id(
             f"{prog_name()}: task {root_node['ref']} is blocked by {', '.join(bad_blockers)}\n"
         )
         return 1
-    next_act = _first_actionable_in_dag(dag)
+    next_act = _first_actionable_in_dag(dag, role=role)
     if not next_act:
-        sys.stderr.write(f"{prog_name()}: no unblocked actionable task found for {root_node['ref']}\n")
+        role_note = f" (role={role.strip()})" if role is not None else ""
+        sys.stderr.write(
+            f"{prog_name()}: no unblocked actionable task{role_note} found for {root_node['ref']}\n"
+        )
         return 1
     sys.stdout.write(f"{next_act}\n")
     return 0
@@ -4201,14 +4224,36 @@ def main(argv: list[str] | None = None) -> int:
             explicit_dir=explicit_dir,
         )
     if args[0] in ("next-id", "--next-id"):
-        if len(args) > 2:
-            raise SystemExit(f"{prog}: usage: {prog} next-id [<ID>]")
-        if len(args) == 2:
-            if args[1].startswith("-"):
-                raise SystemExit(f"{prog}: unknown option for next-id: {args[1]}")
-            tdir, tid = resolve_project_task_ref(base_dir, args[1], explicit_dir=explicit_dir)
-            return cmd_next_id(base_dir, target_dir=tdir, task_id=tid, explicit_dir=explicit_dir)
-        return cmd_next_id(base_dir)
+        role_filter: str | None = None
+        pos: list[str] = []
+        i = 1
+        while i < len(args):
+            a = args[i]
+            if a == "--role":
+                if i + 1 >= len(args):
+                    raise SystemExit(f"{prog}: {a} requires a role argument")
+                role_filter = _validate_role_filter(prog, args[i + 1])
+                i += 2
+            elif a.startswith("--role="):
+                role_filter = _validate_role_filter(prog, a.split("=", 1)[1])
+                i += 1
+            elif a.startswith("-"):
+                raise SystemExit(f"{prog}: unknown option for next-id: {a}")
+            else:
+                pos.append(a)
+                i += 1
+        if len(pos) > 1:
+            raise SystemExit(f"{prog}: usage: {prog} next-id [<ID>] [--role ROLE]")
+        if len(pos) == 1:
+            tdir, tid = resolve_project_task_ref(base_dir, pos[0], explicit_dir=explicit_dir)
+            return cmd_next_id(
+                base_dir,
+                target_dir=tdir,
+                task_id=tid,
+                explicit_dir=explicit_dir,
+                role=role_filter,
+            )
+        return cmd_next_id(base_dir, explicit_dir=explicit_dir, role=role_filter)
     if args[0] in ("last-id", "--last-id"):
         if len(args) > 2:
             raise SystemExit(f"{prog}: usage: {prog} last-id [<STATUS|archive>]")
@@ -4272,7 +4317,7 @@ def main(argv: list[str] | None = None) -> int:
     if args[0] in ("next", "top", "--next", "--top"):
         pos, note = _parse_note_arg(args[1:])
         if args[0] == "--top" and not pos and note is None:
-            return cmd_next_id(base_dir)
+            return cmd_next_id(base_dir, explicit_dir=explicit_dir)
         reopen = "--reopen" in pos
         pos = [p for p in pos if p != "--reopen"]
         bad_flags = [p for p in pos if p.startswith("-")]

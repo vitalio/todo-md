@@ -55,9 +55,10 @@
     blocked by `HOLD` into `Held branches:` unless `--include-hold` is passed;
     reports diagnostics on cycles, syntax errors, or `MISSING` / `CANCELED`
     blockers),
-    `{cmd:todo_md} next-id [<ID>]` (`--top`, top `WIP`/`NEXT` ID, or with
-    `<ID>`/`<project>:<ID>` prints the first unblocked actionable ID in `<ID>`'s
-    queue, exiting non-zero on cycles, missing/canceled blockers, or closed targets),
+    `{cmd:todo_md} next-id [<ID>] [--role <role>]` (`--top`, top ready `WIP`/`NEXT`
+    ID matching optional `--role`, or with `<ID>`/`<project>:<ID>` prints the
+    first unblocked actionable ID in `<ID>`'s queue, exiting non-zero on cycles,
+    missing/canceled blockers, or closed targets),
     `{cmd:todo_md} files [<ID>] [--max-lines N] [--max-total-lines N] [--max-bytes N] [--max-total-bytes N]`
     (existing backtick-referenced repo files within optional size budgets;
     reference target file paths and key symbol names in backticks in task
