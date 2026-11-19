@@ -1,3 +1,14 @@
+# 🎯 [NEXT] F46: Number execution chains with RPG progress stats and rank chains and standalone tasks by bugs, role ease, and total value
+
+- Role: work
+- In `build_execution_chain_dag()` (`src/parser.py`), recursively traverse `- Depends on:` clauses of `DONE` prerequisites (across both local `TODO_ARCHIVE.md` and cross-project `<project>:<ID>` archives in `-w` workspace mode) while excluding `CANCELED` and `MISSING` tasks, recording the transitive `DONE` node set (`done_nodes`) for each active task and connected chain component.
+- Make connected-component traversal and DAG ordering in `build_execution_chain_dag()` and `plan_execution_chains()` (`src/parser.py`) strictly deterministic by sorting `undirected` neighbors and tie-breakers with a canonical task reference key rather than relying on Python `set` iteration order.
+- Compute non-decreasing chain value and RPG progress metrics for each chain in `plan_execution_chains()` (`src/parser.py`): `open_count`, `done_count` (unique transitive `DONE` tasks linked to the chain), `total_tasks = done_count + open_count`, `progress_pct = round(100 * done_count / total_tasks)`, bug metrics (`ready` `B*` count, `total_bugs = open_bugs + done_bugs`, minimum dependency distance to an open `B*` task), and role execution ease (`work` < `plan` < `design` < other, based on the ready step role and remaining open task roles).
+- Rank chains deterministically in `plan_execution_chains()` by: (1) bug priority (ready `B*` task, `total_bugs`, shortest distance to open `B*`), (2) role execution ease (`work` before `plan` before `design`), (3) highest active status (`WIP` -> `NEXT` -> `QUESTION` -> `NEW`), (4) non-decreasing chain value (`-total_tasks`) and completion progress (`-done_count`), and (5) canonical `ref`.
+- Sort `Standalone tasks:` (and `Chain finales:`) in `plan_execution_chains()` (`src/parser.py`) with bug tasks (`B*`, matched on task `id` in both local and `-w` `<project>:<ID>` modes) always at the top, then by role ease (`work` -> `plan` -> `design` -> other), then by status (`WIP` -> `NEXT` -> `QUESTION` -> `NEW` -> `HOLD`), then `order_idx` and canonical `ref`.
+- In `cmd_chain()` (`src/commands.py`), replace verbose duplicate `Chain: A -> B -> C` headers with numbered RPG progress headers `Chain <N> (<total> tasks, <pct>% | <done> done, <open> open):`.
+- Keep `src/header.py` (`--help`), `src/rules/todo_md.md`, `README.md`, and `tests/test_todo_md.py` in sync, rebuild `./todo_md` via `build.py` (and reinstall via `install.sh`), and bump `VERSION` for a MINOR release.
+
 # 🎯 [NEXT] B1: Filter todo_md next-id by --role and readiness and pass --role work in todo_md.bundle
 
 - Role: work
@@ -14,9 +25,10 @@
 
 # 🎯 [NEXT] F38: Highlight a target task ID in todo_md chain and todo_md list output — *Return to NEXT*
 
+- Role: work
 - Update `main()` in `src/cli.py` to accept an optional task reference `<ID>` (or `<project>:<ID>`, resolved via `resolve_project_task_ref()`) on `chain` (`todo_md chain [<ID>] ...`) and `list` (both `todo_md list <ID> ...` when the positional argument matches a task ID and `todo_md list <filter> <ID> ...`).
 - Add a TTY-aware ANSI highlight helper in `src/parser.py` / `src/commands.py` (active when `sys.stdout.isatty()` and `NO_COLOR` is unset, or `FORCE_COLOR` is set; plain text in pipes), ensuring `_display_width()` / `_wrap_table_row()` alignment is unaffected by ANSI escape sequences.
-- In `cmd_chain()` (`src/commands.py`), highlight the target task brightly in bold across `Chain: ...` headers, task rows (`chains`, `standalone`, `--ready`), and `Held branches:` paths.
+- In `cmd_chain()` (`src/commands.py`), highlight the target task brightly in bold across task rows (`finales`, `chains`, `standalone`, `--ready`, `--by-role`) and `Held branches:` paths (and highlight the enclosing `Chain <N> (...):` header when the target task belongs to that chain).
 - In `cmd_list()` and `cmd_workspace_list()` (`src/parser.py`), highlight matching task rows brightly in bold in both table mode and `--tree` view.
 - Keep `src/header.py` (`--help`), `src/rules/todo_md.md`, `README.md`, and `tests/test_todo_md.py` in sync, rebuild `./todo_md` via `build.py`, and bump `VERSION` for a MINOR release.
 
@@ -68,16 +80,8 @@ Allow exporting parsed tasks as JSON for scripting.
 # ⚪ [NEW] F37: Document Quest-Log chain, side-quest, and priority concepts in AGENTS.md and README.md
 
 - Role: work
-- Expand `## Product Philosophy & Quest-Log UX` in `AGENTS.md` to define `Chain finales` (ready finale quests whose prerequisite chain is already `DONE`, surfaced first for maximum completion payoff), `chain` (questlines / guild storylines), `standalone` (side quests), `Held branches` (locked branches waiting on `HOLD` conditions), and chain ranking rules (prioritized by status `WIP`/`NEXT`, chain-finale completion payoff, and `[unblocks N]` impact in `plan_execution_chains()`, not by chain length).
+- Expand `## Product Philosophy & Quest-Log UX` in `AGENTS.md` to define `Chain finales` (ready finale quests whose prerequisite chain is already `DONE`, surfaced first for maximum completion payoff), numbered `Chain <N>` questlines with RPG progress stats (`<total> tasks, <pct>% | <done> done, <open> open`), `Standalone tasks` (side quests ordered by bugs `B*` first, role execution ease `work` -> `plan` -> `design`, then status), `Held branches` (locked branches waiting on `HOLD` conditions), and non-decreasing chain value ranking (bugs, role ease, status, and total open + `DONE` tasks in `plan_execution_chains()`).
 - Add a concise Quest-Log summary in `README.md` explaining `chain`, `queue`, and `done` progression for users (keeping `src/rules/todo_md.md` lean without narrative metaphors).
-
-# ⚪ [NEW] D4: Design named execution chains, milestone sub-grouping, and questline clarity in todo_md chain
-
-- Role: design
-- Explore adding human-readable names to `todo_md chain` headers (both automatic derivation from a chain's terminal goal task title when unique and an optional explicit `- Chain: <name>` / `--chain` metadata field as override) instead of printing only long `A -> B -> C` ID lists.
-- Evaluate splitting or labeling large merged weakly-connected components (such as multi-wave orchestrator DAGs) by milestone/goal sub-chains (`wave` / `queue`-style subtrees) and distinguishing quick `work` side-quests from `design` tasks in `Standalone tasks:`.
-- Define optional filtering by chain name (`todo_md chain "<name>"`) and coordinate questline naming conventions with `AGENTS.md` Quest-Log UX (`F37`) and orchestrator wave summaries.
-- Target files for downstream implementation: `src/parser.py`, `src/commands.py`, `src/cli.py`, `src/header.py`, `src/rules/todo_md.md`, `README.md`, `tests/test_todo_md.py`.
 
 # ⚪ [NEW] F42: Rename project to todo-markdown and CLI utility to tmd
 

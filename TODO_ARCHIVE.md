@@ -1,3 +1,11 @@
+# ❌ [CANCELED] D4: Design named execution chains, milestone sub-grouping, and questline clarity in todo_md chain — *Superseded by F46 numbered RPG progress headers and invariant chain value ranking*
+
+- Role: design
+- Explore adding human-readable names to `todo_md chain` headers (both automatic derivation from a chain's terminal goal task title when unique and an optional explicit `- Chain: <name>` / `--chain` metadata field as override) instead of printing only long `A -> B -> C` ID lists.
+- Evaluate splitting or labeling large merged weakly-connected components (such as multi-wave orchestrator DAGs) by milestone/goal sub-chains (`wave` / `queue`-style subtrees) and distinguishing quick `work` side-quests from `design` tasks in `Standalone tasks:`.
+- Define optional filtering by chain name (`todo_md chain "<name>"`) and coordinate questline naming conventions with `AGENTS.md` Quest-Log UX (`F37`) and orchestrator wave summaries.
+- Target files for downstream implementation: `src/parser.py`, `src/commands.py`, `src/cli.py`, `src/header.py`, `src/rules/todo_md.md`, `README.md`, `tests/test_todo_md.py`.
+
 # ✅ [DONE] F45: Show chain finales with all dependencies resolved first in todo_md chain — *2026-11-20, Surface chain finales first with [ready | after: ...] in todo_md chain*
 
 - Role: work
