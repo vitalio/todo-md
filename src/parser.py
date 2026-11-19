@@ -1,5 +1,8 @@
 def is_todo_project(directory: Path) -> bool:
-    return (directory / "TODO.md").is_file() and (directory / "TODO_ARCHIVE.md").is_file()
+    try:
+        return (directory / "TODO.md").is_file() and (directory / "TODO_ARCHIVE.md").is_file()
+    except OSError:
+        return False
 
 
 def resolve_target_dir(explicit: str | None = None) -> Path:
@@ -1839,6 +1842,8 @@ def build_execution_chain_dag(
     nodes: dict[tuple[Path, str], dict[str, object]] = {}
     prereqs: dict[tuple[Path, str], list[tuple[Path, str]]] = {}
     prereq_sets: dict[tuple[Path, str], set[tuple[Path, str]]] = {}
+    done_prereqs: dict[tuple[Path, str], list[str]] = {}
+    done_prereq_sets: dict[tuple[Path, str], set[str]] = {}
     order_idx: dict[tuple[Path, str], int] = {}
     syntax_errors: list[str] = []
 
@@ -1846,6 +1851,9 @@ def build_execution_chain_dag(
         if k not in prereqs:
             prereqs[k] = []
             prereq_sets[k] = set()
+        if k not in done_prereqs:
+            done_prereqs[k] = []
+            done_prereq_sets[k] = set()
 
     def _add_prereq(node: tuple[Path, str], dep: tuple[Path, str]) -> None:
         _ensure_node_slot(node)
@@ -1853,6 +1861,13 @@ def build_execution_chain_dag(
         if dep not in prereq_sets[node]:
             prereq_sets[node].add(dep)
             prereqs[node].append(dep)
+
+    def _add_done_prereq(node: tuple[Path, str], dep: tuple[Path, str]) -> None:
+        _ensure_node_slot(node)
+        dep_ref = _format_ref(dep)
+        if dep_ref not in done_prereq_sets[node]:
+            done_prereq_sets[node].add(dep_ref)
+            done_prereqs[node].append(dep_ref)
 
     def _is_done(node_key: tuple[Path, str]) -> bool:
         tdict = _task_map(node_key[0]).get(node_key[1])
@@ -1897,12 +1912,14 @@ def build_execution_chain_dag(
             for i, stage_keys in enumerate(resolved_stages):
                 for k in stage_keys:
                     if _is_done(k):
+                        _add_done_prereq(node_key, k)
                         continue
                     _add_prereq(node_key, k)
                     to_visit.append(k)
                     if i > 0:
                         for prev_k in resolved_stages[i - 1]:
                             if _is_done(prev_k):
+                                _add_done_prereq(k, prev_k)
                                 continue
                             _add_prereq(k, prev_k)
         for k in to_visit:
@@ -1971,6 +1988,7 @@ def build_execution_chain_dag(
     return {
         "nodes": nodes,
         "prereqs": prereqs,
+        "done_prereqs": done_prereqs,
         "dependents": dependents,
         "unblocks": unblocks,
         "order_idx": order_idx,
@@ -2005,12 +2023,27 @@ def compute_unblock_counts(
     return unblocks
 
 
+def _is_ready_in_dag(
+    nodes: dict[tuple[Path, str], dict[str, object]],
+    prereqs: dict[tuple[Path, str], list[tuple[Path, str]]],
+    u: tuple[Path, str],
+    include_hold: bool = False,
+) -> bool:
+    st = str(nodes[u]["status"])
+    if st not in ACTIVE_STATUS_ORDER:
+        return False
+    if not include_hold and st == "HOLD":
+        return False
+    return not any(str(nodes[p]["status"]) != "DONE" for p in prereqs.get(u, []))
+
+
 def _prepare_active_plan(
     dag: dict[str, object],
     include_hold: bool = False,
 ) -> dict[str, object]:
     nodes: dict[tuple[Path, str], dict[str, object]] = dag["nodes"]  # type: ignore[assignment]
     prereqs: dict[tuple[Path, str], list[tuple[Path, str]]] = dag["prereqs"]  # type: ignore[assignment]
+    done_prereqs: dict[tuple[Path, str], list[str]] = dag.get("done_prereqs", {})  # type: ignore[assignment]
     dependents: dict[tuple[Path, str], list[tuple[Path, str]]] = dag["dependents"]  # type: ignore[assignment]
     topo_order: list[tuple[Path, str]] = dag["topo_order"]  # type: ignore[assignment]
     order_idx: dict[tuple[Path, str], int] = dag.get("order_idx", {})  # type: ignore[assignment]
@@ -2034,14 +2067,22 @@ def _prepare_active_plan(
         excluded_hold = held_nodes
 
     active_unblocks = compute_unblock_counts(nodes, dependents, allowed=active_set)
+    finale_set: set[tuple[Path, str]] = {
+        u
+        for u in active_set
+        if bool(done_prereqs.get(u))
+        and _is_ready_in_dag(nodes, prereqs, u, include_hold=include_hold)
+        and active_unblocks.get(u, 0) == 0
+    }
 
     def _node_rank(
         u: tuple[Path, str],
         ready_step: int = 0,
-    ) -> tuple[int, int, int, int, str, tuple[Path, str]]:
+    ) -> tuple[int, int, int, int, int, str, tuple[Path, str]]:
         st = str(nodes[u]["status"])
         prio = ACTIVE_STATUS_ORDER.get(st, 99)
-        return (prio, -active_unblocks.get(u, 0), -ready_step, order_idx.get(u, 0), str(nodes[u]["ref"]), u)
+        is_fin = 0 if u in finale_set else 1
+        return (prio, is_fin, -active_unblocks.get(u, 0), -ready_step, order_idx.get(u, 0), str(nodes[u]["ref"]), u)
 
     in_deg = {u: sum(1 for p in prereqs.get(u, []) if p in active_set) for u in active_set}
     avail = [_node_rank(u, 0) for u in active_set if in_deg[u] == 0]
@@ -2049,7 +2090,7 @@ def _prepare_active_plan(
     ranked_active: list[tuple[Path, str]] = []
     step_num = 0
     while avail:
-        _, _, _, _, _, u = heapq.heappop(avail)
+        *_, u = heapq.heappop(avail)
         ranked_active.append(u)
         step_num += 1
         for v in dependents.get(u, []):
@@ -2068,21 +2109,10 @@ def _prepare_active_plan(
         "ranked_active": ranked_active,
         "active_unblocks": active_unblocks,
         "excluded_hold": excluded_hold,
+        "finale_set": finale_set,
         "node_rank": _node_rank,
     }
 
-def _is_ready_in_dag(
-    nodes: dict[tuple[Path, str], dict[str, object]],
-    prereqs: dict[tuple[Path, str], list[tuple[Path, str]]],
-    u: tuple[Path, str],
-    include_hold: bool = False,
-) -> bool:
-    st = str(nodes[u]["status"])
-    if st not in ACTIVE_STATUS_ORDER:
-        return False
-    if not include_hold and st == "HOLD":
-        return False
-    return not any(str(nodes[p]["status"]) != "DONE" for p in prereqs.get(u, []))
 
 def plan_execution_chains(
     dag: dict[str, object],
@@ -2097,6 +2127,7 @@ def plan_execution_chains(
     ranked_active: list[tuple[Path, str]] = prep["ranked_active"]  # type: ignore[assignment]
     active_unblocks: dict[tuple[Path, str], int] = prep["active_unblocks"]  # type: ignore[assignment]
     excluded_hold: set[tuple[Path, str]] = prep["excluded_hold"]  # type: ignore[assignment]
+    finale_set: set[tuple[Path, str]] = prep["finale_set"]  # type: ignore[assignment]
     _node_rank = prep["node_rank"]  # type: ignore[assignment]
 
     if ready_only:
@@ -2112,6 +2143,8 @@ def plan_execution_chains(
             "active_nodes": ranked_active,
             "active_unblocks": active_unblocks,
             "excluded_hold": excluded_hold,
+            "finale_set": finale_set,
+            "finales": [],
             "chains": [],
             "standalone": [],
             "ready_tasks": ready_nodes,
@@ -2126,6 +2159,7 @@ def plan_execution_chains(
 
     rank_pos = {u: idx for idx, u in enumerate(ranked_active)}
     visited_comp: set[tuple[Path, str]] = set()
+    finales: list[tuple[Path, str]] = []
     chains: list[list[tuple[Path, str]]] = []
     standalone: list[tuple[Path, str]] = []
     for u in ranked_active:
@@ -2144,14 +2178,19 @@ def plan_execution_chains(
         comp.sort(key=lambda k: rank_pos[k])
         if len(comp) >= 2:
             chains.append(comp)
+        elif comp[0] in finale_set:
+            finales.append(comp[0])
         else:
             standalone.append(comp[0])
 
+    finales.sort(key=_node_rank)
     chains.sort(key=lambda comp: min(_node_rank(k) for k in comp))
     standalone.sort(key=_node_rank)
 
     if limit is not None:
         rem = limit
+        limited_finales = finales[:rem] if rem > 0 else []
+        rem -= len(limited_finales)
         limited_chains: list[list[tuple[Path, str]]] = []
         for comp in chains:
             if rem <= 0:
@@ -2160,6 +2199,7 @@ def plan_execution_chains(
             limited_chains.append(take)
             rem -= len(take)
         limited_standalone = standalone[:rem] if rem > 0 else []
+        finales = limited_finales
         chains = limited_chains
         standalone = limited_standalone
 
@@ -2167,6 +2207,8 @@ def plan_execution_chains(
         "active_nodes": ranked_active,
         "active_unblocks": active_unblocks,
         "excluded_hold": excluded_hold,
+        "finale_set": finale_set,
+        "finales": finales,
         "chains": chains,
         "standalone": standalone,
         "ready_tasks": [],
@@ -2185,6 +2227,7 @@ def plan_execution_chains_by_role(
     ranked_active: list[tuple[Path, str]] = prep["ranked_active"]  # type: ignore[assignment]
     active_unblocks: dict[tuple[Path, str], int] = prep["active_unblocks"]  # type: ignore[assignment]
     excluded_hold: set[tuple[Path, str]] = prep["excluded_hold"]  # type: ignore[assignment]
+    finale_set: set[tuple[Path, str]] = prep["finale_set"]  # type: ignore[assignment]
 
     trans_cache: dict[tuple[Path, str], set[tuple[Path, str]]] = {}
 
@@ -2266,6 +2309,7 @@ def plan_execution_chains_by_role(
         "active_nodes": ranked_active,
         "active_unblocks": active_unblocks,
         "excluded_hold": excluded_hold,
+        "finale_set": finale_set,
         "queues": queues,
     }
 

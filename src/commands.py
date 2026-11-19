@@ -1098,6 +1098,7 @@ def cmd_chain(
 
     nodes: dict[tuple[Path, str], dict[str, object]] = dag["nodes"]  # type: ignore[assignment]
     prereqs: dict[tuple[Path, str], list[tuple[Path, str]]] = dag["prereqs"]  # type: ignore[assignment]
+    done_prereqs: dict[tuple[Path, str], list[str]] = dag.get("done_prereqs", {})  # type: ignore[assignment]
     dependents: dict[tuple[Path, str], list[tuple[Path, str]]] = dag["dependents"]  # type: ignore[assignment]
     topo_order: list[tuple[Path, str]] = dag["topo_order"]  # type: ignore[assignment]
 
@@ -1124,6 +1125,7 @@ def cmd_chain(
     active_nodes: list[tuple[Path, str]] = plan["active_nodes"]  # type: ignore[assignment]
     active_unblocks: dict[tuple[Path, str], int] = plan["active_unblocks"]  # type: ignore[assignment]
     excluded_hold: set[tuple[Path, str]] = plan["excluded_hold"]  # type: ignore[assignment]
+    finale_set: set[tuple[Path, str]] = plan.get("finale_set", set())  # type: ignore[assignment]
 
     active_set = set(active_nodes)
     had_blocker_error = False
@@ -1170,6 +1172,12 @@ def cmd_chain(
                 status_tag = f"[blocked by: {', '.join(blockers)}]" + (
                     f" [unblocks {impact}]" if impact > 0 else ""
                 )
+            elif u in finale_set:
+                done_refs = done_prereqs.get(u, [])
+                shown_done = list(done_refs[:3])
+                if len(done_refs) > 3:
+                    shown_done.append("...")
+                status_tag = f"[ready | after: {', '.join(shown_done)}]"
             elif show_downstream and impact > 0:
                 next_nodes = sorted(
                     [v for v in dependents.get(u, []) if v in active_set],
@@ -1235,14 +1243,18 @@ def cmd_chain(
         else:
             sys.stdout.write("Ready tasks: (none)\n")
     else:
+        finales: list[tuple[Path, str]] = plan.get("finales", [])  # type: ignore[assignment]
         chains: list[list[tuple[Path, str]]] = plan["chains"]  # type: ignore[assignment]
         standalone: list[tuple[Path, str]] = plan["standalone"]  # type: ignore[assignment]
         if wanted_role is not None:
+            finales = [u for u in finales if _matches_role(u)]
             chains = [[u for u in comp if _matches_role(u)] for comp in chains]
             chains = [comp for comp in chains if comp]
             standalone = [u for u in standalone if _matches_role(u)]
             if limit is not None:
                 rem = limit
+                finales = finales[:rem] if rem > 0 else []
+                rem -= len(finales)
                 limited_chains: list[list[tuple[Path, str]]] = []
                 for comp in chains:
                     if rem <= 0:
@@ -1253,9 +1265,15 @@ def cmd_chain(
                 standalone = standalone[:rem] if rem > 0 else []
                 chains = limited_chains
         matching_held = [u for u in excluded_hold if _matches_role(u)]
-        if chains or standalone:
+        if finales or chains or standalone:
             row_idx = 1
             wrote_section = False
+            if finales:
+                sys.stdout.write("Chain finales:\n")
+                for u in finales:
+                    sys.stdout.write(_format_row(row_idx, u))
+                    row_idx += 1
+                wrote_section = True
             for comp in chains:
                 if wrote_section:
                     sys.stdout.write("\n")

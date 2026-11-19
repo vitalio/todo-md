@@ -1,3 +1,11 @@
+# ✅ [DONE] F45: Show chain finales with all dependencies resolved first in todo_md chain — *2026-11-20, Surface chain finales first with [ready | after: ...] in todo_md chain*
+
+- Role: work
+- Track resolved (`DONE`) prerequisites per active node (`done_prereqs`) in `build_execution_chain_dag()` (`src/parser.py`) when traversing `- Depends on:` clauses instead of discarding them without trace.
+- In `_prepare_active_plan()` and `plan_execution_chains()` (`src/parser.py`), classify single-node active components (`len(comp) == 1`) that have resolved `DONE` prerequisites and no open blockers into a dedicated `finales` list (separate from `standalone` tasks that never had dependencies), and rank ready chain finales first within their status tier in `_node_rank()` across default `chain`, `--ready`, and `--by-role` modes.
+- In `cmd_chain()` (`src/commands.py`), render `Chain finales:` as the very first section (before `Chain: ...` and `Standalone tasks:`), format their status tag as `[ready | after: <ref>, ...]` (showing up to 3 resolved prerequisite refs with `...` truncation) across `chain`, `--ready`, and `--by-role`, and apply `--role` and `--limit` filters consistently starting from `Chain finales:`.
+- Keep `src/header.py` (`--help`), `src/rules/todo_md.md`, `README.md`, and `tests/test_todo_md.py` in sync, rebuild `./todo_md` via `build.py` (and reinstall via `install.sh`), and bump `VERSION` for a MINOR release.
+
 # ✅ [DONE] F36: Remove bundle vitalio/run_block from .agents_bundle — *2026-11-19*
 
 - Remove `bundle vitalio/run_block` from `.agents_bundle` once `run_block` embeds its own block execution rules.

@@ -2355,7 +2355,9 @@ class TestTodoMd(unittest.TestCase):
         self.assertIn("Queue 4 (deferred work):", out)
         self.assertIn("Held branches:", out)
         self.assertIn("D4 (HOLD) -> F9 (NEW)", out)
-        self.assertNotIn("D1", out)
+        self.assertNotIn("Done design prereq", out)
+        self.assertNotIn("[blocked by: D1]", out)
+        self.assertIn("[ready | after: D1]", out)
 
         # Order between queues
         self.assertLess(out.index("Queue 1 (work):"), out.index("Queue 2 (plan):"))
@@ -2554,6 +2556,142 @@ class TestTodoMd(unittest.TestCase):
         self.assertIn("[ready | unblocks 5 -> proj_a:F3, proj_a:F2, proj_a:F1, ...]", ws_rows["1."])
         self.assertIn("proj_a:B1", ws_rows["2."])
         self.assertIn("[ready | unblocks 1 -> proj_b:F1]", ws_rows["2."])
+
+    def test_chain_finales_section_ranking_and_after_tags(self):
+        ws = self.tmp / "ws_finales"
+        proj_a = ws / "proj_a"
+        proj_b = ws / "proj_b"
+        proj_a.mkdir(parents=True)
+        proj_b.mkdir(parents=True)
+        self._run([str(SCRIPT), "init"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "init"], cwd=str(proj_b), check=True)
+
+        # Complete 4 prerequisites in proj_a: D1, F1, F2, F3
+        self._run([str(SCRIPT), "add", "D", "Design base"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Step 1"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Step 2"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Step 3"], cwd=str(proj_a), check=True)
+        for tid in ("D1", "F1", "F2", "F3"):
+            self._run([str(SCRIPT), "done", tid, "-m", "done"], cwd=str(proj_a), check=True)
+
+        # Active multi-node chain in NEXT tier: F4 (NEXT, unblocks 1) -> F5 (NEW)
+        self._run([str(SCRIPT), "add", "F", "Chain root", "--next"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Chain leaf", "--depends", "F4"], cwd=str(proj_a), check=True)
+
+        # Standalone task in NEXT tier (no deps ever): B1
+        self._run([str(SCRIPT), "add", "B", "Standalone next", "--next"], cwd=str(proj_a), check=True)
+
+        # Chain finale in NEXT tier with >3 DONE prerequisites: F6 (depends on D1, F1 -> F2, F3)
+        self._run(
+            [str(SCRIPT), "add", "F", "Finale next", "--next", "--depends", "D1, F1 -> F2, F3"],
+            cwd=str(proj_a),
+            check=True,
+        )
+
+        # Chain finale in NEW tier (plan role): F7 (depends on D1)
+        self._run(
+            [str(SCRIPT), "add", "F", "Finale plan", "--role", "plan", "--depends", "D1"],
+            cwd=str(proj_a),
+            check=True,
+        )
+
+        # Active chain in NEW tier (work): F8 (unblocks 1) -> F9
+        self._run([str(SCRIPT), "add", "F", "New chain root"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "New chain leaf", "--depends", "F8"], cwd=str(proj_a), check=True)
+
+        # Cross-project finale in proj_b depending on proj_a:F3
+        self._run(
+            [str(SCRIPT), "add", "F", "Cross finale", "--depends", "proj_a:F3"],
+            cwd=str(proj_b),
+            check=True,
+        )
+
+        # 1. Default chain: Chain finales: is the very first section before Chain: and Standalone tasks:
+        r_chain = self._run(
+            [str(SCRIPT), "chain"],
+            cwd=str(proj_a),
+            env={**os.environ, "COLUMNS": "160"},
+            check=True,
+        )
+        out = r_chain.stdout
+        self.assertIn("Chain finales:", out)
+        self.assertIn("Chain: F4 -> F5", out)
+        self.assertIn("Chain: F8 -> F9", out)
+        self.assertIn("Standalone tasks:", out)
+        self.assertLess(out.index("Chain finales:"), out.index("Chain: F4 -> F5"))
+        self.assertLess(out.index("Chain: F4 -> F5"), out.index("Standalone tasks:"))
+
+        fin_sec = out[out.index("Chain finales:"):out.index("Chain: F4 -> F5")]
+        self.assertIn("F6", fin_sec)
+        self.assertIn("F7", fin_sec)
+        self.assertLess(fin_sec.index("F6"), fin_sec.index("F7"))
+        self.assertIn("[ready | after: D1, F1, F2, ...]", fin_sec)
+        self.assertIn("[ready | after: D1]", fin_sec)
+        self.assertNotIn("B1", fin_sec)
+
+        # 2. --ready ranks chain finales first within their status tier (F6 before F4 and B1; F7 before F8)
+        r_ready = self._run(
+            [str(SCRIPT), "chain", "--ready"],
+            cwd=str(proj_a),
+            env={**os.environ, "COLUMNS": "160"},
+            check=True,
+        )
+        ready_rows = {k: v for k, v in self._table_rows(r_ready.stdout).items() if k.endswith(".")}
+        self.assertEqual(sorted(ready_rows), ["1.", "2.", "3.", "4.", "5."], msg=r_ready.stdout)
+        self.assertIn("F6", ready_rows["1."])
+        self.assertIn("[ready | after: D1, F1, F2, ...]", ready_rows["1."])
+        self.assertIn("F4", ready_rows["2."])
+        self.assertIn("[ready | unblocks 1 -> F5]", ready_rows["2."])
+        self.assertIn("B1", ready_rows["3."])
+        self.assertIn("F7", ready_rows["4."])
+        self.assertIn("[ready | after: D1]", ready_rows["4."])
+        self.assertIn("F8", ready_rows["5."])
+        self.assertIn("[ready | unblocks 1 -> F9]", ready_rows["5."])
+
+        # 3. --by-role ranks chain finales first within their status tier in each role queue
+        r_by_role = self._run(
+            [str(SCRIPT), "chain", "--by-role"],
+            cwd=str(proj_a),
+            env={**os.environ, "COLUMNS": "160"},
+            check=True,
+        )
+        br_rows = {k: v for k, v in self._table_rows(r_by_role.stdout).items() if k.endswith(".")}
+        self.assertIn("F6", br_rows["1."])
+        self.assertIn("[ready | after: D1, F1, F2, ...]", br_rows["1."])
+        self.assertIn("F4", br_rows["2."])
+
+        # 4. --role and --limit apply consistently starting from Chain finales:
+        r_lim = self._run(
+            [str(SCRIPT), "chain", "--limit", "1"],
+            cwd=str(proj_a),
+            env={**os.environ, "COLUMNS": "160"},
+            check=True,
+        )
+        self.assertIn("Chain finales:", r_lim.stdout)
+        self.assertIn("F6", r_lim.stdout)
+        self.assertNotIn("F7", r_lim.stdout)
+        self.assertNotIn("Chain:", r_lim.stdout)
+        self.assertNotIn("Standalone tasks:", r_lim.stdout)
+
+        r_role_lim = self._run(
+            [str(SCRIPT), "chain", "--role", "plan", "--limit", "1"],
+            cwd=str(proj_a),
+            env={**os.environ, "COLUMNS": "160"},
+            check=True,
+        )
+        self.assertIn("Chain finales:", r_role_lim.stdout)
+        self.assertIn("F7", r_role_lim.stdout)
+        self.assertNotIn("F6", r_role_lim.stdout)
+
+        # 5. Workspace -w formats cross-project after refs
+        r_ws = self._run(
+            [str(SCRIPT), "chain", "-w"],
+            cwd=str(ws),
+            env={**os.environ, "COLUMNS": "160"},
+            check=True,
+        )
+        self.assertIn("proj_b:F1", r_ws.stdout)
+        self.assertIn("[ready | after: proj_a:F3]", r_ws.stdout)
 
 if __name__ == "__main__":
     unittest.main()
