@@ -70,3 +70,10 @@ Allow exporting parsed tasks as JSON for scripting.
 - Rename project/repository references from `todo_md` to `todo-markdown` and CLI entrypoint from `todo_md` to `tmd` (preserving `TODO.md`/`TODO_ARCHIVE.md` task-file conventions and applying agreed env-var/alias decisions from the ecosystem rename design).
 - Target files: `build.py`, `install.sh`, `install.ps1`, `src/cli.py`, `src/commands.py`, `src/header.py`, `src/parser.py`, `src/rules/todo_md.md`, `src/bundles/todo_md.bundle`, `.agents_bundle`, `AGENTS.md`, `README.md`, `VERSION`, `tests/test_todo_md.py`, and `.github/`.
 - Acceptance criteria: `build.py` outputs `tmd`, `install.sh`/`install.ps1` install `tmd` (plus any agreed compatibility alias), `--help`/rules/bundles/docs/tests reflect `todo-markdown` and `tmd`, and `tests/test_todo_md.py` passes.
+
+# ⚪ [NEW] F43: Default unannotated non-design tasks to plan instead of inferring work
+
+- Remove implicit `"F": "work"` and `"B": "work"` defaults from `PREFIX_DEFAULT_ROLES` and `resolve_task_role()` (`src/header.py`, `src/parser.py`): `todo_md` must never infer or emit `Role: work` unless `- Role: work` is explicitly set on the task.
+- Default unannotated non-`D` tasks (where `- Role:` is omitted and prefix is not `D`) to `plan` (keeping `D` -> `design` unless overridden), so raw or unvetted `NEW` tasks route to planning instead of `Queue 1 (work)` in `cmd_chain()` / `plan_execution_chains()`.
+- Require explicit `- Role: work` (`--role work` via `todo_md add` or `todo_md edit`) once a task is decomposed and ready for execution; coordinate with `F17` (`cmd_ids` prefix legend and `src/rules/todo_md.md` documentation).
+- Update `src/header.py`, `src/parser.py`, `src/commands.py`, `src/rules/todo_md.md`, `README.md`, and `tests/test_todo_md.py`, rebuild `./todo_md` via `build.py`, and bump `VERSION` for a MINOR release.
