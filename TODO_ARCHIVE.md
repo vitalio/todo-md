@@ -1,3 +1,8 @@
+# ❌ [CANCELED] F14: Clarify in todo_md rule that backlog-only commits in plan/design/review run in the same block without a separate diff-review turn — *Avoid blanket same-block commits without diff review; checking diff prevents committing unintended backlog or index changes*
+
+- Update the `Validation & commits` section in `src/rules/todo_md.md` to explicitly state that in `role=plan`, `role=design`, and `role=audit`/`role=review`, `todo_md` mutations can be batched and committed in the same execution block (via `-c` on the final `todo_md` command or `git add TODO*.md && git commit`) without waiting for a separate diff-review turn.
+- Rebuild and reinstall `todo_md` (and keep any synced docs/tests in `tests/` green) so exported rules reflect the updated wording.
+
 # ✅ [DONE] F41: Show downstream next tasks in todo_md chain --ready output — *2026-11-19, Show downstream unblocked targets in chain --ready output*
 
 - Role: work
