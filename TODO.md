@@ -86,6 +86,7 @@ Allow exporting parsed tasks as JSON for scripting.
 
 # ⚪ [NEW] F52: Build root-anchored chains per terminal closing task in plan_execution_chains with [also in: ...] shared annotations
 
+- Role: work
 - Depends on: F38
 - In `plan_execution_chains()` (`src/parser.py`), replace undirected weakly-connected component grouping with root-anchored chains: build one chain per terminal closing root task (sink node in the active dependency DAG with `in_degree > 0` or resolved `DONE` prerequisites outside `finale_set` and no outgoing active dependents) from its transitive prerequisite cone.
 - Record `root` (`tuple[Path, str]`), `root_ref`, `root_title`, and `also_in` (`dict[tuple[Path, str], list[str]]` mapping shared prerequisite nodes to other root chain refs in chain rank order) in each chain entry returned by `plan_execution_chains()`.
@@ -94,6 +95,7 @@ Allow exporting parsed tasks as JSON for scripting.
 
 # ⚪ [NEW] F53: Render nested milestone sub-chains and multi-line wrapped tree rows in todo_md chain
 
+- Role: work
 - Depends on: F52
 - In `src/parser.py` and `cmd_chain()` (`src/commands.py`), detect intermediate milestone / aggregator nodes inside a chain's prerequisite cone (internal nodes that have active prerequisites of their own before feeding into downstream tasks) and render their prerequisite subtrees as indented `├─ Sub-chain -> <milestone_ref>: <title> (<pct>% | <done> done, <open> open):` blocks with tree connectors (`├─`, `│   `, and `└─►` on closing milestone and root rows).
 - Extend `_wrap_table_row()` in `src/parser.py` with an optional tree continuation prefix (`cont_prefix`) so all chain and sub-chain tree rows wrap cleanly across multiple lines while preserving active vertical tree bars (`│   `) on wrapped continuation lines without `...` truncation in terminals or pipes.
