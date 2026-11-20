@@ -78,7 +78,7 @@ class TestCommands(TodoMdTestCase):
         self.assertLess(todo_txt.index("F4:"), todo_txt.index("F5:"))
 
         # Summary compacts NEW/HOLD even when <= 5 tasks total, while expanding WIP/NEXT/QUESTION
-        r_sum = self._run([str(SCRIPT)], check=True)
+        r_sum = self._run([str(SCRIPT), "overview"], check=True)
         self.assertIn("Q line 2", r_sum.stdout)
         self.assertIn("Compact line 1", r_sum.stdout)
         self.assertNotIn("Compact line 2", r_sum.stdout)

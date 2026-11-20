@@ -29,11 +29,13 @@
     workspace project from any working directory (keep `-p` in `add` for ID
     prefix and `<project>:<ID>` strictly for task-level references; precedence:
     `-C`/`--project` > `TODO_MD_CWD` > `<project>:<ID>` > current directory).
-  - Inspect: `{cmd:todo_md} [--full] [-w]` (overview or cross-project workspace
+  - Inspect: `{cmd:todo_md} [opts] [-w]` (default Quest-Log view of the repository or workspace, see `chain` below;
+    `{cmd:todo_md} overview [--full] [-w]` or `{cmd:todo_md} --full` prints the Markdown overview or cross-project workspace
     overview: full `WIP`/`NEXT`/`QUESTION`, or first `NEW`/`HOLD` task when none
     exist, + compact backlog; supports `<project>:<ID>` and `<project>` addressing),
-    `{cmd:todo_md} projects` (list workspace projects and open counts), `{cmd:todo_md} <ID>` /
-    `{cmd:todo_md} show <ID|last> [<STATUS|archive>]` (prints `Task:`, `Title:`, `Role:`,
+    `{cmd:todo_md} projects` (list workspace projects and open counts), `{cmd:todo_md} <ID>[,<ID>...] [<ID>...]` /
+    `{cmd:todo_md} show <ID>[,<ID>...] [<ID>...]` / `{cmd:todo_md} show last [<STATUS|archive>]` (multiple IDs, including
+    `<project>:<ID>`, are shown sequentially separated by a blank line; prints `Task:`, `Title:`, `Role:`,
     and `Workdir:` headers before `# TODO*.md:<line>`),
     `{cmd:todo_md} last [<STATUS|archive>]` (default: `NEW`),
     `{cmd:todo_md} last-id [<STATUS|archive>]` (default: `NEW`),
@@ -44,16 +46,17 @@
     and dims `DONE` rows in TTY views;
     `--ready` filters active tasks to those with no unresolved dependencies),
     `{cmd:todo_md} archive`, `{cmd:todo_md} ids`,
-    `{cmd:todo_md} queue <ID> [--all]` (topologically sorted execution queue;
+    `{cmd:todo_md} queue <ID> [--all]` (alias for `{cmd:todo_md} chain <ID> [--all]`: focused Quest-Log of the chain containing `<ID>`;
     hides `DONE` unless `--all` is passed; prints `[ready]` / `[blocked by: ...]`
     and `Next actionable: <ref>`),
-    `{cmd:todo_md} chain [<ID>...] [--all] [--by-role] [--role <role>] [--ready] [--limit N] [--include-hold]`
+    `{cmd:todo_md} chain [<ID>...] [--all] [--by-role] [--role <role>] [--ready] [-l N|--limit N] [--include-hold] [--tree] [--numbered[=left|right]] [--status <STATUS>] [--focus <ID>...] [--highlight <ID>...] [--search <QUERY>]`
     (local, `.todo_projects` orchestrator, or `-w` workspace work-only chain
     finales `[ready | after: ...]` with all prerequisites resolved shown first
     before root-anchored RPG progress chains
     `Chain <N> -> <root_ref>: <root_title> (<total> tasks, <pct>% | <done> done, <open> open):`
-    with nested `├─ Sub-chain -> <milestone_ref>: <title> (<pct>% | <done> done, <open> open):`
-    milestone trees (`├─`, `│   `, `└─►`) and standalone tasks, appending
+    as flat topological rows by default (no row numbers; `--numbered[=left|right]` adds period-free numbers), or with `--tree` / `-t`
+    nested `├── Sub-chain -> <milestone_ref>: <title> (<pct>% | <done> done, <open> open):`
+    milestone trees (4-char connectors `├── `, `└── `, `└─► `, `│   `) and standalone tasks, appending
     `[also in: <other_root_ref>, ...]` to
     prerequisite rows shared across multiple root chains, including resolved
     `DONE` prerequisites in topological order when `--all` is passed, merging
@@ -75,7 +78,13 @@
     to highest-leverage ready tasks; excludes `HOLD` and tasks transitively
     blocked by `HOLD` into `Held branches:` unless `--include-hold` is passed;
     reports diagnostics on cycles, syntax errors, or `MISSING` / `CANCELED`
-    blockers),
+    blockers; `--focus` / `-f <ID>...` (and positional `<ID>...` under `chain`) scopes output to
+    chains containing `<ID>...`, highlights them, and prints `Next actionable: <ref>` for a single ID;
+    `--highlight` / `-H <ID>...` highlights within the full view; `--search` / `-s <QUERY>` (or
+    `{cmd:todo_md} search <QUERY>`) searches IDs, titles, and bodies (`TODO.md` only unless `--all` or an
+    archive status is set) and focuses the Quest-Log on matches, or prints full sections with `--full`;
+    status filters work as `--status <STATUS>` or a bare `WIP|NEXT|QUESTION|NEW|HOLD|ACTIVE|ALL` keyword
+    (`DONE|CANCELED|archive` render the list view) on `{cmd:todo_md} [opts]` and `{cmd:todo_md} chain [opts]`),
     `{cmd:todo_md} next-id [<ID>] [--role <role>]` (`--top`, top ready `WIP`/`NEXT`
     ID matching optional `--role`, or with `<ID>`/`<project>:<ID>` prints the
     first unblocked actionable ID in `<ID>`'s queue, exiting non-zero on cycles,

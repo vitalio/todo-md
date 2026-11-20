@@ -28,7 +28,7 @@ class TestParser(TodoMdTestCase):
         self.assertIn("# 🎯 [NEXT] F3: Feature 3 — *top priority*", todo_content)
 
         # Default summary truncates long NEW task P1 (>5 tasks total), while --full shows all lines
-        r_sum = self._run([str(SCRIPT)], check=True)
+        r_sum = self._run([str(SCRIPT), "overview"], check=True)
         self.assertIn("Body 3", r_sum.stdout)
         self.assertIn("Detail line 1", r_sum.stdout)
         self.assertNotIn("Detail line 8", r_sum.stdout)
@@ -63,7 +63,7 @@ class TestParser(TodoMdTestCase):
         )
 
         # No WIP/NEXT/QUESTION -> first ordered task (F1) is expanded, subsequent NEW/HOLD are compacted
-        r_only_new = self._run([str(SCRIPT)], check=True)
+        r_only_new = self._run([str(SCRIPT), "overview"], check=True)
         self.assertIn("N1 line 3", r_only_new.stdout)
         self.assertIn("N2 line 1", r_only_new.stdout)
         self.assertNotIn("N2 line 3", r_only_new.stdout)
@@ -76,7 +76,7 @@ class TestParser(TodoMdTestCase):
             [str(SCRIPT), "add", "Active question", "--status", "QUESTION", "-b", "Q1 line 1\nQ1 line 2"],
             check=True,
         )
-        r_with_q = self._run([str(SCRIPT)], check=True)
+        r_with_q = self._run([str(SCRIPT), "overview"], check=True)
         self.assertIn("Q1 line 2", r_with_q.stdout)
         self.assertIn("N1 line 1", r_with_q.stdout)
         self.assertNotIn("N1 line 3", r_with_q.stdout)
@@ -92,7 +92,7 @@ class TestParser(TodoMdTestCase):
             [str(SCRIPT), "add", "Hold two", "--status", "HOLD", "-b", "H2 line 1\nH2 line 2\nH2 line 3"],
             check=True,
         )
-        r_only_hold = self._run([str(SCRIPT)], check=True)
+        r_only_hold = self._run([str(SCRIPT), "overview"], check=True)
         self.assertIn("H1 line 3", r_only_hold.stdout)
         self.assertIn("H2 line 1", r_only_hold.stdout)
         self.assertNotIn("H2 line 3", r_only_hold.stdout)
@@ -203,7 +203,7 @@ class TestParser(TodoMdTestCase):
 
         # Overview and list commands remain unchanged (no Task:/Title:/Role:/Workdir: headers)
         for cmd in (
-            [str(SCRIPT)],
+            [str(SCRIPT), "overview"],
             [str(SCRIPT), "--full"],
             [str(SCRIPT), "list"],
         ):
@@ -211,7 +211,7 @@ class TestParser(TodoMdTestCase):
             self.assertNotIn("Workdir:", r_ov.stdout, msg=f"cmd={cmd}")
             self.assertNotIn("Task:", r_ov.stdout, msg=f"cmd={cmd}")
             self.assertNotIn("Title:", r_ov.stdout, msg=f"cmd={cmd}")
-        r_ws = self._run([str(SCRIPT), "-w"], cwd=str(ws), check=True)
+        r_ws = self._run([str(SCRIPT), "-w", "overview"], cwd=str(ws), check=True)
         self.assertNotIn("Workdir:", r_ws.stdout)
         self.assertNotIn("Task:", r_ws.stdout)
         self.assertNotIn("Title:", r_ws.stdout)
@@ -485,7 +485,7 @@ class TestParser(TodoMdTestCase):
                 for l in row_lines:
                     self.assertLessEqual(disp_w(l), 80, msg=f"chain row overflowed 80 cols: {l!r}")
 
-        # 5. Wrapped columns in queue (COLUMNS=78 -> avail_first = 78 - 44 = 34 >= 20)
+        # 5. Wrapped columns in queue (alias for a focused chain, COLUMNS=78 -> avail_first = 78 - 56 = 22 >= 20)
         r_q = self._run(
             [str(SCRIPT), "queue", "F2", "--all"],
             cwd=str(proj_a),
@@ -496,7 +496,7 @@ class TestParser(TodoMdTestCase):
         q_cont = [l for l in q_rows if l.startswith("    ")]
         self.assertTrue(q_cont, msg=r_q.stdout)
         for cl in q_cont:
-            self.assertEqual(len(cl) - len(cl.lstrip(" ")), 44, msg=f"unexpected queue indent: {cl!r}")
+            self.assertEqual(len(cl) - len(cl.lstrip(" ")), 56, msg=f"unexpected queue indent: {cl!r}")
         for l in q_rows:
             self.assertLessEqual(disp_w(l), 78, msg=f"queue row overflowed 78 cols: {l!r}")
 
@@ -568,7 +568,7 @@ class TestParser(TodoMdTestCase):
             self.assertLessEqual(disp_w(l), 82, msg=f"CJK/URL line overflowed 82 cols: {l!r}")
 
         # 9. Full Markdown section views remain unwrapped even on narrow terminals
-        for cmd in ([str(SCRIPT)], [str(SCRIPT), "show", "F1"], [str(SCRIPT), "last", "NEW"], [str(SCRIPT), "archive"]):
+        for cmd in ([str(SCRIPT), "overview"], [str(SCRIPT), "show", "F1"], [str(SCRIPT), "last", "NEW"], [str(SCRIPT), "archive"]):
             r_unwrapped = self._run(
                 cmd,
                 cwd=str(proj_a),
@@ -658,7 +658,7 @@ class TestParser(TodoMdTestCase):
         # Highlight local finale F1, external prereq todo_flow:D1, local chain task F2, standalone F3,
         # local held D2, and external held todo_flow:D2
         r_chain_hl = self._run(
-            [str(SCRIPT), "chain", "F1,todo_flow:D1", "F3", "D2,todo_flow:D2"],
+            [str(SCRIPT), "chain", "--numbered=right", "F1,todo_flow:D1", "F3", "D2,todo_flow:D2"],
             cwd=str(run_block),
             env=color_env,
             check=True,
@@ -675,17 +675,17 @@ class TestParser(TodoMdTestCase):
             msg=out_hl,
         )
         # Local finale F1 and standalone F3 are bold bright yellow (\033[1;93m)
-        self.assertTrue(any(ln.startswith("\033[1;93m") and "1. F1 " in ln for ln in lines_hl), msg=out_hl)
-        self.assertTrue(any(ln.startswith("\033[1;93m") and "5. F3 " in ln for ln in lines_hl), msg=out_hl)
+        self.assertTrue(any(ln.startswith("\033[1;93m") and "1 F1 " in ln for ln in lines_hl), msg=out_hl)
+        self.assertTrue(any(ln.startswith("\033[1;93m") and "5 F3 " in ln for ln in lines_hl), msg=out_hl)
         # External highlighted todo_flow:D1 is bold italic bright yellow (\033[1;3;93m)
-        self.assertTrue(any(ln.startswith("\033[1;3;93m") and "2. todo_flow:D1 " in ln for ln in lines_hl), msg=out_hl)
+        self.assertTrue(any(ln.startswith("\033[1;3;93m") and "2 todo_flow:D1 " in ln for ln in lines_hl), msg=out_hl)
         # Non-highlighted local F2 is unstyled normal text
         self.assertTrue(
-            any(ln.startswith("  ") and not ln.startswith("\033[") and "3. F2 " in ln for ln in lines_hl),
+            any(ln.startswith("  ") and not ln.startswith("\033[") and "3 F2 " in ln for ln in lines_hl),
             msg=out_hl,
         )
         # Non-highlighted external todo_flow:F1 is dim italic (\033[2;3m)
-        self.assertTrue(any(ln.startswith("\033[2;3m") and "4. todo_flow:F1 " in ln for ln in lines_hl), msg=out_hl)
+        self.assertTrue(any(ln.startswith("\033[2;3m") and "4 todo_flow:F1 " in ln for ln in lines_hl), msg=out_hl)
         # Held branches tokens: D2 (local highlighted -> \033[1;93m), todo_flow:D2 (external highlighted -> \033[1;3;93m),
         # F4 (local unhighlighted -> plain), todo_flow:F2 (external unhighlighted -> \033[2;3m)
         self.assertIn("\033[1;93mD2 (HOLD)\033[0m -> F4 (NEW)", out_hl)
@@ -693,7 +693,7 @@ class TestParser(TodoMdTestCase):
 
         # Strip ANSI equals plain output at identical terminal width
         r_chain_plain = self._run(
-            [str(SCRIPT), "chain", "F1,todo_flow:D1", "F3", "D2,todo_flow:D2"],
+            [str(SCRIPT), "chain", "--numbered=right", "F1,todo_flow:D1", "F3", "D2,todo_flow:D2"],
             cwd=str(run_block),
             env={**base_env, "COLUMNS": "80"},
             check=True,
@@ -701,35 +701,48 @@ class TestParser(TodoMdTestCase):
         self.assertNotIn("\033[", r_chain_plain.stdout)
         self.assertEqual(mod._strip_ansi(out_hl), r_chain_plain.stdout)
 
-        # Chain header is NOT highlighted when target ID is only in standalone / finale outside Chain 1
+        # A positional <ID> focuses the view: only the highlighted standalone F3 row and Next actionable remain
         r_chain_only_f3 = self._run(
-            [str(SCRIPT), "chain", "F3"],
+            [str(SCRIPT), "chain", "--numbered=right", "F3"],
+            cwd=str(run_block),
+            env=color_env,
+            check=True,
+        )
+        out_f3 = r_chain_only_f3.stdout
+        self.assertNotIn("Chain 1 -> todo_flow:F1", out_f3)
+        self.assertTrue(any(ln.startswith("\033[1;93m") and "1 F3 " in ln for ln in out_f3.splitlines()), msg=out_f3)
+        self.assertIn("Next actionable: F3", mod._strip_ansi(out_f3))
+
+        # --highlight renders the full Quest-Log; Chain header is NOT highlighted when target is only standalone
+        r_hl_only_f3 = self._run(
+            [str(SCRIPT), "chain", "--numbered=right", "--highlight", "F3"],
             cwd=str(run_block),
             env=color_env,
             check=True,
         )
         self.assertTrue(
-            any(ln.startswith("Chain 1 -> todo_flow:F1: Flow goal (") for ln in r_chain_only_f3.stdout.splitlines()),
-            msg=r_chain_only_f3.stdout,
+            any(ln.startswith("Chain 1 -> todo_flow:F1: Flow goal (") for ln in r_hl_only_f3.stdout.splitlines()),
+            msg=r_hl_only_f3.stdout,
         )
         self.assertTrue(
-            any(ln.startswith("\033[1;93m") and "5. F3 " in ln for ln in r_chain_only_f3.stdout.splitlines()),
-            msg=r_chain_only_f3.stdout,
+            any(ln.startswith("\033[1;93m") and "5 F3 " in ln for ln in r_hl_only_f3.stdout.splitlines()),
+            msg=r_hl_only_f3.stdout,
         )
+        self.assertNotIn("Next actionable:", r_hl_only_f3.stdout)
 
         # Also works with --ready and --by-role
         r_ready_hl = self._run(
-            [str(SCRIPT), "chain", "--ready", "F1"],
+            [str(SCRIPT), "chain", "--numbered=right", "--ready", "F1"],
             cwd=str(run_block),
             env=color_env,
             check=True,
         )
         self.assertTrue(
-            any(ln.startswith("\033[1;93m") and "1. F1 " in ln for ln in r_ready_hl.stdout.splitlines()),
+            any(ln.startswith("\033[1;93m") and "1 F1 " in ln for ln in r_ready_hl.stdout.splitlines()),
             msg=r_ready_hl.stdout,
         )
         r_by_role_hl = self._run(
-            [str(SCRIPT), "chain", "--by-role", "F2"],
+            [str(SCRIPT), "chain", "--numbered=right", "--by-role", "F2"],
             cwd=str(run_block),
             env=color_env,
             check=True,

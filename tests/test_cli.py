@@ -54,10 +54,31 @@ class TestCli(TodoMdTestCase):
         self.assertIn("[blocked: A (<STATUS>) -> B (<STATUS>)]", rule_txt)
         self.assertIn("--max-total-lines N", rh.stdout)
         self.assertIn("queue <ID> [--all]", rh.stdout)
-        self.assertIn("chain [<ID>...] [--all] [--by-role] [--role ROLE] [--ready] [--limit N] [--include-hold]", rh.stdout)
+        self.assertIn("chain [<ID>...] [opts]", rh.stdout)
+        for help_frag in (
+            "overview [--full] [-w]",
+            "search <QUERY> [opts]",
+            "-t, --tree",
+            "--numbered[=left|right]",
+            "-l N, --limit N, -n N",
+            "--status STATUS",
+            "-f, --focus <ID>...",
+            "-H, --highlight <ID>...",
+            "-s, --search QUERY",
+            "show <ID>...",
+            "Alias for chain <ID> [--all]",
+        ):
+            with self.subTest(help_frag=help_frag):
+                self.assertIn(help_frag, rh.stdout)
         self.assertIn("next-id [<ID>] [--role ROLE]", rh.stdout)
         self.assertIn("queue <ID> [--all]", rule_txt)
-        self.assertIn("chain [<ID>...] [--all] [--by-role] [--role <role>] [--ready] [--limit N] [--include-hold]", rule_txt)
+        self.assertIn(
+            "chain [<ID>...] [--all] [--by-role] [--role <role>] [--ready] [-l N|--limit N] [--include-hold] [--tree] [--numbered[=left|right]]",
+            rule_txt,
+        )
+        self.assertIn("alias for `{cmd:todo_md} chain <ID> [--all]`", rule_txt)
+        self.assertIn("4-char connectors", rule_txt)
+        self.assertIn("Decompose or compose (consolidate) work", bundle_txt)
         self.assertIn("next-id [<ID>] [--role <role>]", rule_txt)
         self.assertIn("A -> B -> C", rule_txt)
         self.assertIn("do not introduce a separate `- Order:` field", rule_txt)
@@ -188,11 +209,12 @@ class TestCli(TodoMdTestCase):
         self.assertIn("F1: Sub task updated", r_sub_arch.stdout)
 
         # Overview, queue, and reopen with -C from outside
-        r_sum = self._run([str(SCRIPT), "-C", "proj_a"], cwd=str(outside), env=env_ws, check=True)
+        r_sum = self._run([str(SCRIPT), "-C", "proj_a", "overview"], cwd=str(outside), env=env_ws, check=True)
         self.assertIn("Archived in TODO_ARCHIVE.md: 1 task(s)", r_sum.stdout)
+        self._run([str(SCRIPT), "-C", "proj_a", "reopen", "B1"], cwd=str(outside), env=env_ws, check=True)
+        self._run([str(SCRIPT), "-C", "sub_proj", "reopen", "F1"], cwd=str(outside), env=env_ws, check=True)
         r_q = self._run([str(SCRIPT), "-C", "sub_proj", "queue", "F1", "--all"], cwd=str(outside), env=env_ws, check=True)
         self.assertIn("proj_a:B1", r_q.stdout)
-        self._run([str(SCRIPT), "-C", "proj_a", "reopen", "B1"], cwd=str(outside), env=env_ws, check=True)
 
         # Workspace discovery from sibling project without TODO_MD_WORKSPACE env var
         r_sib = self._run([str(SCRIPT), "-C", "proj_a", "ids"], cwd=str(proj_c), check=True)
@@ -233,6 +255,112 @@ class TestCli(TodoMdTestCase):
         r = self._run_subprocess(["sh", str(INSTALL_SH), "--dir", str(bin_dir), "--yes"], env=env)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertTrue((bin_dir / "todo_md").is_file())
+
+
+    def test_default_quest_log_overview_multi_show_focus_highlight_and_status_filters(self):
+        proj = self.tmp / "ql"
+        proj.mkdir()
+        self._run([str(SCRIPT), "init"], cwd=str(proj), check=True)
+        for title, extra in (
+            ("Alpha", ["--role", "work"]),
+            ("Beta", ["--role", "work", "--depends", "F1"]),
+            ("Gamma", ["--role", "work", "--status", "HOLD"]),
+            ("Delta", ["--role", "work"]),
+        ):
+            self._run([str(SCRIPT), "add", title, *extra], cwd=str(proj), check=True)
+
+        # Default view is the Quest-Log; overview / --full render the Markdown overview
+        out = self._run([str(SCRIPT)], cwd=str(proj), check=True).stdout
+        self.assertIn("Chain 1 -> F2: Beta", out)
+        self.assertIn("Standalone tasks:", out)
+        out_ov = self._run([str(SCRIPT), "overview"], cwd=str(proj), check=True).stdout
+        self.assertNotIn("Chain 1 ->", out_ov)
+        self.assertIn("F1", out_ov)
+        out_full = self._run([str(SCRIPT), "--full"], cwd=str(proj), check=True).stdout
+        self.assertNotIn("Chain 1 ->", out_full)
+        self.assertIn("F1: Alpha", out_full)
+
+        # Multi-ID show: space- and comma-separated, blank-line separated, same output
+        out_multi = self._run([str(SCRIPT), "F1", "F2"], cwd=str(proj), check=True).stdout
+        out_multi_show = self._run([str(SCRIPT), "show", "F1,F2"], cwd=str(proj), check=True).stdout
+        self.assertEqual(out_multi, out_multi_show)
+        self.assertLess(out_multi.index("Task: F1"), out_multi.index("Task: F2"))
+        self.assertIn("\n\nTask: F2", out_multi)
+        r_miss = self._run([str(SCRIPT), "show", "F1", "F99"], cwd=str(proj))
+        self.assertNotEqual(r_miss.returncode, 0)
+        self.assertIn("Task: F1", r_miss.stdout)
+
+        # --focus scopes the view and prints Next actionable for a single ID
+        out_focus = self._run([str(SCRIPT), "--focus", "F4"], cwd=str(proj), check=True).stdout
+        self.assertIn("Delta", out_focus)
+        self.assertNotIn("Chain 1 -> F2", out_focus)
+        self.assertIn("Next actionable: F4", out_focus)
+        out_chain_id = self._run([str(SCRIPT), "chain", "F2"], cwd=str(proj), check=True).stdout
+        self.assertIn("Chain 1 -> F2: Beta", out_chain_id)
+        self.assertNotIn("Delta", out_chain_id)
+        self.assertIn("Next actionable: F1", out_chain_id)
+
+        # --highlight keeps the full view
+        out_hl = self._run([str(SCRIPT), "--highlight", "F4"], cwd=str(proj), check=True).stdout
+        self.assertIn("Chain 1 -> F2: Beta", out_hl)
+        self.assertIn("Delta", out_hl)
+        self.assertNotIn("Next actionable:", out_hl)
+
+        # Status filters (keyword and --status) and top-level -l N
+        out_hold = self._run([str(SCRIPT), "HOLD"], cwd=str(proj), check=True).stdout
+        self.assertIn("Gamma", out_hold)
+        self.assertNotIn("Alpha", out_hold)
+        out_wip = self._run([str(SCRIPT), "--status", "WIP"], cwd=str(proj), check=True).stdout
+        self.assertIn("Chain: (none)", out_wip)
+        r_done = self._run([str(SCRIPT), "DONE"], cwd=str(proj))
+        self.assertEqual(r_done.returncode, 0, msg=r_done.stderr)
+        out_lim = self._run([str(SCRIPT), "-l", "1"], cwd=str(proj), check=True).stdout
+        self.assertNotIn("Delta", out_lim)
+        for bad in (["--status", "bogus"], ["chain", "--focus"], ["--numbered=middle"]):
+            with self.subTest(bad=bad):
+                self.assertNotEqual(self._run([str(SCRIPT), *bad], cwd=str(proj)).returncode, 0)
+
+
+    def test_search_scopes_quest_log_prints_full_sections_and_includes_archive(self):
+        proj = self.tmp / "srch"
+        proj.mkdir()
+        self._run([str(SCRIPT), "init"], cwd=str(proj), check=True)
+        self._run(
+            [str(SCRIPT), "add", "Parser rewrite", "--role", "work", "-b", "Mentions tokenizer details."],
+            cwd=str(proj),
+            check=True,
+        )
+        self._run([str(SCRIPT), "add", "Docs polish", "--role", "work", "--depends", "F1"], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "add", "Unrelated cleanup", "--role", "work"], cwd=str(proj), check=True)
+
+        # Body match scopes the Quest-Log to the chain containing the task; case-insensitive
+        out = self._run([str(SCRIPT), "--search", "tokenizer"], cwd=str(proj), check=True).stdout
+        self.assertIn("Parser rewrite", out)
+        self.assertNotIn("Unrelated cleanup", out)
+        out_cmd = self._run([str(SCRIPT), "search", "TOKENIZER"], cwd=str(proj), check=True).stdout
+        self.assertEqual(out, out_cmd)
+        out_short = self._run([str(SCRIPT), "-s", "tokenizer"], cwd=str(proj), check=True).stdout
+        self.assertEqual(out, out_short)
+
+        # Title match and regex support
+        out_title = self._run([str(SCRIPT), "-s", "^unrelated cleanup$"], cwd=str(proj), check=True).stdout
+        self.assertIn("Unrelated cleanup", out_title)
+        self.assertNotIn("Parser rewrite", out_title)
+        out_invalid_re = self._run([str(SCRIPT), "-s", "tokenizer ("], cwd=str(proj))
+        self.assertNotEqual(out_invalid_re.returncode, 0)
+
+        # --full prints full task sections of matches
+        out_full = self._run([str(SCRIPT), "--full", "--search", "tokenizer"], cwd=str(proj), check=True).stdout
+        self.assertIn("Task: F1", out_full)
+        self.assertIn("Mentions tokenizer details.", out_full)
+        self.assertNotIn("Chain 1", out_full)
+
+        # No match -> non-zero exit; archive searched only with --all
+        self.assertNotEqual(self._run([str(SCRIPT), "-s", "no-such-text"], cwd=str(proj)).returncode, 0)
+        self._run([str(SCRIPT), "done", "F3"], cwd=str(proj), check=True)
+        self.assertNotEqual(self._run([str(SCRIPT), "-s", "unrelated"], cwd=str(proj)).returncode, 0)
+        out_arch = self._run([str(SCRIPT), "--full", "--all", "-s", "unrelated"], cwd=str(proj), check=True).stdout
+        self.assertIn("Task: F3", out_arch)
 
 
 if __name__ == "__main__":

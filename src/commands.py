@@ -937,70 +937,6 @@ def resolve_top_task_id(
     return None
 
 
-def cmd_queue(
-    base_dir: Path,
-    target_dir: Path,
-    task_id: str,
-    show_all: bool = False,
-    explicit_dir: str | None = None,
-) -> int:
-    dag = build_dependency_dag(
-        base_dir,
-        target_dir,
-        task_id,
-        explicit_dir=explicit_dir,
-        stop_at_done=True,
-    )
-    nodes: dict[tuple[Path, str], dict[str, object]] = dag["nodes"]  # type: ignore[assignment]
-    prereqs: dict[tuple[Path, str], list[tuple[Path, str]]] = dag["prereqs"]  # type: ignore[assignment]
-    topo_order: list[tuple[Path, str]] = dag["topo_order"]  # type: ignore[assignment]
-    root_key: tuple[Path, str] = dag["root"]  # type: ignore[assignment]
-    root_node = nodes[root_key]
-    if not root_node["exists"]:
-        sys.stderr.write(f"{prog_name()}: task {root_node['ref']!r} not found in TODO*.md under {target_dir}\n")
-        return 1
-    syntax_errors: list[str] = dag["syntax_errors"]  # type: ignore[assignment]
-    if syntax_errors:
-        for e in syntax_errors:
-            sys.stderr.write(f"ERROR: {e}\n")
-        return 1
-    cycle: list[str] = dag["cycle"]  # type: ignore[assignment]
-    if cycle:
-        sys.stderr.write(f"ERROR: dependency cycle detected: {' -> '.join(cycle)}\n")
-        return 1
-
-    shown = topo_order if show_all else [u for u in topo_order if str(nodes[u]["status"]) != "DONE"]
-    if not shown:
-        sys.stdout.write(f"No pending tasks in queue for {root_node['ref']} (all tasks DONE)\n")
-    else:
-        term_width = _get_terminal_columns()
-        for idx, u in enumerate(shown, start=1):
-            nd = nodes[u]
-            st = str(nd["status"])
-            ref = str(nd["ref"])
-            title = str(nd["title"])
-            if st == "MISSING":
-                badge = "[MISSING]"
-                marker = "[blocked]"
-            elif st == "CANCELED":
-                badge = f"{nd['emoji']} [CANCELED]"
-                marker = "[blocked]"
-            elif st == "DONE":
-                badge = f"{nd['emoji']} [DONE]"
-                marker = ""
-            else:
-                badge = f"{nd['emoji']} [{st}]"
-                blockers = [str(nodes[p]["ref"]) for p in prereqs[u] if str(nodes[p]["status"]) != "DONE"]
-                marker = f"[blocked by: {', '.join(blockers)}]" if blockers else "[ready]"
-            desc = f"{title}  {marker}" if marker else title
-            prefix = f"  {idx:>2}. {_pad_display(ref, 20)}  {_pad_display(badge, 14)}  "
-            sys.stdout.write(_wrap_table_row(prefix, desc, term_width) + "\n")
-
-    next_act = _first_actionable_in_dag(dag)
-    sys.stdout.write(f"Next actionable: {next_act or 'none'}\n")
-    return 0
-
-
 def cmd_next_id(
     base_dir: Path,
     target_dir: Path | None = None,
@@ -1155,8 +1091,13 @@ def cmd_chain(
     workspace: bool = False,
     explicit_dir: str | None = None,
     targets: list[tuple[Path, str]] | None = None,
+    tree: bool = False,
+    numbered: str | None = None,
+    focus: list[tuple[Path, str]] | None = None,
+    status: frozenset[str] | None = None,
 ) -> int:
     b_res = base_dir.resolve()
+    row_scoped = status is not None or bool(focus)
     ws_root = resolve_workspace_root(b_res, explicit_dir=explicit_dir)
     is_orch = (not workspace) and is_orchestrator_project(b_res, ws_root, explicit_dir=explicit_dir)
     if workspace:
@@ -1210,7 +1151,7 @@ def cmd_chain(
             dag,
             include_hold=include_hold,
             ready_only=ready,
-            limit=(None if target_project is not None else limit),
+            limit=(None if (target_project is not None or row_scoped) else limit),
             role=role,
         )
     else:
@@ -1218,7 +1159,7 @@ def cmd_chain(
             dag,
             include_hold=include_hold,
             ready_only=ready,
-            limit=(None if (role is not None or target_project is not None) else limit),
+            limit=(None if (role is not None or row_scoped or target_project is not None) else limit),
             include_done=include_done,
         )
     active_nodes: list[tuple[Path, str]] = plan["active_nodes"]  # type: ignore[assignment]
@@ -1278,6 +1219,28 @@ def cmd_chain(
         nd = nodes[u]
         return bool(nd.get("exists")) and _task_matches_role(nd, wanted_role)
 
+    focus_set, focus_unscoped = _normalize_target_refs(base_dir, focus, explicit_dir=explicit_dir)
+    focus_active = bool(focus_set or focus_unscoped)
+
+    def _is_focus_node(u: tuple[Path, str]) -> bool:
+        return (u[0].resolve(), u[1].upper()) in focus_set or u[1].upper() in focus_unscoped
+
+    def _status_ok(u: tuple[Path, str]) -> bool:
+        return status is None or str(nodes[u]["status"]) in status
+
+    def _row_ok(u: tuple[Path, str]) -> bool:
+        return _status_ok(u) and (not focus_active or _is_focus_node(u))
+
+    num_w_box = [1]
+
+    def _lead_cell(prefix: str, idx: int, ref: str) -> str:
+        if numbered is None:
+            return f"{prefix}{ref}"
+        width = num_w_box[0]
+        if numbered == "right":
+            return f"{prefix}{idx:>{width}} {ref}"
+        return f"{prefix}{idx:<{width}} {ref}"
+
     def _format_row(
         idx: int,
         u: tuple[Path, str],
@@ -1333,10 +1296,7 @@ def cmd_chain(
         if also_in_refs:
             also_tag = f"[also in: {', '.join(also_in_refs)}]"
             status_tag = f"{status_tag} {also_tag}" if status_tag else also_tag
-        if tree_prefix:
-            lead_cell = f"{tree_prefix}{idx}. {ref}"
-        else:
-            lead_cell = f"{idx:>2}. {ref}"
+        lead_cell = _lead_cell(tree_prefix, idx, ref)
         prefix = (
             f"  {_pad_display(lead_cell, lead_col_width)}  "
             f"{_pad_display(badge, 14)}  "
@@ -1375,6 +1335,10 @@ def cmd_chain(
             held_paths = [path for path in held_paths if any(_is_target_node(k) for k in path)]
         if wanted_role is not None:
             held_paths = [path for path in held_paths if any(_matches_role(k) for k in path)]
+        if focus_active:
+            held_paths = [path for path in held_paths if any(_is_focus_node(k) for k in path)]
+        if status is not None:
+            held_paths = [path for path in held_paths if any(_status_ok(k) for k in path)]
 
     scoped_excluded_hold = {
         u
@@ -1384,9 +1348,9 @@ def cmd_chain(
 
     if by_role:
         queues: list[tuple[str, str, list[tuple[Path, str]]]] = plan["queues"]  # type: ignore[assignment]
-        if target_project is not None:
+        if target_project is not None or row_scoped:
             queues = [
-                (q_key, q_label, [u for u in q_items if _is_target_node(u)])
+                (q_key, q_label, [u for u in q_items if _is_target_node(u) and _row_ok(u)])
                 for q_key, q_label, q_items in queues
             ]
             if limit is not None:
@@ -1401,7 +1365,8 @@ def cmd_chain(
                     rem -= len(take)
                 queues = limited_queues
         non_empty_queues = [(q_label, q_items) for _, q_label, q_items in queues if q_items]
-        matching_held = [u for u in scoped_excluded_hold if _matches_role(u) and _is_target_node(u)]
+        num_w_box[0] = len(str(max(1, sum(len(q_items) for _, q_items in non_empty_queues))))
+        matching_held = [u for u in scoped_excluded_hold if _matches_role(u) and _is_target_node(u) and _row_ok(u)]
         if non_empty_queues:
             row_idx = 1
             for sec_idx, (q_label, q_items) in enumerate(non_empty_queues):
@@ -1426,9 +1391,12 @@ def cmd_chain(
             ready_tasks = [u for u in ready_tasks if _is_target_node(u)]
         if wanted_role is not None:
             ready_tasks = [u for u in ready_tasks if _matches_role(u)]
-        if (target_project is not None or wanted_role is not None) and limit is not None:
+        if row_scoped:
+            ready_tasks = [u for u in ready_tasks if _row_ok(u)]
+        if (target_project is not None or wanted_role is not None or row_scoped) and limit is not None:
             ready_tasks = ready_tasks[:limit]
-        matching_held = [u for u in scoped_excluded_hold if _matches_role(u) and _is_target_node(u)]
+        matching_held = [u for u in scoped_excluded_hold if _matches_role(u) and _is_target_node(u) and _row_ok(u)]
+        num_w_box[0] = len(str(max(1, len(ready_tasks))))
         if ready_tasks:
             sys.stdout.write("Ready tasks:\n")
             for idx, u in enumerate(ready_tasks, start=1):
@@ -1493,7 +1461,24 @@ def cmd_chain(
                     filtered_chains_with_stats.append((f_comp, st_info))
             chains_with_stats = filtered_chains_with_stats
             standalone = [u for u in standalone if _matches_role(u)]
-        if (target_project is not None or wanted_role is not None) and limit is not None:
+        if row_scoped:
+            finales = [u for u in finales if _row_ok(u)]
+            scoped_chains: list[tuple[list[tuple[Path, str]], dict[str, object]]] = []
+            for comp, st_info in chains_with_stats:
+                c_nodes = (
+                    set(comp)
+                    | set(st_info.get("nodes", []))  # type: ignore[arg-type]
+                    | set(st_info.get("open_nodes", []))  # type: ignore[arg-type]
+                    | set(st_info.get("done_nodes", set()))  # type: ignore[arg-type]
+                )
+                if focus_active and not any(_is_focus_node(u) for u in c_nodes):
+                    continue
+                f_comp = [u for u in comp if _status_ok(u)]
+                if f_comp:
+                    scoped_chains.append((f_comp, st_info))
+            chains_with_stats = scoped_chains
+            standalone = [u for u in standalone if _row_ok(u)]
+        if (target_project is not None or wanted_role is not None or row_scoped) and limit is not None:
             rem = limit
             finales = finales[:rem] if rem > 0 else []
             rem -= len(finales)
@@ -1506,10 +1491,44 @@ def cmd_chain(
                 rem -= len(take)
             standalone = standalone[:rem] if rem > 0 else []
             chains_with_stats = limited_chains_with_stats
-        matching_held = [u for u in scoped_excluded_hold if _matches_role(u) and _is_target_node(u)]
+        matching_held = [u for u in scoped_excluded_hold if _matches_role(u) and _is_target_node(u) and _row_ok(u)]
         if finales or chains_with_stats or standalone:
             row_idx = 1
             wrote_section = False
+
+            def _build_chain_tree(
+                comp_nodes: list[tuple[Path, str]],
+                st_info: dict[str, object],
+            ) -> dict[str, object]:
+                r_key = st_info.get("root")
+                t_root: tuple[Path, str] = (
+                    r_key
+                    if isinstance(r_key, tuple) and r_key in nodes
+                    else (comp_nodes[-1] if comp_nodes else (b_res, ""))
+                )
+                return build_chain_milestone_tree(
+                    root=t_root,
+                    display_nodes=comp_nodes,
+                    nodes=nodes,
+                    prereqs=prereqs,
+                    done_nodes=done_nodes,
+                    direct_done_deps=direct_done_deps,
+                    done_graph_prereqs=done_graph_prereqs,
+                    include_done=include_done,
+                )
+
+            def _flat_tree_nodes(t_node: dict[str, object]) -> list[tuple[Path, str]]:
+                flat: list[tuple[Path, str]] = []
+                for ch_item in t_node.get("children", []):  # type: ignore[attr-defined]
+                    if ch_item.get("kind") == "subchain":
+                        flat.extend(_flat_tree_nodes(ch_item))
+                    else:
+                        flat.append(ch_item["node"])
+                return flat
+
+            chain_trees = [_build_chain_tree(c_nodes, c_info) for c_nodes, c_info in chains_with_stats]
+            total_rows = len(finales) + len(standalone) + sum(len(_flat_tree_nodes(ct)) for ct in chain_trees)
+            num_w_box[0] = len(str(max(1, total_rows)))
             if finales:
                 sys.stdout.write("Chain finales:\n")
                 for u in finales:
@@ -1564,21 +1583,7 @@ def cmd_chain(
                         use_color=use_color,
                     )
                 )
-                tree_root: tuple[Path, str] = (
-                    root_key
-                    if isinstance(root_key, tuple) and root_key in nodes
-                    else (comp[-1] if comp else (b_res, ""))
-                )
-                chain_tree = build_chain_milestone_tree(
-                    root=tree_root,
-                    display_nodes=comp,
-                    nodes=nodes,
-                    prereqs=prereqs,
-                    done_nodes=done_nodes,
-                    direct_done_deps=direct_done_deps,
-                    done_graph_prereqs=done_graph_prereqs,
-                    include_done=include_done,
-                )
+                chain_tree = chain_trees[chain_idx - 1]
 
                 def _max_lead_width(
                     t_node: dict[str, object],
@@ -1601,8 +1606,8 @@ def cmd_chain(
                             u_node: tuple[Path, str] = ch_item["node"]  # type: ignore[assignment]
                             bars = "".join("│   " if b else "    " for b in active_bars)
                             is_closing = bool(ch_item.get("is_closing")) and is_last_c
-                            conn = "└─► " if is_closing else ("└─ " if is_last_c else "├─ ")
-                            cell = f"{bars}{conn}{sim_idx}. {nodes[u_node]['ref']}"
+                            conn = "└─► " if is_closing else ("└── " if is_last_c else "├── ")
+                            cell = _lead_cell(f"{bars}{conn}", sim_idx, str(nodes[u_node]["ref"]))
                             cw = _display_width(cell)
                             if cw > max_w:
                                 max_w = cw
@@ -1629,7 +1634,7 @@ def cmd_chain(
                             m_open = int(ch_item.get("open_count", 0))
                             sub_nodes: set[tuple[Path, str]] = ch_item.get("subtree_nodes", {m_node})  # type: ignore[assignment]
                             sub_hl = any(_is_highlighted_node(su) for su in sub_nodes)
-                            sub_conn = "└─ " if is_last_c else "├─ "
+                            sub_conn = "└── " if is_last_c else "├── "
                             sub_prefix = f"  {bars}{sub_conn}"
                             sub_cont_bars = "".join(
                                 "│   " if b else "    " for b in [*active_bars, not is_last_c]
@@ -1665,7 +1670,7 @@ def cmd_chain(
                         else:
                             u_node: tuple[Path, str] = ch_item["node"]  # type: ignore[assignment]
                             is_closing = bool(ch_item.get("is_closing")) and is_last_c
-                            conn = "└─► " if is_closing else ("└─ " if is_last_c else "├─ ")
+                            conn = "└─► " if is_closing else ("└── " if is_last_c else "├── ")
                             t_pref = f"{bars}{conn}"
                             row_bars = [*active_bars, not is_last_c]
                             cont_bars_str = "".join("│   " if b else "    " for b in row_bars)
@@ -1683,7 +1688,29 @@ def cmd_chain(
                             cur_idx += 1
                     return cur_idx
 
-                row_idx = _render_chain_tree_children(chain_tree, [], row_idx)
+                if tree:
+                    row_idx = _render_chain_tree_children(chain_tree, [], row_idx)
+                else:
+                    flat_nodes = _flat_tree_nodes(chain_tree)
+                    flat_w = max(
+                        [
+                            24,
+                            *(
+                                _display_width(_lead_cell("", row_idx + k, str(nodes[fu]["ref"])))
+                                for k, fu in enumerate(flat_nodes)
+                            ),
+                        ]
+                    )
+                    for fu in flat_nodes:
+                        sys.stdout.write(
+                            _format_row(
+                                row_idx,
+                                fu,
+                                also_in_refs=also_in_map.get(fu),
+                                lead_col_width=flat_w,
+                            )
+                        )
+                        row_idx += 1
                 wrote_section = True
             if standalone:
                 if wrote_section:
@@ -1717,5 +1744,14 @@ def cmd_chain(
                 parts.append(token)
             rendered = " -> ".join(parts)
             sys.stdout.write(f"  {rendered}\n")
+
+    if focus is not None and len(focus) == 1:
+        f_dir, f_tid = focus[0]
+        f_dag = build_dependency_dag(base_dir, f_dir, f_tid, explicit_dir=explicit_dir, stop_at_done=True)
+        f_nodes: dict[tuple[Path, str], dict[str, object]] = f_dag["nodes"]  # type: ignore[assignment]
+        f_root: tuple[Path, str] = f_dag["root"]  # type: ignore[assignment]
+        if f_nodes[f_root]["exists"] and not f_dag["syntax_errors"] and not f_dag["cycle"]:
+            f_next = _first_actionable_in_dag(f_dag)
+            sys.stdout.write(f"\nNext actionable: {f_next or 'none'}\n")
 
     return 1 if had_blocker_error else 0

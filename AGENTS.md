@@ -18,6 +18,22 @@ rules are loaded via `.agents_bundle`.
 - Progressive disclosure: keep default views compact and scannable while
   letting users drill into full quest details, dependency chains (`chain`),
   and execution paths (`queue`, `--full`) on demand.
+- Default view is the Quest-Log: `todo_md` (also `todo_md -w` and `todo_md <project>`)
+  renders `cmd_chain()` as flat topological chains in execution order without row
+  numbers; `--tree` / `-t` adds nested `Sub-chain ->` milestone trees with 4-char
+  connectors (`├── `, `└── `, `└─► `, `│   `) and `--numbered[=left|right]` adds
+  period-free row numbers padded to the widest number. The Markdown overview lives
+  in `todo_md overview` (and bare `todo_md --full`).
+- Drill-down without leaving the Quest-Log: `--focus` / `-f <ID>...` (and positional
+  `<ID>...` under `chain` / `queue`) scopes to chains containing the IDs and prints
+  `Next actionable: <ref>` for a single ID, `--highlight` / `-H` keeps the full view,
+  `--search` / `-s <QUERY>` (or `todo_md search`) focuses on matching tasks (or prints
+  full sections with `--full`), and status keywords (`WIP`, `NEXT`, `QUESTION`, `NEW`,
+  `HOLD`, `ACTIVE`, `ALL`; `DONE`, `CANCELED`, `archive` render the list view) filter
+  rows. Multiple IDs (`todo_md F1 F2`, `show F1,F2`) print full task sections in order.
+- Keep `_parse_quest_log_args()` and `_quest_log()` in `src/cli.py` as the single
+  parser for the default view, `chain`, `queue`, and `search`; do not re-implement
+  flag parsing per entry point.
 - Unlock feedback loop: closing a quest (`todo_md done <ID>`) should report
   newly unlocked downstream quests (`Unblocked: ...`) so the next playable
   step is obvious without manually re-scanning the backlog.

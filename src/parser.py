@@ -791,6 +791,28 @@ def collect_all_tasks(base_dir: Path) -> list[dict[str, object]]:
     return all_tasks
 
 
+def compile_search_pattern(query: str) -> re.Pattern[str]:
+    try:
+        return re.compile(query, re.IGNORECASE | re.MULTILINE)
+    except re.error:
+        return re.compile(re.escape(query), re.IGNORECASE)
+
+
+def search_tasks(base_dir: Path, query: str, include_archive: bool = False) -> list[dict[str, object]]:
+    pat = compile_search_pattern(query)
+    fnames = TASK_FILES if include_archive else TASK_FILES[:1]
+    matches: list[dict[str, object]] = []
+    for fname in fnames:
+        path = base_dir / fname
+        if not path.is_file():
+            continue
+        for t in parse_tasks_in_text(read_if_exists(path), fname):
+            haystack = f"{t['id']}\n{t['title']}\n{t.get('section', '')}"
+            if pat.search(haystack):
+                matches.append(t)
+    return matches
+
+
 def highest_ids_in_use(base_dir: Path) -> dict[str, int]:
     top: dict[str, int] = {}
     for fname in TASK_FILES:

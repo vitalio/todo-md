@@ -8,6 +8,7 @@ import importlib.machinery
 import importlib.util
 import io
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -60,9 +61,9 @@ class TodoMdTestCase(unittest.TestCase):
             if "Sub-chain -> " in line:
                 cur_key = None
                 continue
-            parts = [p for p in line.split() if p not in ("│", "├─", "└─", "└─►")]
-            if parts and parts[0].endswith(".") and parts[0][:-1].isdigit():
-                cur_key = parts[0]
+            parts = [p for p in line.split() if p not in ("│", "├─", "└─", "├──", "└──", "└─►")]
+            if parts and (parts[0].isdigit() or (parts[0].endswith(".") and parts[0][:-1].isdigit())):
+                cur_key = parts[0] if parts[0].endswith(".") else f"{parts[0]}."
                 rows[cur_key] = line
                 continue
             if line.startswith("    ") and cur_key is not None:
@@ -77,6 +78,13 @@ class TodoMdTestCase(unittest.TestCase):
                 cur_key = parts[0]
                 rows[cur_key] = line
         return rows
+
+    def _row_refs(self, output: str) -> list[str]:
+        return re.findall(r"^  (?:[│ ]*(?:├── |└── |└─► ))?(\S+)\s+\S+\s+\[[A-Z]+\]", output, re.M)
+
+    @staticmethod
+    def _flat_text(output: str) -> str:
+        return " ".join(output.split())
 
     def _assert_ok(
         self, args: list[str], proc: subprocess.CompletedProcess[str]

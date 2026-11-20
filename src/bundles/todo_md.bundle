@@ -18,7 +18,7 @@ rule vitalio/todo_md:todo_md
     [if task!=]
         [if piped!=1] $ todo_md {task:}
     [/if]
-    prompt Mode: PLANNING. Decompose work into flat, self-contained tasks in TODO.md (default status NEW), record target repository file paths and key symbol names (functions/classes) in backticks in each task body rather than brittle line ranges, promote ready prioritized tasks via todo_md next <ID>, and commit TODO*.md once backlog updates are finished; once task <ID> is agreed, initialize a new session bundle via todo_md <ID> | agents_bundle | run_block (or agents_bundle role=work task=<ID> | run_block).
+    prompt Mode: PLANNING. Decompose or compose (consolidate) work into self-contained tasks in TODO.md (default status NEW) depending on file, test, and documentation cohesion: refine or merge into an existing open task when the change touches the same files or tests, and split into separate tasks only when files, tests, and docs are independent; record target repository file paths and key symbol names (functions/classes) in backticks in each task body rather than brittle line ranges, promote ready prioritized tasks via todo_md next <ID>, and commit TODO*.md once backlog updates are finished; once task <ID> is agreed, initialize a new session bundle via todo_md <ID> | agents_bundle | run_block (or agents_bundle role=work task=<ID> | run_block).
 [/if]
 [if role=work]
     [if task=] var task=$(todo_md next-id --role work)

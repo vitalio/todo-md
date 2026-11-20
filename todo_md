@@ -2,9 +2,12 @@
 # todo_md-repo: vitalio/todo_md
 """Usage:
   {prog} [-C DIR|PROJ] [command] [opts]    Run any command against a target directory or workspace project
-  {prog} [dir|project] [--full] [-w]         Print TODO.md or workspace overview (full WIP/NEXT/QUESTION or first task + compact)
+  {prog} [dir|project] [opts] [-w]           Print the default Quest-Log view: flat chains in execution order (see Quest-Log options)
+  {prog} overview [--full] [-w]              Print the Markdown overview (full WIP/NEXT/QUESTION or first task + compact); bare --full prints it expanded
+  {prog} search <QUERY> [opts]               Search task IDs, titles, and bodies (same as -s/--search QUERY)
   {prog} projects                            List discovered workspace projects and open task counts
-  {prog} <ID> | show <ID|last>               Show task <ID> with Task/Title/Role/Workdir headers (or last [<STATUS|archive>], supports <project>:<ID>)
+  {prog} <ID>... | show <ID>... | show last  Show tasks <ID>... (space- or comma-separated, supports <project>:<ID>, blank-line separated)
+                                             with Task/Title/Role/Workdir headers; last [<STATUS|archive>] shows the last task in a status
   {prog} last [<STATUS|archive>]           Show full section for last task in status/archive (default: NEW)
   {prog} last-id [<STATUS|archive>]        Print ID of last task in status/archive (default: NEW)
   {prog} list [filter] [<ID>...] [opts]      List tasks (active | archive | all | <STATUS>; highlight <ID>...; opts: --role ROLE, --ready, --limit N, --full)
@@ -19,8 +22,8 @@
   {prog} done <ID> [-m SHA_OR_NOTE]          Mark task <ID> as DONE and move it to TODO_ARCHIVE.md
   {prog} cancel <ID> [-m REASON]             Mark task <ID> as CANCELED and move it to TODO_ARCHIVE.md
   {prog} ids                                 Print highest task IDs in use and next available ID per prefix
-  {prog} queue <ID> [--all]                  Show topologically sorted execution queue for <ID> (use --all to include DONE)
-  {prog} chain [<ID>...] [--all] [--by-role] [--role ROLE] [--ready] [--limit N] [--include-hold]  Show chain finales, root-anchored RPG progress chains & nested Sub-chain milestones (--all to include DONE), role queues (--by-role), & ready tasks (highlight <ID>...)
+  {prog} queue <ID> [--all]                  Alias for chain <ID> [--all]: focused Quest-Log with Next actionable (--all includes DONE)
+  {prog} chain [<ID>...] [opts]              Show the Quest-Log: chain finales, root-anchored chains, role queues, ready tasks (see Quest-Log options)
   {prog} next-id [<ID>] [--role ROLE] | --top  Print top ready WIP/NEXT ID, or first ready ID in <ID>'s queue
   {prog} files [<ID>] | --files [<ID>]       List existing repository file paths referenced in backticks in task <ID>
                                              Opts: --max-lines N, --max-total-lines N, --max-bytes N, --max-total-bytes N
@@ -39,6 +42,23 @@ Global options (accepted before subcommands):
   --full                        Show full task sections without compacting NEW/HOLD
   -c, --commit                  Git-commit TODO*.md after mutating commands (opt-in)
   --no-commit                   Accepted as a no-op alias (commits are disabled by default)
+
+Quest-Log options ({prog} [opts], {prog} chain [<ID>...] [opts], {prog} queue <ID>, {prog} search <QUERY>):
+  -t, --tree                    Render nested Sub-chain milestone trees with 4-char connectors (default: flat rows in execution order)
+  --numbered[=left|right]       Add period-free row numbers padded to the widest number (default: no numbers; side default: left)
+  -l N, --limit N, -n N         Limit displayed rows to N (-n is a backward-compatible alias)
+  --all                         Include resolved DONE prerequisites (same as the ALL status keyword)
+  --ready                       Show only ready tasks with their next unblocked targets
+  --by-role                     Partition active tasks into role queues
+  --role ROLE                   Show only tasks matching ROLE
+  --include-hold                Include HOLD tasks and branches blocked by HOLD
+  --status STATUS               Status filter WIP|NEXT|QUESTION|NEW|HOLD|ACTIVE|ALL (also accepted as a bare keyword);
+                                DONE|CANCELED|ARCHIVE render the list view instead
+  -f, --focus <ID>...           Scope output to chains containing <ID>... (highlighted; prints Next actionable for one ID);
+                                positional <ID>... under chain/queue do the same
+  -H, --highlight <ID>...       Render the full Quest-Log and highlight <ID>...
+  -s, --search QUERY            Search IDs, titles, and bodies (case-insensitive regex, substring if invalid); searches TODO.md only
+                                unless --all or an archive status is set; scopes the Quest-Log, or prints sections with --full
 
 Tabular views (list, chain, queue, projects) align status badges by display width and wrap long
 descriptions into aligned columns based on terminal width (falling back to a 4-space indent on
@@ -74,7 +94,7 @@ import unicodedata
 from datetime import date
 from pathlib import Path
 
-VERSION = "0.32.0"
+VERSION = "0.33.0"
 REPO_MARKER = "todo_md-repo: vitalio/todo_md"
 DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/vitalio/todo_md/main/todo_md"
 FENCE = chr(96) * 3
@@ -948,6 +968,28 @@ def collect_all_tasks(base_dir: Path) -> list[dict[str, object]]:
         if p.is_file():
             all_tasks.extend(parse_tasks_in_text(read_if_exists(p), fname))
     return all_tasks
+
+
+def compile_search_pattern(query: str) -> re.Pattern[str]:
+    try:
+        return re.compile(query, re.IGNORECASE | re.MULTILINE)
+    except re.error:
+        return re.compile(re.escape(query), re.IGNORECASE)
+
+
+def search_tasks(base_dir: Path, query: str, include_archive: bool = False) -> list[dict[str, object]]:
+    pat = compile_search_pattern(query)
+    fnames = TASK_FILES if include_archive else TASK_FILES[:1]
+    matches: list[dict[str, object]] = []
+    for fname in fnames:
+        path = base_dir / fname
+        if not path.is_file():
+            continue
+        for t in parse_tasks_in_text(read_if_exists(path), fname):
+            haystack = f"{t['id']}\n{t['title']}\n{t.get('section', '')}"
+            if pat.search(haystack):
+                matches.append(t)
+    return matches
 
 
 def highest_ids_in_use(base_dir: Path) -> dict[str, int]:
@@ -4476,70 +4518,6 @@ def resolve_top_task_id(
     return None
 
 
-def cmd_queue(
-    base_dir: Path,
-    target_dir: Path,
-    task_id: str,
-    show_all: bool = False,
-    explicit_dir: str | None = None,
-) -> int:
-    dag = build_dependency_dag(
-        base_dir,
-        target_dir,
-        task_id,
-        explicit_dir=explicit_dir,
-        stop_at_done=True,
-    )
-    nodes: dict[tuple[Path, str], dict[str, object]] = dag["nodes"]  # type: ignore[assignment]
-    prereqs: dict[tuple[Path, str], list[tuple[Path, str]]] = dag["prereqs"]  # type: ignore[assignment]
-    topo_order: list[tuple[Path, str]] = dag["topo_order"]  # type: ignore[assignment]
-    root_key: tuple[Path, str] = dag["root"]  # type: ignore[assignment]
-    root_node = nodes[root_key]
-    if not root_node["exists"]:
-        sys.stderr.write(f"{prog_name()}: task {root_node['ref']!r} not found in TODO*.md under {target_dir}\n")
-        return 1
-    syntax_errors: list[str] = dag["syntax_errors"]  # type: ignore[assignment]
-    if syntax_errors:
-        for e in syntax_errors:
-            sys.stderr.write(f"ERROR: {e}\n")
-        return 1
-    cycle: list[str] = dag["cycle"]  # type: ignore[assignment]
-    if cycle:
-        sys.stderr.write(f"ERROR: dependency cycle detected: {' -> '.join(cycle)}\n")
-        return 1
-
-    shown = topo_order if show_all else [u for u in topo_order if str(nodes[u]["status"]) != "DONE"]
-    if not shown:
-        sys.stdout.write(f"No pending tasks in queue for {root_node['ref']} (all tasks DONE)\n")
-    else:
-        term_width = _get_terminal_columns()
-        for idx, u in enumerate(shown, start=1):
-            nd = nodes[u]
-            st = str(nd["status"])
-            ref = str(nd["ref"])
-            title = str(nd["title"])
-            if st == "MISSING":
-                badge = "[MISSING]"
-                marker = "[blocked]"
-            elif st == "CANCELED":
-                badge = f"{nd['emoji']} [CANCELED]"
-                marker = "[blocked]"
-            elif st == "DONE":
-                badge = f"{nd['emoji']} [DONE]"
-                marker = ""
-            else:
-                badge = f"{nd['emoji']} [{st}]"
-                blockers = [str(nodes[p]["ref"]) for p in prereqs[u] if str(nodes[p]["status"]) != "DONE"]
-                marker = f"[blocked by: {', '.join(blockers)}]" if blockers else "[ready]"
-            desc = f"{title}  {marker}" if marker else title
-            prefix = f"  {idx:>2}. {_pad_display(ref, 20)}  {_pad_display(badge, 14)}  "
-            sys.stdout.write(_wrap_table_row(prefix, desc, term_width) + "\n")
-
-    next_act = _first_actionable_in_dag(dag)
-    sys.stdout.write(f"Next actionable: {next_act or 'none'}\n")
-    return 0
-
-
 def cmd_next_id(
     base_dir: Path,
     target_dir: Path | None = None,
@@ -4694,8 +4672,13 @@ def cmd_chain(
     workspace: bool = False,
     explicit_dir: str | None = None,
     targets: list[tuple[Path, str]] | None = None,
+    tree: bool = False,
+    numbered: str | None = None,
+    focus: list[tuple[Path, str]] | None = None,
+    status: frozenset[str] | None = None,
 ) -> int:
     b_res = base_dir.resolve()
+    row_scoped = status is not None or bool(focus)
     ws_root = resolve_workspace_root(b_res, explicit_dir=explicit_dir)
     is_orch = (not workspace) and is_orchestrator_project(b_res, ws_root, explicit_dir=explicit_dir)
     if workspace:
@@ -4749,7 +4732,7 @@ def cmd_chain(
             dag,
             include_hold=include_hold,
             ready_only=ready,
-            limit=(None if target_project is not None else limit),
+            limit=(None if (target_project is not None or row_scoped) else limit),
             role=role,
         )
     else:
@@ -4757,7 +4740,7 @@ def cmd_chain(
             dag,
             include_hold=include_hold,
             ready_only=ready,
-            limit=(None if (role is not None or target_project is not None) else limit),
+            limit=(None if (role is not None or row_scoped or target_project is not None) else limit),
             include_done=include_done,
         )
     active_nodes: list[tuple[Path, str]] = plan["active_nodes"]  # type: ignore[assignment]
@@ -4817,6 +4800,28 @@ def cmd_chain(
         nd = nodes[u]
         return bool(nd.get("exists")) and _task_matches_role(nd, wanted_role)
 
+    focus_set, focus_unscoped = _normalize_target_refs(base_dir, focus, explicit_dir=explicit_dir)
+    focus_active = bool(focus_set or focus_unscoped)
+
+    def _is_focus_node(u: tuple[Path, str]) -> bool:
+        return (u[0].resolve(), u[1].upper()) in focus_set or u[1].upper() in focus_unscoped
+
+    def _status_ok(u: tuple[Path, str]) -> bool:
+        return status is None or str(nodes[u]["status"]) in status
+
+    def _row_ok(u: tuple[Path, str]) -> bool:
+        return _status_ok(u) and (not focus_active or _is_focus_node(u))
+
+    num_w_box = [1]
+
+    def _lead_cell(prefix: str, idx: int, ref: str) -> str:
+        if numbered is None:
+            return f"{prefix}{ref}"
+        width = num_w_box[0]
+        if numbered == "right":
+            return f"{prefix}{idx:>{width}} {ref}"
+        return f"{prefix}{idx:<{width}} {ref}"
+
     def _format_row(
         idx: int,
         u: tuple[Path, str],
@@ -4872,10 +4877,7 @@ def cmd_chain(
         if also_in_refs:
             also_tag = f"[also in: {', '.join(also_in_refs)}]"
             status_tag = f"{status_tag} {also_tag}" if status_tag else also_tag
-        if tree_prefix:
-            lead_cell = f"{tree_prefix}{idx}. {ref}"
-        else:
-            lead_cell = f"{idx:>2}. {ref}"
+        lead_cell = _lead_cell(tree_prefix, idx, ref)
         prefix = (
             f"  {_pad_display(lead_cell, lead_col_width)}  "
             f"{_pad_display(badge, 14)}  "
@@ -4914,6 +4916,10 @@ def cmd_chain(
             held_paths = [path for path in held_paths if any(_is_target_node(k) for k in path)]
         if wanted_role is not None:
             held_paths = [path for path in held_paths if any(_matches_role(k) for k in path)]
+        if focus_active:
+            held_paths = [path for path in held_paths if any(_is_focus_node(k) for k in path)]
+        if status is not None:
+            held_paths = [path for path in held_paths if any(_status_ok(k) for k in path)]
 
     scoped_excluded_hold = {
         u
@@ -4923,9 +4929,9 @@ def cmd_chain(
 
     if by_role:
         queues: list[tuple[str, str, list[tuple[Path, str]]]] = plan["queues"]  # type: ignore[assignment]
-        if target_project is not None:
+        if target_project is not None or row_scoped:
             queues = [
-                (q_key, q_label, [u for u in q_items if _is_target_node(u)])
+                (q_key, q_label, [u for u in q_items if _is_target_node(u) and _row_ok(u)])
                 for q_key, q_label, q_items in queues
             ]
             if limit is not None:
@@ -4940,7 +4946,8 @@ def cmd_chain(
                     rem -= len(take)
                 queues = limited_queues
         non_empty_queues = [(q_label, q_items) for _, q_label, q_items in queues if q_items]
-        matching_held = [u for u in scoped_excluded_hold if _matches_role(u) and _is_target_node(u)]
+        num_w_box[0] = len(str(max(1, sum(len(q_items) for _, q_items in non_empty_queues))))
+        matching_held = [u for u in scoped_excluded_hold if _matches_role(u) and _is_target_node(u) and _row_ok(u)]
         if non_empty_queues:
             row_idx = 1
             for sec_idx, (q_label, q_items) in enumerate(non_empty_queues):
@@ -4965,9 +4972,12 @@ def cmd_chain(
             ready_tasks = [u for u in ready_tasks if _is_target_node(u)]
         if wanted_role is not None:
             ready_tasks = [u for u in ready_tasks if _matches_role(u)]
-        if (target_project is not None or wanted_role is not None) and limit is not None:
+        if row_scoped:
+            ready_tasks = [u for u in ready_tasks if _row_ok(u)]
+        if (target_project is not None or wanted_role is not None or row_scoped) and limit is not None:
             ready_tasks = ready_tasks[:limit]
-        matching_held = [u for u in scoped_excluded_hold if _matches_role(u) and _is_target_node(u)]
+        matching_held = [u for u in scoped_excluded_hold if _matches_role(u) and _is_target_node(u) and _row_ok(u)]
+        num_w_box[0] = len(str(max(1, len(ready_tasks))))
         if ready_tasks:
             sys.stdout.write("Ready tasks:\n")
             for idx, u in enumerate(ready_tasks, start=1):
@@ -5032,7 +5042,24 @@ def cmd_chain(
                     filtered_chains_with_stats.append((f_comp, st_info))
             chains_with_stats = filtered_chains_with_stats
             standalone = [u for u in standalone if _matches_role(u)]
-        if (target_project is not None or wanted_role is not None) and limit is not None:
+        if row_scoped:
+            finales = [u for u in finales if _row_ok(u)]
+            scoped_chains: list[tuple[list[tuple[Path, str]], dict[str, object]]] = []
+            for comp, st_info in chains_with_stats:
+                c_nodes = (
+                    set(comp)
+                    | set(st_info.get("nodes", []))  # type: ignore[arg-type]
+                    | set(st_info.get("open_nodes", []))  # type: ignore[arg-type]
+                    | set(st_info.get("done_nodes", set()))  # type: ignore[arg-type]
+                )
+                if focus_active and not any(_is_focus_node(u) for u in c_nodes):
+                    continue
+                f_comp = [u for u in comp if _status_ok(u)]
+                if f_comp:
+                    scoped_chains.append((f_comp, st_info))
+            chains_with_stats = scoped_chains
+            standalone = [u for u in standalone if _row_ok(u)]
+        if (target_project is not None or wanted_role is not None or row_scoped) and limit is not None:
             rem = limit
             finales = finales[:rem] if rem > 0 else []
             rem -= len(finales)
@@ -5045,10 +5072,44 @@ def cmd_chain(
                 rem -= len(take)
             standalone = standalone[:rem] if rem > 0 else []
             chains_with_stats = limited_chains_with_stats
-        matching_held = [u for u in scoped_excluded_hold if _matches_role(u) and _is_target_node(u)]
+        matching_held = [u for u in scoped_excluded_hold if _matches_role(u) and _is_target_node(u) and _row_ok(u)]
         if finales or chains_with_stats or standalone:
             row_idx = 1
             wrote_section = False
+
+            def _build_chain_tree(
+                comp_nodes: list[tuple[Path, str]],
+                st_info: dict[str, object],
+            ) -> dict[str, object]:
+                r_key = st_info.get("root")
+                t_root: tuple[Path, str] = (
+                    r_key
+                    if isinstance(r_key, tuple) and r_key in nodes
+                    else (comp_nodes[-1] if comp_nodes else (b_res, ""))
+                )
+                return build_chain_milestone_tree(
+                    root=t_root,
+                    display_nodes=comp_nodes,
+                    nodes=nodes,
+                    prereqs=prereqs,
+                    done_nodes=done_nodes,
+                    direct_done_deps=direct_done_deps,
+                    done_graph_prereqs=done_graph_prereqs,
+                    include_done=include_done,
+                )
+
+            def _flat_tree_nodes(t_node: dict[str, object]) -> list[tuple[Path, str]]:
+                flat: list[tuple[Path, str]] = []
+                for ch_item in t_node.get("children", []):  # type: ignore[attr-defined]
+                    if ch_item.get("kind") == "subchain":
+                        flat.extend(_flat_tree_nodes(ch_item))
+                    else:
+                        flat.append(ch_item["node"])
+                return flat
+
+            chain_trees = [_build_chain_tree(c_nodes, c_info) for c_nodes, c_info in chains_with_stats]
+            total_rows = len(finales) + len(standalone) + sum(len(_flat_tree_nodes(ct)) for ct in chain_trees)
+            num_w_box[0] = len(str(max(1, total_rows)))
             if finales:
                 sys.stdout.write("Chain finales:\n")
                 for u in finales:
@@ -5103,21 +5164,7 @@ def cmd_chain(
                         use_color=use_color,
                     )
                 )
-                tree_root: tuple[Path, str] = (
-                    root_key
-                    if isinstance(root_key, tuple) and root_key in nodes
-                    else (comp[-1] if comp else (b_res, ""))
-                )
-                chain_tree = build_chain_milestone_tree(
-                    root=tree_root,
-                    display_nodes=comp,
-                    nodes=nodes,
-                    prereqs=prereqs,
-                    done_nodes=done_nodes,
-                    direct_done_deps=direct_done_deps,
-                    done_graph_prereqs=done_graph_prereqs,
-                    include_done=include_done,
-                )
+                chain_tree = chain_trees[chain_idx - 1]
 
                 def _max_lead_width(
                     t_node: dict[str, object],
@@ -5140,8 +5187,8 @@ def cmd_chain(
                             u_node: tuple[Path, str] = ch_item["node"]  # type: ignore[assignment]
                             bars = "".join("│   " if b else "    " for b in active_bars)
                             is_closing = bool(ch_item.get("is_closing")) and is_last_c
-                            conn = "└─► " if is_closing else ("└─ " if is_last_c else "├─ ")
-                            cell = f"{bars}{conn}{sim_idx}. {nodes[u_node]['ref']}"
+                            conn = "└─► " if is_closing else ("└── " if is_last_c else "├── ")
+                            cell = _lead_cell(f"{bars}{conn}", sim_idx, str(nodes[u_node]["ref"]))
                             cw = _display_width(cell)
                             if cw > max_w:
                                 max_w = cw
@@ -5168,7 +5215,7 @@ def cmd_chain(
                             m_open = int(ch_item.get("open_count", 0))
                             sub_nodes: set[tuple[Path, str]] = ch_item.get("subtree_nodes", {m_node})  # type: ignore[assignment]
                             sub_hl = any(_is_highlighted_node(su) for su in sub_nodes)
-                            sub_conn = "└─ " if is_last_c else "├─ "
+                            sub_conn = "└── " if is_last_c else "├── "
                             sub_prefix = f"  {bars}{sub_conn}"
                             sub_cont_bars = "".join(
                                 "│   " if b else "    " for b in [*active_bars, not is_last_c]
@@ -5204,7 +5251,7 @@ def cmd_chain(
                         else:
                             u_node: tuple[Path, str] = ch_item["node"]  # type: ignore[assignment]
                             is_closing = bool(ch_item.get("is_closing")) and is_last_c
-                            conn = "└─► " if is_closing else ("└─ " if is_last_c else "├─ ")
+                            conn = "└─► " if is_closing else ("└── " if is_last_c else "├── ")
                             t_pref = f"{bars}{conn}"
                             row_bars = [*active_bars, not is_last_c]
                             cont_bars_str = "".join("│   " if b else "    " for b in row_bars)
@@ -5222,7 +5269,29 @@ def cmd_chain(
                             cur_idx += 1
                     return cur_idx
 
-                row_idx = _render_chain_tree_children(chain_tree, [], row_idx)
+                if tree:
+                    row_idx = _render_chain_tree_children(chain_tree, [], row_idx)
+                else:
+                    flat_nodes = _flat_tree_nodes(chain_tree)
+                    flat_w = max(
+                        [
+                            24,
+                            *(
+                                _display_width(_lead_cell("", row_idx + k, str(nodes[fu]["ref"])))
+                                for k, fu in enumerate(flat_nodes)
+                            ),
+                        ]
+                    )
+                    for fu in flat_nodes:
+                        sys.stdout.write(
+                            _format_row(
+                                row_idx,
+                                fu,
+                                also_in_refs=also_in_map.get(fu),
+                                lead_col_width=flat_w,
+                            )
+                        )
+                        row_idx += 1
                 wrote_section = True
             if standalone:
                 if wrote_section:
@@ -5256,6 +5325,15 @@ def cmd_chain(
                 parts.append(token)
             rendered = " -> ".join(parts)
             sys.stdout.write(f"  {rendered}\n")
+
+    if focus is not None and len(focus) == 1:
+        f_dir, f_tid = focus[0]
+        f_dag = build_dependency_dag(base_dir, f_dir, f_tid, explicit_dir=explicit_dir, stop_at_done=True)
+        f_nodes: dict[tuple[Path, str], dict[str, object]] = f_dag["nodes"]  # type: ignore[assignment]
+        f_root: tuple[Path, str] = f_dag["root"]  # type: ignore[assignment]
+        if f_nodes[f_root]["exists"] and not f_dag["syntax_errors"] and not f_dag["cycle"]:
+            f_next = _first_actionable_in_dag(f_dag)
+            sys.stdout.write(f"\nNext actionable: {f_next or 'none'}\n")
 
     return 1 if had_blocker_error else 0
 
@@ -5354,11 +5432,278 @@ KNOWN_SUBCOMMANDS = (
     "check-update",
     "help",
     "version",
+    "overview",
+    "search",
 )
 
 
 def _validate_role_filter(prog: str, raw_val: str) -> str:
     return _normalize_role_arg(raw_val)
+
+STATUS_FILTER_KEYWORDS = (
+    "WIP",
+    "NEXT",
+    "QUESTION",
+    "NEW",
+    "HOLD",
+    "DONE",
+    "CANCELED",
+    "ARCHIVE",
+    "ACTIVE",
+    "ALL",
+)
+QUEST_LOG_USAGE = (
+    "[--tree] [--numbered[=left|right]] [--status STATUS] [--all] [--ready] [--by-role] "
+    "[--role ROLE] [-l N|--limit N] [--include-hold] [--focus <ID>...] [--highlight <ID>...]"
+)
+
+
+def _is_status_keyword(tok: str) -> bool:
+    return tok.upper() in STATUS_FILTER_KEYWORDS
+
+
+def _collect_task_refs(args: list[str]) -> list[str] | None:
+    refs: list[str] = []
+    for a in args:
+        parts = _split_task_ref_arg(a)
+        if parts is None:
+            return None
+        refs.extend(parts)
+    return refs
+
+
+def _consume_task_refs(prog: str, flag: str, args: list[str], i: int) -> tuple[list[str], int]:
+    refs: list[str] = []
+    while i < len(args) and not args[i].startswith("-"):
+        parts = _split_task_ref_arg(args[i])
+        if parts is None:
+            break
+        refs.extend(parts)
+        i += 1
+    if not refs:
+        raise SystemExit(f"{prog}: {flag} requires at least one task ID")
+    return refs, i
+
+
+def _parse_limit(prog: str, raw: str) -> int:
+    if not raw.isdigit() or int(raw) < 1:
+        raise SystemExit(f"{prog}: invalid limit {raw!r}; expected a positive integer")
+    return int(raw)
+
+
+def _parse_quest_log_args(prog: str, argv: list[str], cmd: str, positional_focus: bool) -> dict[str, object]:
+    o: dict[str, object] = {
+        "limit": None,
+        "include_hold": False,
+        "include_done": False,
+        "ready": False,
+        "by_role": False,
+        "tree": False,
+        "numbered": None,
+        "role": None,
+        "status": None,
+        "archive": None,
+        "focus": [],
+        "highlight": [],
+        "search": None,
+    }
+
+    def set_status(raw: str) -> None:
+        kw = raw.strip().upper()
+        if kw not in STATUS_FILTER_KEYWORDS:
+            raise SystemExit(
+                f"{prog}: invalid status {raw!r}; expected one of {', '.join(STATUS_FILTER_KEYWORDS)}"
+            )
+        if kw == "ALL":
+            o["include_done"] = True
+        elif kw == "ACTIVE":
+            pass
+        elif kw in ("DONE", "CANCELED", "ARCHIVE"):
+            o["archive"] = kw
+        else:
+            o["status"] = frozenset({kw})
+            if kw == "HOLD":
+                o["include_hold"] = True
+
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a in ("--limit", "-n", "-l"):
+            if i + 1 >= len(argv):
+                raise SystemExit(f"{prog}: {a} requires an integer argument")
+            o["limit"] = _parse_limit(prog, argv[i + 1])
+            i += 2
+        elif a.startswith("--limit="):
+            o["limit"] = _parse_limit(prog, a.split("=", 1)[1])
+            i += 1
+        elif a == "--role":
+            if i + 1 >= len(argv):
+                raise SystemExit(f"{prog}: {a} requires a role argument")
+            o["role"] = _validate_role_filter(prog, argv[i + 1])
+            i += 2
+        elif a.startswith("--role="):
+            o["role"] = _validate_role_filter(prog, a.split("=", 1)[1])
+            i += 1
+        elif a == "--status":
+            if i + 1 >= len(argv):
+                raise SystemExit(f"{prog}: {a} requires a status argument")
+            set_status(argv[i + 1])
+            i += 2
+        elif a.startswith("--status="):
+            set_status(a.split("=", 1)[1])
+            i += 1
+        elif a in ("--focus", "-f"):
+            refs, i = _consume_task_refs(prog, a, argv, i + 1)
+            o["focus"].extend(refs)  # type: ignore[attr-defined]
+        elif a in ("--highlight", "-H"):
+            refs, i = _consume_task_refs(prog, a, argv, i + 1)
+            o["highlight"].extend(refs)  # type: ignore[attr-defined]
+        elif a in ("--search", "-s"):
+            if i + 1 >= len(argv) or not argv[i + 1].strip():
+                raise SystemExit(f"{prog}: {a} requires a non-empty query argument")
+            o["search"] = argv[i + 1]
+            i += 2
+        elif a.startswith("--search="):
+            if not a.split("=", 1)[1].strip():
+                raise SystemExit(f"{prog}: --search requires a non-empty query argument")
+            o["search"] = a.split("=", 1)[1]
+            i += 1
+        elif a in ("--tree", "-t"):
+            o["tree"] = True
+            i += 1
+        elif a == "--numbered" or a.startswith("--numbered="):
+            side = a.split("=", 1)[1] if "=" in a else "left"
+            if side not in ("left", "right"):
+                raise SystemExit(f"{prog}: invalid --numbered value {side!r}; expected left or right")
+            o["numbered"] = side
+            i += 1
+        elif a == "--include-hold":
+            o["include_hold"] = True
+            i += 1
+        elif a == "--all":
+            o["include_done"] = True
+            i += 1
+        elif a == "--ready":
+            o["ready"] = True
+            i += 1
+        elif a == "--by-role":
+            o["by_role"] = True
+            i += 1
+        elif a.startswith("-"):
+            raise SystemExit(f"{prog}: unknown option for {cmd}: {a}")
+        elif _is_status_keyword(a):
+            set_status(a)
+            i += 1
+        else:
+            parts = _split_task_ref_arg(a)
+            if parts is None:
+                raise SystemExit(f"{prog}: usage: {prog} {cmd} [<ID>...] {QUEST_LOG_USAGE}")
+            if not positional_focus:
+                raise SystemExit(
+                    f"{prog}: unexpected task ID {a!r} for the default view "
+                    f"(use --focus/--highlight, or '{prog} chain <ID>')"
+                )
+            o["focus"].extend(parts)  # type: ignore[attr-defined]
+            i += 1
+    return o
+
+
+def _quest_log(
+    prog: str,
+    base_dir: Path,
+    explicit_dir: str | None,
+    workspace: bool,
+    full: bool,
+    argv: list[str],
+    cmd: str = "todo_md",
+    positional_focus: bool = False,
+) -> int:
+    o = _parse_quest_log_args(prog, argv, cmd, positional_focus)
+    focus_refs = [
+        resolve_project_task_ref(base_dir, r, explicit_dir=explicit_dir)
+        for r in o["focus"]  # type: ignore[attr-defined]
+    ]
+    highlight_refs = [
+        resolve_project_task_ref(base_dir, r, explicit_dir=explicit_dir)
+        for r in o["highlight"]  # type: ignore[attr-defined]
+    ]
+    use_ws = workspace
+    if not use_ws and not is_todo_project(base_dir) and not (base_dir / "TODO.md").is_file():
+        ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
+        if discover_projects(ws_root):
+            use_ws = True
+    search = o["search"]
+    if search is not None:
+        include_archive = bool(o["include_done"]) or o["archive"] is not None
+        if use_ws:
+            ws_root_s = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
+            search_dirs = [pdir for _, pdir in resolve_workspace_chain_projects(base_dir, ws_root_s)]
+        else:
+            search_dirs = [base_dir]
+        search_matches: list[tuple[Path, str]] = []
+        for sdir in search_dirs:
+            for st in search_tasks(sdir, str(search), include_archive=include_archive):
+                search_matches.append((sdir, str(st["id"]).upper()))
+        if not search_matches:
+            sys.stderr.write(f"{prog}: no tasks match {search!r}\n")
+            return 1
+        if full:
+            show_rc = 0
+            for n, (sdir, stid) in enumerate(search_matches):
+                if n > 0:
+                    sys.stdout.write("\n")
+                show_rc = max(show_rc, cmd_show(sdir, stid))
+            return show_rc
+        focus_refs = [*focus_refs, *search_matches]
+    archive = o["archive"]
+    if archive is not None:
+        filt = "archive" if archive == "ARCHIVE" else str(archive)
+        list_targets = [*focus_refs, *highlight_refs]
+        if use_ws:
+            ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
+            return cmd_workspace_list(
+                ws_root, filt, limit=o["limit"], full=full, role=o["role"], ready=False, targets=list_targets
+            )
+        return cmd_list(
+            base_dir, filt, limit=o["limit"], full=full, role=o["role"], ready=False, targets=list_targets
+        )
+    return cmd_chain(
+        base_dir,
+        limit=o["limit"],
+        include_hold=o["include_hold"],
+        include_done=o["include_done"],
+        ready=o["ready"],
+        role=o["role"],
+        by_role=o["by_role"],
+        workspace=use_ws,
+        explicit_dir=explicit_dir,
+        targets=[*focus_refs, *highlight_refs],
+        tree=o["tree"],
+        numbered=o["numbered"],
+        focus=(focus_refs or None),
+        status=o["status"],
+    )
+
+
+def _overview(base_dir: Path, explicit_dir: str | None, workspace: bool, full: bool) -> int:
+    if workspace:
+        return cmd_workspace_summary(resolve_workspace_root(base_dir, explicit_dir=explicit_dir), full=full)
+    if not is_todo_project(base_dir) and not (base_dir / "TODO.md").is_file():
+        ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
+        if discover_projects(ws_root):
+            return cmd_workspace_summary(ws_root, full=full)
+    return cmd_summary(base_dir, full=full)
+
+
+def _show_tasks(base_dir: Path, refs: list[str], explicit_dir: str | None) -> int:
+    rc = 0
+    for n, ref in enumerate(refs):
+        tdir, tid = resolve_project_task_ref(base_dir, ref, explicit_dir=explicit_dir)
+        if n > 0:
+            sys.stdout.write("\n")
+        rc = max(rc, cmd_show(tdir, tid))
+    return rc
+
 
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
@@ -5436,14 +5781,18 @@ def main(argv: list[str] | None = None) -> int:
     base_dir = resolve_target_dir(explicit_dir)
     if args and args[0] in ("projects", "--projects"):
         return cmd_projects(base_dir, explicit_dir=explicit_dir)
+    if args and args[0] in ("search", "--search-cmd"):
+        if len(args) < 2 or args[1].startswith("-") or not args[1].strip():
+            raise SystemExit(f"{prog}: usage: {prog} search <QUERY> [opts]")
+        return _quest_log(prog, base_dir, explicit_dir, workspace, full, ["--search", args[1], *args[2:]], cmd="search")
+    if args and args[0] in ("overview", "--overview"):
+        if len(args) > 1:
+            raise SystemExit(f"{prog}: usage: {prog} overview [--full] [-w]")
+        return _overview(base_dir, explicit_dir, workspace, full)
     if not args:
-        if workspace:
-            return cmd_workspace_summary(resolve_workspace_root(base_dir, explicit_dir=explicit_dir), full=full)
-        if not is_todo_project(base_dir) and not (base_dir / "TODO.md").is_file():
-            ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
-            if discover_projects(ws_root):
-                return cmd_workspace_summary(ws_root, full=full)
-        return cmd_summary(base_dir, full=full)
+        if full:
+            return _overview(base_dir, explicit_dir, workspace, True)
+        return _quest_log(prog, base_dir, explicit_dir, workspace, full, [])
     if args[0] in ("archive", "--archive", "-a"):
         pos, note = _parse_note_arg(args[1:])
         canceled = "--canceled" in pos or "--cancel" in pos
@@ -5473,7 +5822,9 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit(f"{prog}: usage: {prog} cancel <ID> [-m REASON]")
         tdir, tid = resolve_project_task_ref(base_dir, pos[0], explicit_dir=explicit_dir)
         return cmd_transition(tdir, tid, new_status="CANCELED", dest_file="TODO_ARCHIVE.md", note=note, commit=commit, no_commit=no_commit)
-    if args[0] in ("status", "--status"):
+    if args[0] == "status" or (
+        args[0] == "--status" and len(args) > 1 and _collect_task_refs([args[1]]) is not None
+    ):
         pos, note = _parse_note_arg(args[1:])
         reopen = "--reopen" in pos
         pos = [p for p in pos if p != "--reopen"]
@@ -5488,94 +5839,18 @@ def main(argv: list[str] | None = None) -> int:
     if args[0] in ("reopen", "--reopen"):
         return cmd_reopen(base_dir, args[1:], commit=commit, no_commit=no_commit, explicit_dir=explicit_dir)
     if args[0] in ("queue", "--queue"):
-        show_all = False
-        pos: list[str] = []
-        for a in args[1:]:
-            if a == "--all":
-                show_all = True
-            elif a.startswith("-"):
-                raise SystemExit(f"{prog}: unknown option for queue: {a}")
-            else:
-                pos.append(a)
-        if len(pos) != 1:
+        bad_q = [a for a in args[1:] if a.startswith("-") and a != "--all"]
+        if bad_q:
+            raise SystemExit(f"{prog}: unknown option for queue: {bad_q[0]}")
+        q_pos = [a for a in args[1:] if a != "--all"]
+        if len(q_pos) != 1 or "," in q_pos[0] or _split_task_ref_arg(q_pos[0]) is None:
             raise SystemExit(f"{prog}: usage: {prog} queue <ID> [--all]")
-        tdir, tid = resolve_project_task_ref(base_dir, pos[0], explicit_dir=explicit_dir)
-        return cmd_queue(base_dir, tdir, tid, show_all=show_all, explicit_dir=explicit_dir)
+        return _quest_log(
+            prog, base_dir, explicit_dir, workspace, full, args[1:], cmd="queue", positional_focus=True
+        )
     if args[0] in ("chain", "--chain"):
-        limit: int | None = None
-        include_hold = False
-        include_done = False
-        ready = False
-        by_role = False
-        role_filter: str | None = None
-        raw_target_refs: list[str] = []
-        i = 1
-        while i < len(args):
-            a = args[i]
-            if a in ("--limit", "-n"):
-                if i + 1 >= len(args):
-                    raise SystemExit(f"{prog}: {a} requires an integer argument")
-                raw_lim = args[i + 1]
-                if not raw_lim.isdigit() or int(raw_lim) < 1:
-                    raise SystemExit(f"{prog}: invalid limit {raw_lim!r}; expected a positive integer")
-                limit = int(raw_lim)
-                i += 2
-            elif a.startswith("--limit="):
-                raw_lim = a.split("=", 1)[1]
-                if not raw_lim.isdigit() or int(raw_lim) < 1:
-                    raise SystemExit(f"{prog}: invalid limit {raw_lim!r}; expected a positive integer")
-                limit = int(raw_lim)
-                i += 1
-            elif a == "--role":
-                if i + 1 >= len(args):
-                    raise SystemExit(f"{prog}: {a} requires a role argument")
-                role_filter = _validate_role_filter(prog, args[i + 1])
-                i += 2
-            elif a.startswith("--role="):
-                role_filter = _validate_role_filter(prog, a.split("=", 1)[1])
-                i += 1
-            elif a == "--include-hold":
-                include_hold = True
-                i += 1
-            elif a == "--all":
-                include_done = True
-                i += 1
-            elif a == "--ready":
-                ready = True
-                i += 1
-            elif a == "--by-role":
-                by_role = True
-                i += 1
-            elif a.startswith("-"):
-                raise SystemExit(f"{prog}: unknown option for chain: {a}")
-            else:
-                ref_parts = _split_task_ref_arg(a)
-                if ref_parts is None:
-                    raise SystemExit(
-                        f"{prog}: usage: {prog} chain [<ID>...] [--all] [--by-role] [--role ROLE] [--ready] [--limit N] [--include-hold]"
-                    )
-                raw_target_refs.extend(ref_parts)
-                i += 1
-        target_refs: list[tuple[Path, str]] = [
-            resolve_project_task_ref(base_dir, ref, explicit_dir=explicit_dir)
-            for ref in raw_target_refs
-        ]
-        use_ws = workspace
-        if not use_ws and not is_todo_project(base_dir) and not (base_dir / "TODO.md").is_file():
-            ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
-            if discover_projects(ws_root):
-                use_ws = True
-        return cmd_chain(
-            base_dir,
-            limit=limit,
-            include_hold=include_hold,
-            include_done=include_done,
-            ready=ready,
-            role=role_filter,
-            by_role=by_role,
-            workspace=use_ws,
-            explicit_dir=explicit_dir,
-            targets=target_refs,
+        return _quest_log(
+            prog, base_dir, explicit_dir, workspace, full, args[1:], cmd="chain", positional_focus=True
         )
     if args[0] in ("next-id", "--next-id"):
         role_filter: str | None = None
@@ -5691,7 +5966,7 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_check(base_dir)
     if args[0] in ("init", "--init"):
         return cmd_init(base_dir, argv=args[1:], commit=commit, no_commit=no_commit)
-    if args[0] in ("list", "--list", "-l"):
+    if args[0] in ("list", "--list") or (args[0] == "-l" and not (len(args) > 1 and args[1].isdigit())):
         filt: str | None = None
         limit: int | None = None
         role_filter: str | None = None
@@ -5764,20 +6039,25 @@ def main(argv: list[str] | None = None) -> int:
             ready=ready,
             targets=target_refs,
         )
+    show_usage = f"{prog}: usage: {prog} show <ID>[,<ID>...] [<ID>...] | show last [<STATUS|archive>]"
     if args[0] in ("show", "--show"):
-        if len(args) < 2 or len(args) > 3:
-            raise SystemExit(f"{prog}: usage: {prog} show <ID|last> [<STATUS|archive>]")
+        if len(args) < 2:
+            raise SystemExit(show_usage)
         if args[1].lower() == "last":
+            if len(args) > 3:
+                raise SystemExit(show_usage)
             return cmd_last(base_dir, args[2] if len(args) == 3 else None)
-        if len(args) != 2:
-            raise SystemExit(f"{prog}: usage: {prog} show <ID>")
-        tdir, tid = resolve_project_task_ref(base_dir, args[1], explicit_dir=explicit_dir)
-        return cmd_show(tdir, tid)
-    if len(args) == 1 and (re.fullmatch(r"[A-Za-z]\d+", args[0]) or PROJECT_TASK_RE.match(args[0])):
-        tdir, tid = resolve_project_task_ref(base_dir, args[0], explicit_dir=explicit_dir)
-        return cmd_show(tdir, tid)
+        show_refs = _collect_task_refs(args[1:])
+        if show_refs is None:
+            raise SystemExit(show_usage)
+        return _show_tasks(base_dir, show_refs, explicit_dir)
+    bare_refs = _collect_task_refs(args)
+    if bare_refs is not None:
+        return _show_tasks(base_dir, bare_refs, explicit_dir)
     if len(args) == 1 and Path(args[0]).is_dir():
         return cmd_summary(resolve_target_dir(args[0]), full=full)
+    if args[0].startswith("-") or _is_status_keyword(args[0]):
+        return _quest_log(prog, base_dir, explicit_dir, workspace, full, args)
     raise SystemExit(f"{prog}: unknown arguments: {' '.join(args)} (see {prog} --help)")
 
 

@@ -2,9 +2,12 @@
 # todo_md-repo: vitalio/todo_md
 """Usage:
   {prog} [-C DIR|PROJ] [command] [opts]    Run any command against a target directory or workspace project
-  {prog} [dir|project] [--full] [-w]         Print TODO.md or workspace overview (full WIP/NEXT/QUESTION or first task + compact)
+  {prog} [dir|project] [opts] [-w]           Print the default Quest-Log view: flat chains in execution order (see Quest-Log options)
+  {prog} overview [--full] [-w]              Print the Markdown overview (full WIP/NEXT/QUESTION or first task + compact); bare --full prints it expanded
+  {prog} search <QUERY> [opts]               Search task IDs, titles, and bodies (same as -s/--search QUERY)
   {prog} projects                            List discovered workspace projects and open task counts
-  {prog} <ID> | show <ID|last>               Show task <ID> with Task/Title/Role/Workdir headers (or last [<STATUS|archive>], supports <project>:<ID>)
+  {prog} <ID>... | show <ID>... | show last  Show tasks <ID>... (space- or comma-separated, supports <project>:<ID>, blank-line separated)
+                                             with Task/Title/Role/Workdir headers; last [<STATUS|archive>] shows the last task in a status
   {prog} last [<STATUS|archive>]           Show full section for last task in status/archive (default: NEW)
   {prog} last-id [<STATUS|archive>]        Print ID of last task in status/archive (default: NEW)
   {prog} list [filter] [<ID>...] [opts]      List tasks (active | archive | all | <STATUS>; highlight <ID>...; opts: --role ROLE, --ready, --limit N, --full)
@@ -19,8 +22,8 @@
   {prog} done <ID> [-m SHA_OR_NOTE]          Mark task <ID> as DONE and move it to TODO_ARCHIVE.md
   {prog} cancel <ID> [-m REASON]             Mark task <ID> as CANCELED and move it to TODO_ARCHIVE.md
   {prog} ids                                 Print highest task IDs in use and next available ID per prefix
-  {prog} queue <ID> [--all]                  Show topologically sorted execution queue for <ID> (use --all to include DONE)
-  {prog} chain [<ID>...] [--all] [--by-role] [--role ROLE] [--ready] [--limit N] [--include-hold]  Show chain finales, root-anchored RPG progress chains & nested Sub-chain milestones (--all to include DONE), role queues (--by-role), & ready tasks (highlight <ID>...)
+  {prog} queue <ID> [--all]                  Alias for chain <ID> [--all]: focused Quest-Log with Next actionable (--all includes DONE)
+  {prog} chain [<ID>...] [opts]              Show the Quest-Log: chain finales, root-anchored chains, role queues, ready tasks (see Quest-Log options)
   {prog} next-id [<ID>] [--role ROLE] | --top  Print top ready WIP/NEXT ID, or first ready ID in <ID>'s queue
   {prog} files [<ID>] | --files [<ID>]       List existing repository file paths referenced in backticks in task <ID>
                                              Opts: --max-lines N, --max-total-lines N, --max-bytes N, --max-total-bytes N
@@ -39,6 +42,23 @@ Global options (accepted before subcommands):
   --full                        Show full task sections without compacting NEW/HOLD
   -c, --commit                  Git-commit TODO*.md after mutating commands (opt-in)
   --no-commit                   Accepted as a no-op alias (commits are disabled by default)
+
+Quest-Log options ({prog} [opts], {prog} chain [<ID>...] [opts], {prog} queue <ID>, {prog} search <QUERY>):
+  -t, --tree                    Render nested Sub-chain milestone trees with 4-char connectors (default: flat rows in execution order)
+  --numbered[=left|right]       Add period-free row numbers padded to the widest number (default: no numbers; side default: left)
+  -l N, --limit N, -n N         Limit displayed rows to N (-n is a backward-compatible alias)
+  --all                         Include resolved DONE prerequisites (same as the ALL status keyword)
+  --ready                       Show only ready tasks with their next unblocked targets
+  --by-role                     Partition active tasks into role queues
+  --role ROLE                   Show only tasks matching ROLE
+  --include-hold                Include HOLD tasks and branches blocked by HOLD
+  --status STATUS               Status filter WIP|NEXT|QUESTION|NEW|HOLD|ACTIVE|ALL (also accepted as a bare keyword);
+                                DONE|CANCELED|ARCHIVE render the list view instead
+  -f, --focus <ID>...           Scope output to chains containing <ID>... (highlighted; prints Next actionable for one ID);
+                                positional <ID>... under chain/queue do the same
+  -H, --highlight <ID>...       Render the full Quest-Log and highlight <ID>...
+  -s, --search QUERY            Search IDs, titles, and bodies (case-insensitive regex, substring if invalid); searches TODO.md only
+                                unless --all or an archive status is set; scopes the Quest-Log, or prints sections with --full
 
 Tabular views (list, chain, queue, projects) align status badges by display width and wrap long
 descriptions into aligned columns based on terminal width (falling back to a 4-space indent on

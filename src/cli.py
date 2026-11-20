@@ -92,11 +92,278 @@ KNOWN_SUBCOMMANDS = (
     "check-update",
     "help",
     "version",
+    "overview",
+    "search",
 )
 
 
 def _validate_role_filter(prog: str, raw_val: str) -> str:
     return _normalize_role_arg(raw_val)
+
+STATUS_FILTER_KEYWORDS = (
+    "WIP",
+    "NEXT",
+    "QUESTION",
+    "NEW",
+    "HOLD",
+    "DONE",
+    "CANCELED",
+    "ARCHIVE",
+    "ACTIVE",
+    "ALL",
+)
+QUEST_LOG_USAGE = (
+    "[--tree] [--numbered[=left|right]] [--status STATUS] [--all] [--ready] [--by-role] "
+    "[--role ROLE] [-l N|--limit N] [--include-hold] [--focus <ID>...] [--highlight <ID>...]"
+)
+
+
+def _is_status_keyword(tok: str) -> bool:
+    return tok.upper() in STATUS_FILTER_KEYWORDS
+
+
+def _collect_task_refs(args: list[str]) -> list[str] | None:
+    refs: list[str] = []
+    for a in args:
+        parts = _split_task_ref_arg(a)
+        if parts is None:
+            return None
+        refs.extend(parts)
+    return refs
+
+
+def _consume_task_refs(prog: str, flag: str, args: list[str], i: int) -> tuple[list[str], int]:
+    refs: list[str] = []
+    while i < len(args) and not args[i].startswith("-"):
+        parts = _split_task_ref_arg(args[i])
+        if parts is None:
+            break
+        refs.extend(parts)
+        i += 1
+    if not refs:
+        raise SystemExit(f"{prog}: {flag} requires at least one task ID")
+    return refs, i
+
+
+def _parse_limit(prog: str, raw: str) -> int:
+    if not raw.isdigit() or int(raw) < 1:
+        raise SystemExit(f"{prog}: invalid limit {raw!r}; expected a positive integer")
+    return int(raw)
+
+
+def _parse_quest_log_args(prog: str, argv: list[str], cmd: str, positional_focus: bool) -> dict[str, object]:
+    o: dict[str, object] = {
+        "limit": None,
+        "include_hold": False,
+        "include_done": False,
+        "ready": False,
+        "by_role": False,
+        "tree": False,
+        "numbered": None,
+        "role": None,
+        "status": None,
+        "archive": None,
+        "focus": [],
+        "highlight": [],
+        "search": None,
+    }
+
+    def set_status(raw: str) -> None:
+        kw = raw.strip().upper()
+        if kw not in STATUS_FILTER_KEYWORDS:
+            raise SystemExit(
+                f"{prog}: invalid status {raw!r}; expected one of {', '.join(STATUS_FILTER_KEYWORDS)}"
+            )
+        if kw == "ALL":
+            o["include_done"] = True
+        elif kw == "ACTIVE":
+            pass
+        elif kw in ("DONE", "CANCELED", "ARCHIVE"):
+            o["archive"] = kw
+        else:
+            o["status"] = frozenset({kw})
+            if kw == "HOLD":
+                o["include_hold"] = True
+
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a in ("--limit", "-n", "-l"):
+            if i + 1 >= len(argv):
+                raise SystemExit(f"{prog}: {a} requires an integer argument")
+            o["limit"] = _parse_limit(prog, argv[i + 1])
+            i += 2
+        elif a.startswith("--limit="):
+            o["limit"] = _parse_limit(prog, a.split("=", 1)[1])
+            i += 1
+        elif a == "--role":
+            if i + 1 >= len(argv):
+                raise SystemExit(f"{prog}: {a} requires a role argument")
+            o["role"] = _validate_role_filter(prog, argv[i + 1])
+            i += 2
+        elif a.startswith("--role="):
+            o["role"] = _validate_role_filter(prog, a.split("=", 1)[1])
+            i += 1
+        elif a == "--status":
+            if i + 1 >= len(argv):
+                raise SystemExit(f"{prog}: {a} requires a status argument")
+            set_status(argv[i + 1])
+            i += 2
+        elif a.startswith("--status="):
+            set_status(a.split("=", 1)[1])
+            i += 1
+        elif a in ("--focus", "-f"):
+            refs, i = _consume_task_refs(prog, a, argv, i + 1)
+            o["focus"].extend(refs)  # type: ignore[attr-defined]
+        elif a in ("--highlight", "-H"):
+            refs, i = _consume_task_refs(prog, a, argv, i + 1)
+            o["highlight"].extend(refs)  # type: ignore[attr-defined]
+        elif a in ("--search", "-s"):
+            if i + 1 >= len(argv) or not argv[i + 1].strip():
+                raise SystemExit(f"{prog}: {a} requires a non-empty query argument")
+            o["search"] = argv[i + 1]
+            i += 2
+        elif a.startswith("--search="):
+            if not a.split("=", 1)[1].strip():
+                raise SystemExit(f"{prog}: --search requires a non-empty query argument")
+            o["search"] = a.split("=", 1)[1]
+            i += 1
+        elif a in ("--tree", "-t"):
+            o["tree"] = True
+            i += 1
+        elif a == "--numbered" or a.startswith("--numbered="):
+            side = a.split("=", 1)[1] if "=" in a else "left"
+            if side not in ("left", "right"):
+                raise SystemExit(f"{prog}: invalid --numbered value {side!r}; expected left or right")
+            o["numbered"] = side
+            i += 1
+        elif a == "--include-hold":
+            o["include_hold"] = True
+            i += 1
+        elif a == "--all":
+            o["include_done"] = True
+            i += 1
+        elif a == "--ready":
+            o["ready"] = True
+            i += 1
+        elif a == "--by-role":
+            o["by_role"] = True
+            i += 1
+        elif a.startswith("-"):
+            raise SystemExit(f"{prog}: unknown option for {cmd}: {a}")
+        elif _is_status_keyword(a):
+            set_status(a)
+            i += 1
+        else:
+            parts = _split_task_ref_arg(a)
+            if parts is None:
+                raise SystemExit(f"{prog}: usage: {prog} {cmd} [<ID>...] {QUEST_LOG_USAGE}")
+            if not positional_focus:
+                raise SystemExit(
+                    f"{prog}: unexpected task ID {a!r} for the default view "
+                    f"(use --focus/--highlight, or '{prog} chain <ID>')"
+                )
+            o["focus"].extend(parts)  # type: ignore[attr-defined]
+            i += 1
+    return o
+
+
+def _quest_log(
+    prog: str,
+    base_dir: Path,
+    explicit_dir: str | None,
+    workspace: bool,
+    full: bool,
+    argv: list[str],
+    cmd: str = "todo_md",
+    positional_focus: bool = False,
+) -> int:
+    o = _parse_quest_log_args(prog, argv, cmd, positional_focus)
+    focus_refs = [
+        resolve_project_task_ref(base_dir, r, explicit_dir=explicit_dir)
+        for r in o["focus"]  # type: ignore[attr-defined]
+    ]
+    highlight_refs = [
+        resolve_project_task_ref(base_dir, r, explicit_dir=explicit_dir)
+        for r in o["highlight"]  # type: ignore[attr-defined]
+    ]
+    use_ws = workspace
+    if not use_ws and not is_todo_project(base_dir) and not (base_dir / "TODO.md").is_file():
+        ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
+        if discover_projects(ws_root):
+            use_ws = True
+    search = o["search"]
+    if search is not None:
+        include_archive = bool(o["include_done"]) or o["archive"] is not None
+        if use_ws:
+            ws_root_s = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
+            search_dirs = [pdir for _, pdir in resolve_workspace_chain_projects(base_dir, ws_root_s)]
+        else:
+            search_dirs = [base_dir]
+        search_matches: list[tuple[Path, str]] = []
+        for sdir in search_dirs:
+            for st in search_tasks(sdir, str(search), include_archive=include_archive):
+                search_matches.append((sdir, str(st["id"]).upper()))
+        if not search_matches:
+            sys.stderr.write(f"{prog}: no tasks match {search!r}\n")
+            return 1
+        if full:
+            show_rc = 0
+            for n, (sdir, stid) in enumerate(search_matches):
+                if n > 0:
+                    sys.stdout.write("\n")
+                show_rc = max(show_rc, cmd_show(sdir, stid))
+            return show_rc
+        focus_refs = [*focus_refs, *search_matches]
+    archive = o["archive"]
+    if archive is not None:
+        filt = "archive" if archive == "ARCHIVE" else str(archive)
+        list_targets = [*focus_refs, *highlight_refs]
+        if use_ws:
+            ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
+            return cmd_workspace_list(
+                ws_root, filt, limit=o["limit"], full=full, role=o["role"], ready=False, targets=list_targets
+            )
+        return cmd_list(
+            base_dir, filt, limit=o["limit"], full=full, role=o["role"], ready=False, targets=list_targets
+        )
+    return cmd_chain(
+        base_dir,
+        limit=o["limit"],
+        include_hold=o["include_hold"],
+        include_done=o["include_done"],
+        ready=o["ready"],
+        role=o["role"],
+        by_role=o["by_role"],
+        workspace=use_ws,
+        explicit_dir=explicit_dir,
+        targets=[*focus_refs, *highlight_refs],
+        tree=o["tree"],
+        numbered=o["numbered"],
+        focus=(focus_refs or None),
+        status=o["status"],
+    )
+
+
+def _overview(base_dir: Path, explicit_dir: str | None, workspace: bool, full: bool) -> int:
+    if workspace:
+        return cmd_workspace_summary(resolve_workspace_root(base_dir, explicit_dir=explicit_dir), full=full)
+    if not is_todo_project(base_dir) and not (base_dir / "TODO.md").is_file():
+        ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
+        if discover_projects(ws_root):
+            return cmd_workspace_summary(ws_root, full=full)
+    return cmd_summary(base_dir, full=full)
+
+
+def _show_tasks(base_dir: Path, refs: list[str], explicit_dir: str | None) -> int:
+    rc = 0
+    for n, ref in enumerate(refs):
+        tdir, tid = resolve_project_task_ref(base_dir, ref, explicit_dir=explicit_dir)
+        if n > 0:
+            sys.stdout.write("\n")
+        rc = max(rc, cmd_show(tdir, tid))
+    return rc
+
 
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
@@ -174,14 +441,18 @@ def main(argv: list[str] | None = None) -> int:
     base_dir = resolve_target_dir(explicit_dir)
     if args and args[0] in ("projects", "--projects"):
         return cmd_projects(base_dir, explicit_dir=explicit_dir)
+    if args and args[0] in ("search", "--search-cmd"):
+        if len(args) < 2 or args[1].startswith("-") or not args[1].strip():
+            raise SystemExit(f"{prog}: usage: {prog} search <QUERY> [opts]")
+        return _quest_log(prog, base_dir, explicit_dir, workspace, full, ["--search", args[1], *args[2:]], cmd="search")
+    if args and args[0] in ("overview", "--overview"):
+        if len(args) > 1:
+            raise SystemExit(f"{prog}: usage: {prog} overview [--full] [-w]")
+        return _overview(base_dir, explicit_dir, workspace, full)
     if not args:
-        if workspace:
-            return cmd_workspace_summary(resolve_workspace_root(base_dir, explicit_dir=explicit_dir), full=full)
-        if not is_todo_project(base_dir) and not (base_dir / "TODO.md").is_file():
-            ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
-            if discover_projects(ws_root):
-                return cmd_workspace_summary(ws_root, full=full)
-        return cmd_summary(base_dir, full=full)
+        if full:
+            return _overview(base_dir, explicit_dir, workspace, True)
+        return _quest_log(prog, base_dir, explicit_dir, workspace, full, [])
     if args[0] in ("archive", "--archive", "-a"):
         pos, note = _parse_note_arg(args[1:])
         canceled = "--canceled" in pos or "--cancel" in pos
@@ -211,7 +482,9 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit(f"{prog}: usage: {prog} cancel <ID> [-m REASON]")
         tdir, tid = resolve_project_task_ref(base_dir, pos[0], explicit_dir=explicit_dir)
         return cmd_transition(tdir, tid, new_status="CANCELED", dest_file="TODO_ARCHIVE.md", note=note, commit=commit, no_commit=no_commit)
-    if args[0] in ("status", "--status"):
+    if args[0] == "status" or (
+        args[0] == "--status" and len(args) > 1 and _collect_task_refs([args[1]]) is not None
+    ):
         pos, note = _parse_note_arg(args[1:])
         reopen = "--reopen" in pos
         pos = [p for p in pos if p != "--reopen"]
@@ -226,94 +499,18 @@ def main(argv: list[str] | None = None) -> int:
     if args[0] in ("reopen", "--reopen"):
         return cmd_reopen(base_dir, args[1:], commit=commit, no_commit=no_commit, explicit_dir=explicit_dir)
     if args[0] in ("queue", "--queue"):
-        show_all = False
-        pos: list[str] = []
-        for a in args[1:]:
-            if a == "--all":
-                show_all = True
-            elif a.startswith("-"):
-                raise SystemExit(f"{prog}: unknown option for queue: {a}")
-            else:
-                pos.append(a)
-        if len(pos) != 1:
+        bad_q = [a for a in args[1:] if a.startswith("-") and a != "--all"]
+        if bad_q:
+            raise SystemExit(f"{prog}: unknown option for queue: {bad_q[0]}")
+        q_pos = [a for a in args[1:] if a != "--all"]
+        if len(q_pos) != 1 or "," in q_pos[0] or _split_task_ref_arg(q_pos[0]) is None:
             raise SystemExit(f"{prog}: usage: {prog} queue <ID> [--all]")
-        tdir, tid = resolve_project_task_ref(base_dir, pos[0], explicit_dir=explicit_dir)
-        return cmd_queue(base_dir, tdir, tid, show_all=show_all, explicit_dir=explicit_dir)
+        return _quest_log(
+            prog, base_dir, explicit_dir, workspace, full, args[1:], cmd="queue", positional_focus=True
+        )
     if args[0] in ("chain", "--chain"):
-        limit: int | None = None
-        include_hold = False
-        include_done = False
-        ready = False
-        by_role = False
-        role_filter: str | None = None
-        raw_target_refs: list[str] = []
-        i = 1
-        while i < len(args):
-            a = args[i]
-            if a in ("--limit", "-n"):
-                if i + 1 >= len(args):
-                    raise SystemExit(f"{prog}: {a} requires an integer argument")
-                raw_lim = args[i + 1]
-                if not raw_lim.isdigit() or int(raw_lim) < 1:
-                    raise SystemExit(f"{prog}: invalid limit {raw_lim!r}; expected a positive integer")
-                limit = int(raw_lim)
-                i += 2
-            elif a.startswith("--limit="):
-                raw_lim = a.split("=", 1)[1]
-                if not raw_lim.isdigit() or int(raw_lim) < 1:
-                    raise SystemExit(f"{prog}: invalid limit {raw_lim!r}; expected a positive integer")
-                limit = int(raw_lim)
-                i += 1
-            elif a == "--role":
-                if i + 1 >= len(args):
-                    raise SystemExit(f"{prog}: {a} requires a role argument")
-                role_filter = _validate_role_filter(prog, args[i + 1])
-                i += 2
-            elif a.startswith("--role="):
-                role_filter = _validate_role_filter(prog, a.split("=", 1)[1])
-                i += 1
-            elif a == "--include-hold":
-                include_hold = True
-                i += 1
-            elif a == "--all":
-                include_done = True
-                i += 1
-            elif a == "--ready":
-                ready = True
-                i += 1
-            elif a == "--by-role":
-                by_role = True
-                i += 1
-            elif a.startswith("-"):
-                raise SystemExit(f"{prog}: unknown option for chain: {a}")
-            else:
-                ref_parts = _split_task_ref_arg(a)
-                if ref_parts is None:
-                    raise SystemExit(
-                        f"{prog}: usage: {prog} chain [<ID>...] [--all] [--by-role] [--role ROLE] [--ready] [--limit N] [--include-hold]"
-                    )
-                raw_target_refs.extend(ref_parts)
-                i += 1
-        target_refs: list[tuple[Path, str]] = [
-            resolve_project_task_ref(base_dir, ref, explicit_dir=explicit_dir)
-            for ref in raw_target_refs
-        ]
-        use_ws = workspace
-        if not use_ws and not is_todo_project(base_dir) and not (base_dir / "TODO.md").is_file():
-            ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
-            if discover_projects(ws_root):
-                use_ws = True
-        return cmd_chain(
-            base_dir,
-            limit=limit,
-            include_hold=include_hold,
-            include_done=include_done,
-            ready=ready,
-            role=role_filter,
-            by_role=by_role,
-            workspace=use_ws,
-            explicit_dir=explicit_dir,
-            targets=target_refs,
+        return _quest_log(
+            prog, base_dir, explicit_dir, workspace, full, args[1:], cmd="chain", positional_focus=True
         )
     if args[0] in ("next-id", "--next-id"):
         role_filter: str | None = None
@@ -429,7 +626,7 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_check(base_dir)
     if args[0] in ("init", "--init"):
         return cmd_init(base_dir, argv=args[1:], commit=commit, no_commit=no_commit)
-    if args[0] in ("list", "--list", "-l"):
+    if args[0] in ("list", "--list") or (args[0] == "-l" and not (len(args) > 1 and args[1].isdigit())):
         filt: str | None = None
         limit: int | None = None
         role_filter: str | None = None
@@ -502,20 +699,25 @@ def main(argv: list[str] | None = None) -> int:
             ready=ready,
             targets=target_refs,
         )
+    show_usage = f"{prog}: usage: {prog} show <ID>[,<ID>...] [<ID>...] | show last [<STATUS|archive>]"
     if args[0] in ("show", "--show"):
-        if len(args) < 2 or len(args) > 3:
-            raise SystemExit(f"{prog}: usage: {prog} show <ID|last> [<STATUS|archive>]")
+        if len(args) < 2:
+            raise SystemExit(show_usage)
         if args[1].lower() == "last":
+            if len(args) > 3:
+                raise SystemExit(show_usage)
             return cmd_last(base_dir, args[2] if len(args) == 3 else None)
-        if len(args) != 2:
-            raise SystemExit(f"{prog}: usage: {prog} show <ID>")
-        tdir, tid = resolve_project_task_ref(base_dir, args[1], explicit_dir=explicit_dir)
-        return cmd_show(tdir, tid)
-    if len(args) == 1 and (re.fullmatch(r"[A-Za-z]\d+", args[0]) or PROJECT_TASK_RE.match(args[0])):
-        tdir, tid = resolve_project_task_ref(base_dir, args[0], explicit_dir=explicit_dir)
-        return cmd_show(tdir, tid)
+        show_refs = _collect_task_refs(args[1:])
+        if show_refs is None:
+            raise SystemExit(show_usage)
+        return _show_tasks(base_dir, show_refs, explicit_dir)
+    bare_refs = _collect_task_refs(args)
+    if bare_refs is not None:
+        return _show_tasks(base_dir, bare_refs, explicit_dir)
     if len(args) == 1 and Path(args[0]).is_dir():
         return cmd_summary(resolve_target_dir(args[0]), full=full)
+    if args[0].startswith("-") or _is_status_keyword(args[0]):
+        return _quest_log(prog, base_dir, explicit_dir, workspace, full, args)
     raise SystemExit(f"{prog}: unknown arguments: {' '.join(args)} (see {prog} --help)")
 
 

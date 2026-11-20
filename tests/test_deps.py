@@ -61,9 +61,9 @@ class TestDeps(TodoMdTestCase):
         self.assertNotIn("node_modules", r_projs.stdout)
 
         # Workspace overview (-w from inside a project, and auto-workspace from ws root)
-        r_ws_flag = self._run([str(SCRIPT), "-w"], cwd=str(proj_b), check=True)
+        r_ws_flag = self._run([str(SCRIPT), "-w", "overview"], cwd=str(proj_b), check=True)
         self.assertIn("parent_proj/sub_proj:F1", r_ws_flag.stdout)
-        r_ws_auto = self._run([str(SCRIPT)], cwd=str(ws), check=True)
+        r_ws_auto = self._run([str(SCRIPT), "overview"], cwd=str(ws), check=True)
         self.assertIn("## parent_proj/sub_proj", r_ws_auto.stdout)
 
         # Workspace list and check
@@ -114,12 +114,13 @@ class TestDeps(TodoMdTestCase):
 
         # Queue shows stable topological order with [ready] / [blocked by: ...] and Next actionable
         r_q1 = self._run([str(SCRIPT), "queue", "F5"], cwd=str(proj_a), check=True)
-        q1_lines = r_q1.stdout.splitlines()
-        self.assertLess(r_q1.stdout.index("F1"), r_q1.stdout.index("F3"))
-        self.assertLess(r_q1.stdout.index("F2"), r_q1.stdout.index("F3"))
-        self.assertLess(r_q1.stdout.index("F3"), r_q1.stdout.index("F5"))
-        self.assertIn("[ready]", q1_lines[0])
-        self.assertIn("[blocked by: F1, F2]", r_q1.stdout)
+        q1_refs = self._row_refs(r_q1.stdout)
+        q1_flat = self._flat_text(r_q1.stdout)
+        self.assertLess(q1_refs.index("F1"), q1_refs.index("F3"))
+        self.assertLess(q1_refs.index("F2"), q1_refs.index("F3"))
+        self.assertLess(q1_refs.index("F3"), q1_refs.index("F5"))
+        self.assertIn("[ready]", q1_flat)
+        self.assertIn("[blocked by: F1, F2]", q1_flat)
         self.assertIn("Next actionable: F1", r_q1.stdout)
 
         r_nid1 = self._run([str(SCRIPT), "next-id", "F5"], cwd=str(proj_a), check=True)
@@ -161,9 +162,10 @@ class TestDeps(TodoMdTestCase):
         proj_b_before = (proj_b / "TODO.md").read_text(encoding="utf-8")
 
         r_orch_q = self._run([str(SCRIPT), "queue", "F1"], cwd=str(orch), check=True)
-        self.assertLess(r_orch_q.stdout.index("proj_a:F6"), r_orch_q.stdout.index("proj_b:F2"))
-        self.assertLess(r_orch_q.stdout.index("proj_b:F1"), r_orch_q.stdout.index("proj_b:F2"))
-        self.assertIn("[blocked by: proj_a:F6, proj_b:F1]", r_orch_q.stdout)
+        orch_refs = self._row_refs(r_orch_q.stdout)
+        self.assertLess(orch_refs.index("proj_a:F6"), orch_refs.index("proj_b:F2"))
+        self.assertLess(orch_refs.index("proj_b:F1"), orch_refs.index("proj_b:F2"))
+        self.assertIn("[blocked by: proj_a:F6, proj_b:F1]", self._flat_text(r_orch_q.stdout))
         self.assertEqual(self._run([str(SCRIPT), "next-id", "F1"], cwd=str(orch), check=True).stdout.strip(), "proj_a:F6")
         self.assertEqual(
             self._run([str(SCRIPT), "next-id", "orch:F1"], cwd=str(ws), check=True).stdout.strip(),
@@ -179,9 +181,11 @@ class TestDeps(TodoMdTestCase):
 
         # CANCELED blocker causes next-id to fail non-zero and queue to mark [blocked]
         self._run([str(SCRIPT), "cancel", "proj_b:F2", "-m", "dropped"], cwd=str(ws), check=True)
-        r_q_can = self._run([str(SCRIPT), "queue", "F1"], cwd=str(orch), check=True)
+        r_q_can = self._run([str(SCRIPT), "queue", "F1"], cwd=str(orch))
+        self.assertEqual(r_q_can.returncode, 1, msg=r_q_can.stderr)
+        self.assertIn("unresolved blocker", r_q_can.stderr)
         self.assertIn("[CANCELED]", r_q_can.stdout)
-        self.assertIn("[blocked by: proj_b:F2]", r_q_can.stdout)
+        self.assertIn("[blocked by: proj_b:F2]", self._flat_text(r_q_can.stdout))
         self.assertIn("Next actionable: none", r_q_can.stdout)
         r_nid_can = self._run([str(SCRIPT), "next-id", "F1"], cwd=str(orch))
         self.assertNotEqual(r_nid_can.returncode, 0, msg=r_nid_can.stderr)
