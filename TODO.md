@@ -1,23 +1,24 @@
-# 🔵 [WIP] F50: Unify Quest-Log chain as default todo_md view with 4-char tree connectors, optional --numbered rows, multi-ID show, and target/status filters
+# 🔵 [WIP] F50: Unify Quest-Log as default todo_md view with flat chains by default, --tree 4-char connectors, --numbered, multi-ID show, --search, and filters
 
 - Role: work
 - Depends on: F53
-- Tree connector alignment & row numbering in `cmd_chain()` (`src/commands.py`):
-  - Replace 3-character tree connectors (`├─ `, `└─ `) with 4-character connectors (`├── `, `└── `) matching the 4-character closing connector (`└─► `) and 4-character level indentation (`│   `, `    `) so closing tasks align flush with sibling tasks at the same tree level.
-  - Omit row ordinal numbers by default across `todo_md chain` sections (`<tree_prefix><ref>` in trees and `<ref>` in `Chain finales:`, `Standalone tasks:`, `--ready`, and `--by-role`).
-  - Add `--numbered` (`--numbered[=left|right]`, default `left`) to render period-free row numbers padded to `num_w = len(str(total_rows))`: `left` (`f"{idx:<{num_w}} {ref}"`) aligns numbers flush after the tree connector and pads single-digit numbers before `<ref>` so both numbers and task IDs align vertically; `right` (`f"{idx:>{num_w}} {ref}"`) right-aligns numbers with leading spaces before `<ref>`.
+- Flat topological chains by default, `--tree` / `-t` 4-char connectors, and `--numbered` in `cmd_chain()` (`src/commands.py`):
+  - By default (without `--tree`), render each root chain `Chain <N> -> <root_ref>: <root_title> (<total> tasks, <pct>% | <done> done, <open> open):` as a flat topological sequence of tasks in execution order (without tree connectors or nested `Sub-chain ->` headers).
+  - When `--tree` (or `-t`) is passed, render the hierarchical milestone tree with nested `Sub-chain ->` headers and 4-character tree connectors (`├── `, `└── `, and `└─► ` for closing tasks) matching the 4-character level indentation (`│   `, `    `) so closing tasks align flush with sibling tasks at the same tree level.
+  - Omit row ordinal numbers by default across all Quest-Log sections (`Chain finales:`, `Chain <N> -> ...`, `Standalone tasks:`, `--ready`, and `--by-role`).
+  - Add `--numbered` (`--numbered[=left|right]`, default `left`) to render period-free row numbers padded to `num_w = len(str(total_rows))`: `left` (`f"{idx:<{num_w}} {ref}"`) aligns numbers flush after the prefix/connector and pads single-digit numbers before `<ref>` so both numbers and task IDs align vertically; `right` (`f"{idx:>{num_w}} {ref}"`) right-aligns numbers with leading spaces before `<ref>`.
   - Support `-l N` / `--limit N` for row limits (keeping `-n N` as a backward-compatible integer limit alias).
-- Default `todo_md` Quest-Log view, multi-ID `show`, and unified filters in `main()` (`src/cli.py`, `src/commands.py`, `src/parser.py`):
+- Default `todo_md` Quest-Log view, multi-ID `show`, `--search`, and unified filters in `main()` (`src/cli.py`, `src/commands.py`, `src/parser.py`):
   - Make `todo_md` with no subcommand (as well as `todo_md -w` and `todo_md <project>`) invoke the Quest-Log view (`cmd_chain`) by default, while `todo_md --full` (or `todo_md overview`) renders the expanded Markdown overview (`cmd_summary` / `cmd_workspace_summary`).
   - Support multiple task IDs in `todo_md <ID1> [<ID2>...]` and `todo_md show <ID1> [<ID2>...]` (space- or comma-separated, including `<project>:<ID>`) to display full task details (`cmd_show`) sequentially separated by a blank line.
+  - Add `--search <QUERY>` / `-s <QUERY>` (and `todo_md search <QUERY>`) to search task IDs, titles, and bodies (case-insensitive substring or regex; searching `TODO.md` by default and including `TODO_ARCHIVE.md` when `--all` or an archive/DONE/CANCELED status filter is active): scope and highlight matching tasks in the Quest-Log view by default, or print their full task sections when combined with `--full`.
   - Support `--focus <ID>...` / `-f <ID>...` (and positional `<ID>...` under explicit `todo_md chain [<ID>...]`) to scope the Quest-Log output to the chain(s)/sub-chain(s)/sections containing `<ID>...`, highlight all matched target IDs via `_style_task_row()`, and print `Next actionable: <ref>` when a single `<ID>` is focused.
   - Support `--highlight <ID>...` / `-H <ID>...` to render the full unfiltered Quest-Log while highlighting the specified target `<ID>...`.
-  - Support top-level Quest-Log and status filters directly on `todo_md [opts]` and `todo_md chain [opts]` (`--status <STATUS>` or status filter keyword `WIP|NEXT|QUESTION|NEW|HOLD|DONE|CANCELED|archive|active|all`, `--all`, `--ready`, `--by-role`, `--role <role>`, `-l N` / `--limit N`, `--numbered[=left|right]`, `--include-hold`), and route `todo_md queue <ID> [--all]` as a CLI alias to `todo_md chain <ID> [--all]`.
-- Documentation & tests:
-  - Expand `## Product Philosophy & Quest-Log UX` in `AGENTS.md` and update `README.md`, `src/header.py` (`--help`), and `src/rules/todo_md.md` to document the default Quest-Log view, 4-char connectors, `--numbered`, multi-ID `show`, `--focus`/`--highlight`, and status filters.
-  - Update and expand unit tests in `tests/test_chain.py` and `tests/test_cli.py`, rebuild `./todo_md` via `build.py`, and bump `VERSION` for a MINOR release.
-
+  - Support top-level Quest-Log and status filters directly on `todo_md [opts]` and `todo_md chain [opts]` (`--tree` / `-t`, `--status <STATUS>` or status filter keyword `WIP|NEXT|QUESTION|NEW|HOLD|DONE|CANCELED|archive|active|all`, `--all`, `--ready`, `--by-role`, `--role <role>`, `-l N` / `--limit N`, `--numbered[=left|right]`, `--include-hold`), and route `todo_md queue <ID> [--all]` as a CLI alias to `todo_md chain <ID> [--all]`.
 - Update the `[if role=plan]` prompt in `src/bundles/todo_md.bundle` to instruct the Planner to decompose or compose (consolidate) work into self-contained tasks in `TODO.md` depending on file, test, and documentation cohesion (refining or merging into an existing open task when changes touch the same files/tests).
+- Documentation & tests:
+  - Expand `## Product Philosophy & Quest-Log UX` in `AGENTS.md` and update `README.md`, `src/header.py` (`--help`), and `src/rules/todo_md.md` to document the default flat-chain Quest-Log view, `--tree` 4-char connectors, `--numbered`, multi-ID `show`, `--search`, `--focus`/`--highlight`, and status filters.
+  - Update and expand unit tests in `tests/test_chain.py` and `tests/test_cli.py`, rebuild `./todo_md` via `build.py`, and bump `VERSION` for a MINOR release.
 
 # 🎯 [NEXT] F54: Support nested .todo_projects orchestrator hierarchies and external project path aliases (e.g. ~/chrome/canary)
 
