@@ -75,12 +75,6 @@ Allow exporting parsed tasks as JSON for scripting.
 - Move `src/rules/todo_md.md` and `src/bundles/todo_md.bundle` to `agents/` using the unified logical bundle/rule layout once `agents_bundle` supports the root `agents/` directory (coordinated in `todo_flow`).
 - Update `AGENTS.md`, `README.md`, and tests to reference the new paths under `agents/`.
 
-# ⚪ [NEW] F37: Document Quest-Log chain, side-quest, and priority concepts in AGENTS.md and README.md
-
-- Role: work
-- Expand `## Product Philosophy & Quest-Log UX` in `AGENTS.md` to define `Chain finales` (ready `work` finale quests whose prerequisite chain is already `DONE`, surfaced first for maximum completion payoff), root-anchored `Chain <N> -> <root_ref>: <root_title>` questlines with nested `Sub-chain` milestones and RPG progress stats (`<total> tasks, <pct>% | <done> done, <open> open`), `Standalone tasks` (side quests ordered by bugs `B*` first, role execution ease `work` -> `plan` -> `design`, then status), `Held branches` (locked branches waiting on `HOLD` conditions), and monotonic Quest Momentum ranking (in-flight `WIP` or most-recently-completed `DONE` affinity, started-chain status floor, whole-cone bug/effort metrics, and immutable root tie-breaker in `plan_execution_chains()`).
-- Add a concise Quest-Log summary in `README.md` explaining `chain`, `queue`, and `done` progression for users (keeping `src/rules/todo_md.md` lean without narrative metaphors).
-
 # ⚪ [NEW] F42: Rename project to todo-markdown and CLI utility to tmd
 
 - Role: plan
@@ -120,3 +114,10 @@ Allow exporting parsed tasks as JSON for scripting.
   - When a single leaf task `<ID>` (no prerequisites of its own) or multiple target IDs `<ID>...` are passed, filter `todo_md chain` to the chain(s) or sections containing the target `<ID>...`, highlight all matched target IDs via `_style_task_row()` (composing with external-project and `--all` `DONE` dimming), and print `Next actionable: <ref>` when a single `<ID>` is targeted.
 - Route `todo_md queue <ID> [--all]` in `src/cli.py` / `src/commands.py` as a CLI alias to `todo_md chain <ID> [--all]` (preserving error handling and exit codes for missing tasks, dependency syntax errors, and cycles).
 - Keep `src/header.py` (`--help`), `src/rules/todo_md.md`, `README.md`, and `tests/test_todo_md.py` in sync, rebuild `./todo_md` via `build.py`, and bump `VERSION` for a MINOR release.
+
+# ⚪ [NEW] F37: Document Quest-Log chain, side-quest, and priority concepts in AGENTS.md and README.md
+
+- Role: work
+- Depends on: F50
+- Expand `## Product Philosophy & Quest-Log UX` in `AGENTS.md` to define `Chain finales` (ready `work` finale quests whose prerequisite chain is already `DONE`, surfaced first for maximum completion payoff), root-anchored `Chain <N> -> <root_ref>: <root_title>` questlines with nested `Sub-chain` milestones and RPG progress stats (`<total> tasks, <pct>% | <done> done, <open> open`), `Standalone tasks` (side quests ordered by bugs `B*` first, role execution ease `work` -> `plan` -> `design`, then status), `Held branches` (locked branches waiting on `HOLD` conditions), and monotonic Quest Momentum ranking (in-flight `WIP` or most-recently-completed `DONE` affinity, started-chain status floor, whole-cone bug/effort metrics, and immutable root tie-breaker in `plan_execution_chains()`).
+- Add a concise Quest-Log summary in `README.md` explaining `chain`, `queue`, and `done` progression for users (keeping `src/rules/todo_md.md` lean without narrative metaphors).
