@@ -1,4 +1,4 @@
-# 🎯 [NEXT] F50: Unify Quest-Log chain as default todo_md view with 4-char tree connectors, optional --numbered rows, multi-ID show, and target/status filters
+# 🔵 [WIP] F50: Unify Quest-Log chain as default todo_md view with 4-char tree connectors, optional --numbered rows, multi-ID show, and target/status filters
 
 - Role: work
 - Depends on: F53
@@ -16,6 +16,8 @@
 - Documentation & tests:
   - Expand `## Product Philosophy & Quest-Log UX` in `AGENTS.md` and update `README.md`, `src/header.py` (`--help`), and `src/rules/todo_md.md` to document the default Quest-Log view, 4-char connectors, `--numbered`, multi-ID `show`, `--focus`/`--highlight`, and status filters.
   - Update and expand unit tests in `tests/test_chain.py` and `tests/test_cli.py`, rebuild `./todo_md` via `build.py`, and bump `VERSION` for a MINOR release.
+
+- Update the `[if role=plan]` prompt in `src/bundles/todo_md.bundle` to instruct the Planner to decompose or compose (consolidate) work into self-contained tasks in `TODO.md` depending on file, test, and documentation cohesion (refining or merging into an existing open task when changes touch the same files/tests).
 
 # 🎯 [NEXT] F54: Support nested .todo_projects orchestrator hierarchies and external project path aliases (e.g. ~/chrome/canary)
 
