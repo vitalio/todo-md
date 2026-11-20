@@ -1631,13 +1631,13 @@ class TestChain(TodoMdTestCase):
         # 5. Multi-line wrapping at COLUMNS=82 preserves active vertical bars (`│   `) on wrapped continuation lines
         # without `...` truncation, and composes cleanly with ANSI styling (`_style_task_row()`)
         r_wrap_plain = self._run(
-            [str(SCRIPT), "chain", "--tree", "--numbered=right", "--all", "F2", "todo_flow:D1"],
+            [str(SCRIPT), "chain", "--tree", "--numbered=right", "--all", "run_block:F2", "todo_flow:D1"],
             cwd=str(run_block),
             env=wrap_env,
             check=True,
         )
         r_wrap_color = self._run(
-            [str(SCRIPT), "chain", "--tree", "--numbered=right", "--all", "F2", "todo_flow:D1"],
+            [str(SCRIPT), "chain", "--tree", "--numbered=right", "--all", "run_block:F2", "todo_flow:D1"],
             cwd=str(run_block),
             env=color_wrap_env,
             check=True,
@@ -1732,6 +1732,177 @@ class TestChain(TodoMdTestCase):
         self.assertEqual(r_l, r_n)
         self.assertEqual(r_l, r_long)
         self.assertEqual(re.findall(r"^  (F\d+) ", r_l, re.M), ["F1", "F2"], msg=r_l)
+
+    def test_unify_filter_search_highlight_toggle_and_all_across_todo_projects(self):
+        ws = self.tmp / "unify_ws"
+        todo_flow = ws / "todo_flow"
+        todo_md_p = ws / "todo_md"
+        run_block_p = ws / "run_block"
+        for d in (todo_flow, todo_md_p, run_block_p):
+            d.mkdir(parents=True)
+            self._run([str(SCRIPT), "-C", str(d), "init"], check=True)
+
+        # Configure .todo_projects inside orchestrator todo_flow
+        (todo_flow / ".todo_projects").write_text("todo_flow\ntodo_md\nrun_block\n", encoding="utf-8")
+
+        # Add tasks with overlapping IDs across projects + archived DONE/CANCELED tasks
+        self._run(
+            [str(SCRIPT), "-C", str(todo_md_p), "add", "Nested todo_projects support", "--role", "work"],
+            check=True,
+        )  # todo_md:F1
+        self._run(
+            [str(SCRIPT), "-C", str(todo_md_p), "add", "Archived completed leaf task", "--role", "work"],
+            check=True,
+        )  # todo_md:F2
+        self._run([str(SCRIPT), "-C", str(todo_md_p), "done", "F2", "-m", "done"], check=True)
+
+        self._run(
+            [str(SCRIPT), "-C", str(run_block_p), "add", "Runner isolation", "--role", "work"],
+            check=True,
+        )  # run_block:F1
+        self._run(
+            [str(SCRIPT), "-C", str(run_block_p), "add", "Dropped experiment", "--role", "work"],
+            check=True,
+        )  # run_block:F2
+        self._run([str(SCRIPT), "-C", str(run_block_p), "cancel", "F2", "-m", "superseded"], check=True)
+
+        self._run(
+            [
+                str(SCRIPT),
+                "-C",
+                str(todo_flow),
+                "add",
+                "Orchestrator rollout",
+                "--role",
+                "work",
+                "--depends",
+                "todo_md:F1",
+                "-b",
+                "Coordinates rollout after todo_md:F1 lands.",
+            ],
+            check=True,
+        )  # todo_flow:F1
+
+        base_env = {k: v for k, v in os.environ.items() if k not in ("NO_COLOR", "FORCE_COLOR", "TODO_MD_PROJECTS")}
+        color_env = {**base_env, "FORCE_COLOR": "1", "COLUMNS": "140"}
+
+        # 1. Bare -f F1 matches all tasks with ID F1 across all projects in active view
+        r_bare_f = self._run([str(SCRIPT), "-f", "F1"], cwd=str(todo_flow), env=color_env, check=True)
+        plain_bare_f = self.todo_md_mod._strip_ansi(r_bare_f.stdout)
+        self.assertIn("todo_md:F1", plain_bare_f)
+        self.assertIn("F1", plain_bare_f)
+        self.assertIn("run_block:F1", plain_bare_f)
+        for expected_tok in ("todo_md:F1", "F1 ", "run_block:F1"):
+            self.assertTrue(
+                any("\033[" in ln and "93m" in ln and expected_tok in ln for ln in r_bare_f.stdout.splitlines()),
+                msg=f"expected {expected_tok!r} to be highlighted in:\n{r_bare_f.stdout}",
+            )
+
+        # 2. Project-qualified -f todo_md:F1 matches ONLY todo_md:F1 (not run_block:F1 or local todo_flow:F1)
+        r_qual_f = self._run([str(SCRIPT), "-f", "todo_md:F1"], cwd=str(todo_flow), env=color_env, check=True)
+        plain_qual_f = self.todo_md_mod._strip_ansi(r_qual_f.stdout)
+        self.assertIn("todo_md:F1", plain_qual_f)
+        self.assertNotIn("run_block:F1", plain_qual_f)
+        self.assertIn("Next actionable: todo_md:F1", plain_qual_f)
+        self.assertTrue(
+            any("\033[" in ln and "93m" in ln and "todo_md:F1" in ln for ln in r_qual_f.stdout.splitlines()),
+            msg=r_qual_f.stdout,
+        )
+        self.assertFalse(
+            any(
+                "\033[" in ln and "93m" in ln and "  F1 " in ln
+                for ln in r_qual_f.stdout.splitlines()
+            ),
+            msg=r_qual_f.stdout,
+        )
+
+        # Project-qualified -f todo_flow:F1 matches ONLY todo_flow:F1 (not todo_md:F1 or run_block:F1)
+        r_flow_f = self._run([str(SCRIPT), "-f", "todo_flow:F1"], cwd=str(todo_flow), env=color_env, check=True)
+        plain_flow_f = self.todo_md_mod._strip_ansi(r_flow_f.stdout)
+        self.assertNotIn("run_block:F1", plain_flow_f)
+        self.assertTrue(
+            any(
+                "\033[" in ln and "93m" in ln and "Orchestrator rollout" in ln
+                for ln in r_flow_f.stdout.splitlines()
+            ),
+            msg=r_flow_f.stdout,
+        )
+        self.assertFalse(
+            any("\033[" in ln and "93m" in ln and "  todo_md:F1 " in ln for ln in r_flow_f.stdout.splitlines()),
+            msg=r_flow_f.stdout,
+        )
+
+        # 3. -H / --highlight disables focus and renders the full Quest-Log with matched tasks highlighted
+        r_qual_hl = self._run(
+            [str(SCRIPT), "-f", "todo_md:F1", "-H"], cwd=str(todo_flow), env=color_env, check=True
+        )
+        plain_qual_hl = self.todo_md_mod._strip_ansi(r_qual_hl.stdout)
+        self.assertIn("todo_md:F1", plain_qual_hl)
+        self.assertIn("run_block:F1", plain_qual_hl)
+        self.assertNotIn("Next actionable:", plain_qual_hl)
+        self.assertTrue(
+            any("\033[" in ln and "93m" in ln and "todo_md:F1" in ln for ln in r_qual_hl.stdout.splitlines()),
+            msg=r_qual_hl.stdout,
+        )
+        self.assertFalse(
+            any("\033[" in ln and "93m" in ln and "run_block:F1" in ln for ln in r_qual_hl.stdout.splitlines()),
+            msg=r_qual_hl.stdout,
+        )
+        # Shorthand -H todo_md:F1 equals -f todo_md:F1 -H
+        r_shorthand_hl = self._run(
+            [str(SCRIPT), "-H", "todo_md:F1"], cwd=str(todo_flow), env=color_env, check=True
+        )
+        self.assertEqual(r_qual_hl.stdout, r_shorthand_hl.stdout)
+
+        # 4. -s / --search inside orchestrator without -w searches across all .todo_projects (ID, <project>:<ID>, title, body)
+        r_s_id = self._run([str(SCRIPT), "-s", "todo_md:F1"], cwd=str(todo_flow), env=color_env, check=True)
+        plain_s_id = self.todo_md_mod._strip_ansi(r_s_id.stdout)
+        self.assertIn("todo_md:F1", plain_s_id)
+        self.assertIn("Orchestrator rollout", plain_s_id)
+        self.assertNotIn("run_block:F1", plain_s_id)
+
+        r_s_hl = self._run(
+            [str(SCRIPT), "-s", "Runner isolation", "-H"], cwd=str(todo_flow), env=color_env, check=True
+        )
+        plain_s_hl = self.todo_md_mod._strip_ansi(r_s_hl.stdout)
+        self.assertIn("todo_md:F1", plain_s_hl)
+        self.assertIn("run_block:F1", plain_s_hl)
+        self.assertTrue(
+            any("\033[" in ln and "93m" in ln and "run_block:F1" in ln for ln in r_s_hl.stdout.splitlines()),
+            msg=r_s_hl.stdout,
+        )
+        self.assertFalse(
+            any("\033[" in ln and "93m" in ln and "todo_md:F1" in ln for ln in r_s_hl.stdout.splitlines()),
+            msg=r_s_hl.stdout,
+        )
+
+        # 5. --all unifies active and archived (DONE/CANCELED) tasks across Quest-Log, -s, and -f
+        r_all_s_done = self._run(
+            [str(SCRIPT), "--all", "-s", "Archived completed leaf"], cwd=str(todo_flow), check=True
+        )
+        self.assertIn("todo_md:F2", r_all_s_done.stdout)
+        self.assertIn("✅ [DONE]", r_all_s_done.stdout)
+        self.assertNotIn("run_block:F2", r_all_s_done.stdout)
+
+        r_all_f_canc = self._run(
+            [str(SCRIPT), "--all", "-f", "run_block:F2"], cwd=str(todo_flow), check=True
+        )
+        self.assertIn("run_block:F2", r_all_f_canc.stdout)
+        self.assertIn("❌ [CANCELED]", r_all_f_canc.stdout)
+        self.assertNotIn("todo_md:F2", r_all_f_canc.stdout)
+
+        # Archive status filter with -f / -s scopes to matched archived tasks unless -H is set
+        r_arch_scoped = self._run(
+            [str(SCRIPT), "-w", "ARCHIVE", "-f", "todo_md:F2"], cwd=str(todo_flow), check=True
+        )
+        self.assertIn("todo_md:F2", r_arch_scoped.stdout)
+        self.assertNotIn("run_block:F2", r_arch_scoped.stdout)
+
+        r_arch_hl = self._run(
+            [str(SCRIPT), "-w", "ARCHIVE", "-f", "todo_md:F2", "-H"], cwd=str(todo_flow), check=True
+        )
+        self.assertIn("todo_md:F2", r_arch_hl.stdout)
+        self.assertIn("run_block:F2", r_arch_hl.stdout)
 
 
 if __name__ == "__main__":

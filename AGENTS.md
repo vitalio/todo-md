@@ -24,13 +24,20 @@ rules are loaded via `.agents_bundle`.
   connectors (`├── `, `└── `, `└─► `, `│   `) and `--numbered[=left|right]` adds
   period-free row numbers padded to the widest number. The Markdown overview lives
   in `todo_md overview` (and bare `todo_md --full`).
-- Drill-down without leaving the Quest-Log: `--focus` / `-f <ID>...` (and positional
-  `<ID>...` under `chain` / `queue`) scopes to chains containing the IDs and prints
-  `Next actionable: <ref>` for a single ID, `--highlight` / `-H` keeps the full view,
-  `--search` / `-s <QUERY>` (or `todo_md search`) focuses on matching tasks (or prints
-  full sections with `--full`), and status keywords (`WIP`, `NEXT`, `QUESTION`, `NEW`,
-  `HOLD`, `ACTIVE`, `ALL`; `DONE`, `CANCELED`, `archive` render the list view) filter
-  rows. Multiple IDs (`todo_md F1 F2`, `show F1,F2`) print full task sections in order.
+- Drill-down without leaving the Quest-Log: `--filter` / `-f <ID>...` (and positional
+  `<ID>...` under `chain` / `queue`) filters by task IDs (bare `<ID>` matches across
+  all projects in the active view, while `<project>:<ID>` matches only that project),
+  scopes to matching chains/tasks, highlights them, and prints `Next actionable: <ref>`
+  for a single ID; `--search` / `-s <QUERY>` (or `todo_md search`) searches task IDs
+  (`<ID>` and `<project>:<ID>`), titles, and bodies across all projects in the active
+  view (including `.todo_projects` child projects) and focuses on matches (or prints
+  full sections with `--full`); `--highlight` / `-H` is a boolean toggle that disables
+  focus to render the full Quest-Log with matched `-f` / `-s` tasks highlighted (and
+  accepts `-H <ID>...` as shorthand for `-f <ID>... -H`); `--all` includes both active
+  (`TODO.md`) and archived (`TODO_ARCHIVE.md`) tasks across Quest-Log, `-s`, and `-f`;
+  and status keywords (`WIP`, `NEXT`, `QUESTION`, `NEW`, `HOLD`, `ACTIVE`, `ALL`;
+  `DONE`, `CANCELED`, `archive` render the list view) filter rows. Multiple IDs
+  (`todo_md F1 F2`, `show F1,F2`) print full task sections in order.
 - Keep `_parse_quest_log_args()` and `_quest_log()` in `src/cli.py` as the single
   parser for the default view, `chain`, `queue`, and `search`; do not re-implement
   flag parsing per entry point.

@@ -49,7 +49,7 @@
     `{cmd:todo_md} queue <ID> [--all]` (alias for `{cmd:todo_md} chain <ID> [--all]`: focused Quest-Log of the chain containing `<ID>`;
     hides `DONE` unless `--all` is passed; prints `[ready]` / `[blocked by: ...]`
     and `Next actionable: <ref>`),
-    `{cmd:todo_md} chain [<ID>...] [--all] [--by-role] [--role <role>] [--ready] [-l N|--limit N] [--include-hold] [--tree] [--numbered[=left|right]] [--status <STATUS>] [--focus <ID>...] [--highlight <ID>...] [--search <QUERY>]`
+    `{cmd:todo_md} chain [<ID>...] [--all] [--by-role] [--role <role>] [--ready] [-l N|--limit N] [--include-hold] [--tree] [--numbered[=left|right]] [--status <STATUS>] [-f <ID>...|--filter <ID>...] [-H|--highlight [<ID>...]] [-s <QUERY>|--search <QUERY>]`
     (local, `.todo_projects` orchestrator, or `-w` workspace work-only chain
     finales `[ready | after: ...]` with all prerequisites resolved shown first
     before root-anchored RPG progress chains
@@ -78,13 +78,18 @@
     to highest-leverage ready tasks; excludes `HOLD` and tasks transitively
     blocked by `HOLD` into `Held branches:` unless `--include-hold` is passed;
     reports diagnostics on cycles, syntax errors, or `MISSING` / `CANCELED`
-    blockers; `--focus` / `-f <ID>...` (and positional `<ID>...` under `chain`) scopes output to
-    chains containing `<ID>...`, highlights them, and prints `Next actionable: <ref>` for a single ID;
-    `--highlight` / `-H <ID>...` highlights within the full view; `--search` / `-s <QUERY>` (or
-    `{cmd:todo_md} search <QUERY>`) searches IDs, titles, and bodies (`TODO.md` only unless `--all` or an
-    archive status is set) and focuses the Quest-Log on matches, or prints full sections with `--full`;
-    status filters work as `--status <STATUS>` or a bare `WIP|NEXT|QUESTION|NEW|HOLD|ACTIVE|ALL` keyword
-    (`DONE|CANCELED|archive` render the list view) on `{cmd:todo_md} [opts]` and `{cmd:todo_md} chain [opts]`),
+    blockers; `--filter` / `-f <ID>...` (and positional `<ID>...` under `chain`) filters by task IDs
+    (bare `<ID>` matches across all projects in the active view, while `<project>:<ID>` matches only that
+    project), scopes output to chains/tasks containing `<ID>...`, highlights them, and prints
+    `Next actionable: <ref>` for a single ID; `--search` / `-s <QUERY>` (or `{cmd:todo_md} search <QUERY>`)
+    searches task IDs (`<ID>` and `<project>:<ID>`), titles, and bodies across all projects in the active
+    view (including `.todo_projects` child projects; `TODO.md` only unless `--all` or an archive status is
+    set) and focuses the Quest-Log on matches, or prints full sections with `--full`; `--highlight` / `-H`
+    is a boolean focus-disabling toggle that renders the full Quest-Log with matched `-f` / `-s` tasks
+    highlighted (and accepts `-H <ID>...` as shorthand for `-f <ID>... -H`); `--all` includes both active
+    `TODO.md` and archived `TODO_ARCHIVE.md` tasks across Quest-Log, `-s`, and `-f`; status filters work as
+    `--status <STATUS>` or a bare `WIP|NEXT|QUESTION|NEW|HOLD|ACTIVE|ALL` keyword (`DONE|CANCELED|archive`
+    render the list view) on `{cmd:todo_md} [opts]` and `{cmd:todo_md} chain [opts]`),
     `{cmd:todo_md} next-id [<ID>] [--role <role>]` (`--top`, top ready `WIP`/`NEXT`
     ID matching optional `--role`, or with `<ID>`/`<project>:<ID>` prints the
     first unblocked actionable ID in `<ID>`'s queue, exiting non-zero on cycles,

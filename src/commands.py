@@ -1138,10 +1138,18 @@ def cmd_chain(
     topo_order: list[tuple[Path, str]] = dag["topo_order"]  # type: ignore[assignment]
     target_project: Path | None = dag.get("target_project")  # type: ignore[assignment]
 
+    archived_tasks: list[tuple[Path, str]] = dag.get("archived_tasks", [])  # type: ignore[assignment]
+
     def _is_target_node(u: tuple[Path, str]) -> bool:
         return target_project is None or u[0] == target_project
 
-    if not topo_order or (target_project is not None and not any(u[0] == target_project for u in topo_order)):
+    has_open_in_scope = bool(topo_order) and (
+        target_project is None or any(u[0] == target_project for u in topo_order)
+    )
+    has_arch_in_scope = include_done and bool(archived_tasks) and (
+        target_project is None or any(u[0] == target_project for u in archived_tasks)
+    )
+    if not has_open_in_scope and not has_arch_in_scope:
         scope_msg = "across workspace projects" if (workspace or is_orch) else "in TODO.md"
         sys.stdout.write(f"No open tasks {scope_msg}\n")
         return 0
@@ -1262,7 +1270,10 @@ def cmd_chain(
             status_tag = "[blocked]" + (f" [unblocks {impact}]" if impact > 0 else "")
         elif st == "CANCELED":
             badge = f"{nd['emoji']} [CANCELED]"
-            status_tag = "[blocked]" + (f" [unblocks {impact}]" if impact > 0 else "")
+            if u in active_set:
+                status_tag = "[blocked]" + (f" [unblocks {impact}]" if impact > 0 else "")
+            else:
+                status_tag = ""
         elif st == "DONE":
             badge = f"{nd['emoji']} [DONE]"
             status_tag = ""
@@ -1746,7 +1757,13 @@ def cmd_chain(
             sys.stdout.write(f"  {rendered}\n")
 
     if focus is not None and len(focus) == 1:
-        f_dir, f_tid = focus[0]
+        f_dir, raw_f_tid = focus[0]
+        f_tid = raw_f_tid[2:].strip().upper() if raw_f_tid.startswith(".:") else raw_f_tid.split(":")[-1].strip().upper()
+        cand_key = (f_dir.resolve(), f_tid)
+        if cand_key not in nodes or not nodes[cand_key].get("exists"):
+            matched_nodes = [u for u in nodes if _is_focus_node(u) and nodes[u].get("exists")]
+            if len(matched_nodes) == 1:
+                f_dir, f_tid = matched_nodes[0]
         f_dag = build_dependency_dag(base_dir, f_dir, f_tid, explicit_dir=explicit_dir, stop_at_done=True)
         f_nodes: dict[tuple[Path, str], dict[str, object]] = f_dag["nodes"]  # type: ignore[assignment]
         f_root: tuple[Path, str] = f_dag["root"]  # type: ignore[assignment]

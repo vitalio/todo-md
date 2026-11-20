@@ -47,18 +47,20 @@ Quest-Log options ({prog} [opts], {prog} chain [<ID>...] [opts], {prog} queue <I
   -t, --tree                    Render nested Sub-chain milestone trees with 4-char connectors (default: flat rows in execution order)
   --numbered[=left|right]       Add period-free row numbers padded to the widest number (default: no numbers; side default: left)
   -l N, --limit N, -n N         Limit displayed rows to N (-n is a backward-compatible alias)
-  --all                         Include resolved DONE prerequisites (same as the ALL status keyword)
+  --all                         Include archived DONE/CANCELED tasks from TODO_ARCHIVE.md (same as the ALL status keyword)
   --ready                       Show only ready tasks with their next unblocked targets
   --by-role                     Partition active tasks into role queues
   --role ROLE                   Show only tasks matching ROLE
   --include-hold                Include HOLD tasks and branches blocked by HOLD
   --status STATUS               Status filter WIP|NEXT|QUESTION|NEW|HOLD|ACTIVE|ALL (also accepted as a bare keyword);
                                 DONE|CANCELED|ARCHIVE render the list view instead
-  -f, --focus <ID>...           Scope output to chains containing <ID>... (highlighted; prints Next actionable for one ID);
-                                positional <ID>... under chain/queue do the same
-  -H, --highlight <ID>...       Render the full Quest-Log and highlight <ID>...
-  -s, --search QUERY            Search IDs, titles, and bodies (case-insensitive regex, substring if invalid); searches TODO.md only
-                                unless --all or an archive status is set; scopes the Quest-Log, or prints sections with --full
+  -f, --filter <ID>...          Filter by task IDs (bare <ID> matches across all projects in view, <project>:<ID> matches one project;
+                                focuses and highlights by default, and prints Next actionable for one ID; positional <ID>... under chain/queue do the same)
+  -H, --highlight [<ID>...]     Disable focus to render the full Quest-Log with matched -f/-s tasks highlighted
+                                (or pass -H <ID>... as shorthand for -f <ID>... -H)
+  -s, --search QUERY            Search task IDs (<ID> and <project>:<ID>), titles, and bodies across all projects in view
+                                (case-insensitive regex, substring if invalid; TODO.md only unless --all or an archive status is set;
+                                focuses and highlights matches by default, or prints full sections with --full)
 
 Tabular views (list, chain, queue, projects) align status badges by display width and wrap long
 descriptions into aligned columns based on terminal width (falling back to a 4-space indent on

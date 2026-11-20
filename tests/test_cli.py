@@ -62,8 +62,8 @@ class TestCli(TodoMdTestCase):
             "--numbered[=left|right]",
             "-l N, --limit N, -n N",
             "--status STATUS",
-            "-f, --focus <ID>...",
-            "-H, --highlight <ID>...",
+            "-f, --filter <ID>...",
+            "-H, --highlight [<ID>...]",
             "-s, --search QUERY",
             "show <ID>...",
             "Alias for chain <ID> [--all]",
@@ -290,8 +290,10 @@ class TestCli(TodoMdTestCase):
         self.assertNotEqual(r_miss.returncode, 0)
         self.assertIn("Task: F1", r_miss.stdout)
 
-        # --focus scopes the view and prints Next actionable for a single ID
-        out_focus = self._run([str(SCRIPT), "--focus", "F4"], cwd=str(proj), check=True).stdout
+        # -f / --filter scopes the view and prints Next actionable for a single ID
+        out_focus = self._run([str(SCRIPT), "--filter", "F4"], cwd=str(proj), check=True).stdout
+        out_focus_short = self._run([str(SCRIPT), "-f", "F4"], cwd=str(proj), check=True).stdout
+        self.assertEqual(out_focus, out_focus_short)
         self.assertIn("Delta", out_focus)
         self.assertNotIn("Chain 1 -> F2", out_focus)
         self.assertIn("Next actionable: F4", out_focus)
@@ -300,8 +302,12 @@ class TestCli(TodoMdTestCase):
         self.assertNotIn("Delta", out_chain_id)
         self.assertIn("Next actionable: F1", out_chain_id)
 
-        # --highlight keeps the full view
+        # -H / --highlight is a boolean focus-disabling toggle (and accepts -H <ID>... shorthand)
         out_hl = self._run([str(SCRIPT), "--highlight", "F4"], cwd=str(proj), check=True).stdout
+        out_hl_toggle = self._run([str(SCRIPT), "-f", "F4", "-H"], cwd=str(proj), check=True).stdout
+        out_hl_pre = self._run([str(SCRIPT), "-H", "-f", "F4"], cwd=str(proj), check=True).stdout
+        self.assertEqual(out_hl, out_hl_toggle)
+        self.assertEqual(out_hl, out_hl_pre)
         self.assertIn("Chain 1 -> F2: Beta", out_hl)
         self.assertIn("Delta", out_hl)
         self.assertNotIn("Next actionable:", out_hl)
@@ -316,7 +322,7 @@ class TestCli(TodoMdTestCase):
         self.assertEqual(r_done.returncode, 0, msg=r_done.stderr)
         out_lim = self._run([str(SCRIPT), "-l", "1"], cwd=str(proj), check=True).stdout
         self.assertNotIn("Delta", out_lim)
-        for bad in (["--status", "bogus"], ["chain", "--focus"], ["--numbered=middle"]):
+        for bad in (["--status", "bogus"], ["chain", "--filter"], ["chain", "-f"], ["--numbered=middle"]):
             with self.subTest(bad=bad):
                 self.assertNotEqual(self._run([str(SCRIPT), *bad], cwd=str(proj)).returncode, 0)
 
@@ -355,10 +361,23 @@ class TestCli(TodoMdTestCase):
         self.assertIn("Mentions tokenizer details.", out_full)
         self.assertNotIn("Chain 1", out_full)
 
-        # No match -> non-zero exit; archive searched only with --all
+        # -s with -H renders full Quest-Log with matches highlighted instead of focusing
+        out_s_hl = self._run([str(SCRIPT), "-s", "tokenizer", "-H"], cwd=str(proj), check=True).stdout
+        self.assertIn("Parser rewrite", out_s_hl)
+        self.assertIn("Unrelated cleanup", out_s_hl)
+
+        # No match -> non-zero exit; archive searched with --all or archive status
         self.assertNotEqual(self._run([str(SCRIPT), "-s", "no-such-text"], cwd=str(proj)).returncode, 0)
         self._run([str(SCRIPT), "done", "F3"], cwd=str(proj), check=True)
         self.assertNotEqual(self._run([str(SCRIPT), "-s", "unrelated"], cwd=str(proj)).returncode, 0)
+        out_arch_ql = self._run([str(SCRIPT), "--all", "-s", "unrelated"], cwd=str(proj), check=True).stdout
+        self.assertIn("F3", out_arch_ql)
+        self.assertIn("Unrelated cleanup", out_arch_ql)
+        self.assertNotIn("Parser rewrite", out_arch_ql)
+        out_arch_filt = self._run([str(SCRIPT), "--all", "-f", "F3"], cwd=str(proj), check=True).stdout
+        self.assertIn("F3", out_arch_filt)
+        self.assertIn("Unrelated cleanup", out_arch_filt)
+        self.assertNotIn("Parser rewrite", out_arch_filt)
         out_arch = self._run([str(SCRIPT), "--full", "--all", "-s", "unrelated"], cwd=str(proj), check=True).stdout
         self.assertIn("Task: F3", out_arch)
 

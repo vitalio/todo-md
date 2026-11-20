@@ -195,6 +195,20 @@ def _split_task_ref_arg(arg: str) -> list[str] | None:
     return parts
 
 
+def resolve_filter_task_ref(
+    base_dir: Path,
+    ref: str,
+    explicit_dir: str | None = None,
+) -> tuple[Path, str]:
+    raw = ref.strip()
+    m = PROJECT_TASK_RE.match(raw)
+    if m:
+        proj_name, tid = m.group(1), m.group(2).upper()
+        r_dir = resolve_project_dir(base_dir, proj_name, explicit_dir=explicit_dir)
+        return r_dir, f".:{tid}"
+    return base_dir, raw.upper()
+
+
 def _normalize_target_refs(
     base_dir: Path,
     targets: list[tuple[Path, str]] | None,
@@ -206,15 +220,20 @@ def _normalize_target_refs(
         tok = raw_tid.strip()
         if not tok:
             continue
-        if PROJECT_TASK_RE.match(tok):
+        if tok.startswith(".:"):
+            tid_up = tok[2:].strip().upper()
+            if tid_up:
+                target_set.add((tdir.resolve(), tid_up))
+            continue
+        pm = PROJECT_TASK_RE.match(tok)
+        if pm:
             r_dir, r_tid = resolve_project_task_ref(base_dir, tok, explicit_dir=explicit_dir)
             target_set.add((r_dir.resolve(), r_tid.upper()))
         else:
             t_res = tdir.resolve()
             tid_up = tok.upper()
             target_set.add((t_res, tid_up))
-            if not is_todo_project(t_res) and not (t_res / "TODO.md").is_file():
-                unscoped_ids.add(tid_up)
+            unscoped_ids.add(tid_up)
     return target_set, unscoped_ids
 
 
@@ -798,16 +817,26 @@ def compile_search_pattern(query: str) -> re.Pattern[str]:
         return re.compile(re.escape(query), re.IGNORECASE)
 
 
-def search_tasks(base_dir: Path, query: str, include_archive: bool = False) -> list[dict[str, object]]:
+def search_tasks(
+    base_dir: Path,
+    query: str,
+    include_archive: bool = False,
+    project_label: str | None = None,
+) -> list[dict[str, object]]:
     pat = compile_search_pattern(query)
     fnames = TASK_FILES if include_archive else TASK_FILES[:1]
+    b_name = base_dir.resolve().name
     matches: list[dict[str, object]] = []
     for fname in fnames:
         path = base_dir / fname
         if not path.is_file():
             continue
         for t in parse_tasks_in_text(read_if_exists(path), fname):
-            haystack = f"{t['id']}\n{t['title']}\n{t.get('section', '')}"
+            tid = str(t["id"])
+            id_tokens = [tid, f"{b_name}:{tid}"]
+            if project_label and project_label != b_name:
+                id_tokens.append(f"{project_label}:{tid}")
+            haystack = "\n".join([*id_tokens, str(t["title"]), str(t.get("section", ""))])
             if pat.search(haystack):
                 matches.append(t)
     return matches
@@ -1336,6 +1365,7 @@ def cmd_list(
     role: str | None = None,
     ready: bool = False,
     targets: list[tuple[Path, str]] | None = None,
+    focus: list[tuple[Path, str]] | None = None,
 ) -> int:
     mode = (filt or "active").strip().lower()
     tasks = collect_all_tasks(base_dir)
@@ -1377,6 +1407,16 @@ def cmd_list(
             for t in shown
             if str(t["status"]) in ACTIVE_STATUS_ORDER and not _dep_info(t)[0]
         ]
+
+    if focus:
+        b_res_f = base_dir.resolve()
+        focus_set, focus_unscoped = _normalize_target_refs(base_dir, focus)
+        if focus_set or focus_unscoped:
+            shown = [
+                t
+                for t in shown
+                if (b_res_f, str(t["id"]).upper()) in focus_set or str(t["id"]).upper() in focus_unscoped
+            ]
 
     if limit is not None:
         shown = shown[:limit]
@@ -1632,6 +1672,7 @@ def cmd_workspace_list(
     role: str | None = None,
     ready: bool = False,
     targets: list[tuple[Path, str]] | None = None,
+    focus: list[tuple[Path, str]] | None = None,
 ) -> int:
     projects = discover_projects(workspace_root)
     if not projects:
@@ -1677,6 +1718,15 @@ def cmd_workspace_list(
             for name, proj_dir, t in items
             if str(t["status"]) in ACTIVE_STATUS_ORDER and not _ws_dep_info(proj_dir, t)[0]
         ]
+
+    if focus:
+        focus_set, focus_unscoped = _normalize_target_refs(workspace_root, focus)
+        if focus_set or focus_unscoped:
+            items = [
+                (name, proj_dir, t)
+                for name, proj_dir, t in items
+                if (proj_dir.resolve(), str(t["id"]).upper()) in focus_set or str(t["id"]).upper() in focus_unscoped
+            ]
 
     if limit is not None:
         items = items[:limit]
@@ -2017,6 +2067,8 @@ def resolve_workspace_chain_projects(
                 configured.append(p_res)
 
     if has_local_todo_projects_config(b_res) or os.environ.get("TODO_MD_PROJECTS", "").strip():
+        if (b_res / "TODO.md").is_file() or (b_res / "TODO_ARCHIVE.md").is_file():
+            _merge([b_res])
         _merge(read_configured_todo_projects(b_res, ws_res, include_env=True, discovered=all_projs))
     if not configured and has_local_todo_projects_config(ws_res):
         _merge(read_configured_todo_projects(ws_res, ws_res, include_env=True, discovered=all_projs))
@@ -2082,6 +2134,8 @@ def build_execution_chain_dag(
         for _, proj_dir in resolve_workspace_chain_projects(b_res, ws_resolved):
             _add_seed_dir(proj_dir)
     elif is_orch:
+        if (b_res / "TODO.md").is_file() or (b_res / "TODO_ARCHIVE.md").is_file():
+            _add_seed_dir(b_res)
         for proj_dir in read_configured_todo_projects(
             b_res, ws_resolved, include_env=True, discovered=all_ws_projects
         ):
@@ -2423,8 +2477,30 @@ def build_execution_chain_dag(
         max(top_done_candidates)[2] if top_done_candidates else None
     )
 
+    archived_tasks: list[tuple[Path, str]] = []
+    if include_done:
+        seen_arch: set[tuple[Path, str]] = set()
+        for p_res in seed_dirs:
+            arch_path = p_res / "TODO_ARCHIVE.md"
+            if not arch_path.is_file():
+                continue
+            for t in parse_tasks_in_text(read_if_exists(arch_path), "TODO_ARCHIVE.md"):
+                arch_key = (p_res.resolve(), str(t["id"]).upper())
+                if arch_key in seen_arch:
+                    continue
+                seen_arch.add(arch_key)
+                if arch_key not in nodes:
+                    _ensure_node_slot(arch_key)
+                    nodes[arch_key] = {
+                        **t,
+                        "exists": True,
+                        "ref": _format_ref(arch_key),
+                    }
+                archived_tasks.append(arch_key)
+
     return {
         "nodes": nodes,
+        "archived_tasks": archived_tasks,
         "prereqs": prereqs,
         "done_prereqs": done_prereqs,
         "done_graph_prereqs": done_graph_prereqs,
@@ -3161,6 +3237,15 @@ def plan_execution_chains(
 
     chains: list[list[tuple[Path, str]]] = [entry["nodes"] for entry in chain_entries]  # type: ignore[misc]
     standalone.sort(key=_standalone_sort_key)
+    if show_done:
+        in_any_chain: set[tuple[Path, str]] = set()
+        for entry in chain_entries:
+            in_any_chain |= set(entry["open_nodes"]) | set(entry["done_nodes"])  # type: ignore[arg-type]
+        already_placed = set(finales) | set(standalone) | in_any_chain | excluded_hold
+        for arch_key in dag.get("archived_tasks", []):  # type: ignore[union-attr]
+            if arch_key not in already_placed:
+                already_placed.add(arch_key)
+                standalone.append(arch_key)
 
     if limit is not None:
         rem = limit

@@ -4,17 +4,6 @@
 - Preserve existing `cmd_files()` line and byte budget filtering (`--max-lines`, `--max-total-lines`, `--max-bytes`, `--max-total-bytes`) over the expanded file list in deterministic order.
 - Update `src/header.py`, `src/rules/todo_md.md`, `README.md`, and unit tests in `tests/test_commands.py`, rebuild `./todo_md` via `build.py`, and bump `VERSION` for a MINOR release.
 
-# 🎯 [NEXT] F55: Unify -s/--search, -f/--filter, -H/--highlight focus toggle, and --all across .todo_projects
-
-- In `src/cli.py` (`_parse_quest_log_args()`, `_quest_log()`, `QUEST_LOG_USAGE`), `src/parser.py` (`_normalize_target_refs()`, `search_tasks()`), and `src/header.py`:
-  - Replace `-f` / `--focus` with `-f <ID>...` / `--filter <ID>...` for filtering by task IDs (case-insensitive `<ID>` or `<project>:<ID>`, space- or comma-separated):
-    - A bare `<ID>` without a project prefix (e.g. `todo_md -f F54`) matches all tasks with that ID across all projects in the active view (both unprefixed local `F54` and any `<project>:F54` across `.todo_projects` / `-w`).
-    - A project-qualified `<project>:<ID>` (e.g. `todo_md -f todo_md:F54`) matches only the task `<ID>` inside that specific project (`todo_md`).
-  - Keep `-s <QUERY>` / `--search <QUERY>` (`todo_md search <QUERY>`) for case-insensitive substring/regex search across task ID (`<ID>` and `<project>:<ID>`), title, and body across all projects in the active view (including all child projects configured in `.todo_projects` when running inside an orchestrator without `-w`), so `todo_md -s F54` inside `todo_flow` finds `todo_md:F54` itself as well as tasks referencing `F54`.
-  - Make focusing + highlighting the default behavior when `-s` and/or `-f` is given, and make `-H` / `--highlight` a boolean focus-disabling toggle (so `todo_md -f todo_md:F54 -H`, `todo_md -f F54 -H`, and `todo_md -s F54 -H` render the full Quest-Log with matched tasks highlighted; also accept `todo_md -H <ID>...` when no `-f`/`-s` was passed as shorthand for `-f <ID>... -H`).
-- Unify `--all` across Quest-Log, `-s`, and `-f` in `src/cli.py` and `src/commands.py` (`cmd_chain()`, `cmd_list()`, `cmd_workspace_list()`): `--all` always includes both active (`TODO.md`) and archived (`TODO_ARCHIVE.md`) tasks, and focused searches/filters display matched archived `DONE`/`CANCELED` tasks rather than dropping standalone archived tasks or printing the entire archive unfiltered.
-- Update `AGENTS.md`, `src/rules/todo_md.md`, `src/header.py`, `README.md`, and unit tests in `tests/test_cli.py` and `tests/test_chain.py`, rebuild `./todo_md` via `build.py`, and bump `VERSION` for a MINOR release.
-
 # 🎯 [NEXT] F54: Support nested .todo_projects orchestrator hierarchies and external project path aliases (e.g. ~/chrome/canary)
 
 - In `read_configured_todo_projects()` (`src/parser.py`), recursively expand nested orchestrator projects (tracking `visited_configs: set[Path]` to prevent cycles): when a configured entry (such as `todo_flow`) has its own `.todo_projects` / `.todo_projects.local`, transitively include its child projects (`agents-rules`, `agents_bundle`, `todo_md`, `run_block`) alongside sibling projects (such as `~/chrome/canary`).

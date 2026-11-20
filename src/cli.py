@@ -114,7 +114,8 @@ STATUS_FILTER_KEYWORDS = (
 )
 QUEST_LOG_USAGE = (
     "[--tree] [--numbered[=left|right]] [--status STATUS] [--all] [--ready] [--by-role] "
-    "[--role ROLE] [-l N|--limit N] [--include-hold] [--focus <ID>...] [--highlight <ID>...]"
+    "[--role ROLE] [-l N|--limit N] [--include-hold] [-f|--filter <ID>...] [-H|--highlight [<ID>...]] "
+    "[-s|--search QUERY]"
 )
 
 
@@ -163,8 +164,8 @@ def _parse_quest_log_args(prog: str, argv: list[str], cmd: str, positional_focus
         "role": None,
         "status": None,
         "archive": None,
-        "focus": [],
-        "highlight": [],
+        "filter": [],
+        "highlight": False,
         "search": None,
     }
 
@@ -212,12 +213,30 @@ def _parse_quest_log_args(prog: str, argv: list[str], cmd: str, positional_focus
         elif a.startswith("--status="):
             set_status(a.split("=", 1)[1])
             i += 1
-        elif a in ("--focus", "-f"):
+        elif a in ("--filter", "-f", "--focus"):
             refs, i = _consume_task_refs(prog, a, argv, i + 1)
-            o["focus"].extend(refs)  # type: ignore[attr-defined]
+            o["filter"].extend(refs)  # type: ignore[attr-defined]
+        elif a.startswith("--filter=") or a.startswith("--focus="):
+            flag_name, raw_val = a.split("=", 1)
+            parts = _split_task_ref_arg(raw_val)
+            if not parts:
+                raise SystemExit(f"{prog}: {flag_name} requires at least one task ID")
+            o["filter"].extend(parts)  # type: ignore[attr-defined]
+            i += 1
         elif a in ("--highlight", "-H"):
-            refs, i = _consume_task_refs(prog, a, argv, i + 1)
-            o["highlight"].extend(refs)  # type: ignore[attr-defined]
+            o["highlight"] = True
+            j = i + 1
+            hl_refs: list[str] = []
+            while j < len(argv) and not argv[j].startswith("-"):
+                if _is_status_keyword(argv[j]):
+                    break
+                parts = _split_task_ref_arg(argv[j])
+                if parts is None:
+                    break
+                hl_refs.extend(parts)
+                j += 1
+            o["filter"].extend(hl_refs)  # type: ignore[attr-defined]
+            i = j
         elif a in ("--search", "-s"):
             if i + 1 >= len(argv) or not argv[i + 1].strip():
                 raise SystemExit(f"{prog}: {a} requires a non-empty query argument")
@@ -261,9 +280,9 @@ def _parse_quest_log_args(prog: str, argv: list[str], cmd: str, positional_focus
             if not positional_focus:
                 raise SystemExit(
                     f"{prog}: unexpected task ID {a!r} for the default view "
-                    f"(use --focus/--highlight, or '{prog} chain <ID>')"
+                    f"(use -f/--filter, -H/--highlight, or '{prog} chain <ID>')"
                 )
-            o["focus"].extend(parts)  # type: ignore[attr-defined]
+            o["filter"].extend(parts)  # type: ignore[attr-defined]
             i += 1
     return o
 
@@ -279,30 +298,29 @@ def _quest_log(
     positional_focus: bool = False,
 ) -> int:
     o = _parse_quest_log_args(prog, argv, cmd, positional_focus)
-    focus_refs = [
-        resolve_project_task_ref(base_dir, r, explicit_dir=explicit_dir)
-        for r in o["focus"]  # type: ignore[attr-defined]
+    filter_refs = [
+        resolve_filter_task_ref(base_dir, r, explicit_dir=explicit_dir)
+        for r in o["filter"]  # type: ignore[attr-defined]
     ]
-    highlight_refs = [
-        resolve_project_task_ref(base_dir, r, explicit_dir=explicit_dir)
-        for r in o["highlight"]  # type: ignore[attr-defined]
-    ]
+    highlight_toggle = bool(o["highlight"])
     use_ws = workspace
+    ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
     if not use_ws and not is_todo_project(base_dir) and not (base_dir / "TODO.md").is_file():
-        ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
         if discover_projects(ws_root):
             use_ws = True
+    matched_refs: list[tuple[Path, str]] = list(filter_refs)
     search = o["search"]
     if search is not None:
         include_archive = bool(o["include_done"]) or o["archive"] is not None
-        if use_ws:
-            ws_root_s = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
-            search_dirs = [pdir for _, pdir in resolve_workspace_chain_projects(base_dir, ws_root_s)]
+        b_res = base_dir.resolve()
+        is_orch = (not use_ws) and is_orchestrator_project(b_res, ws_root, explicit_dir=explicit_dir)
+        if use_ws or is_orch:
+            search_projects = resolve_workspace_chain_projects(base_dir, ws_root)
         else:
-            search_dirs = [base_dir]
+            search_projects = [(b_res.name, base_dir)]
         search_matches: list[tuple[Path, str]] = []
-        for sdir in search_dirs:
-            for st in search_tasks(sdir, str(search), include_archive=include_archive):
+        for plabel, sdir in search_projects:
+            for st in search_tasks(sdir, str(search), include_archive=include_archive, project_label=plabel):
                 search_matches.append((sdir, str(st["id"]).upper()))
         if not search_matches:
             sys.stderr.write(f"{prog}: no tasks match {search!r}\n")
@@ -314,18 +332,31 @@ def _quest_log(
                     sys.stdout.write("\n")
                 show_rc = max(show_rc, cmd_show(sdir, stid))
             return show_rc
-        focus_refs = [*focus_refs, *search_matches]
+        matched_refs.extend((sdir, f".:{stid}") for sdir, stid in search_matches)
+    focus_refs = None if highlight_toggle else (matched_refs or None)
     archive = o["archive"]
     if archive is not None:
         filt = "archive" if archive == "ARCHIVE" else str(archive)
-        list_targets = [*focus_refs, *highlight_refs]
         if use_ws:
-            ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
             return cmd_workspace_list(
-                ws_root, filt, limit=o["limit"], full=full, role=o["role"], ready=False, targets=list_targets
+                ws_root,
+                filt,
+                limit=o["limit"],
+                full=full,
+                role=o["role"],
+                ready=False,
+                targets=matched_refs,
+                focus=focus_refs,
             )
         return cmd_list(
-            base_dir, filt, limit=o["limit"], full=full, role=o["role"], ready=False, targets=list_targets
+            base_dir,
+            filt,
+            limit=o["limit"],
+            full=full,
+            role=o["role"],
+            ready=False,
+            targets=matched_refs,
+            focus=focus_refs,
         )
     return cmd_chain(
         base_dir,
@@ -337,10 +368,10 @@ def _quest_log(
         by_role=o["by_role"],
         workspace=use_ws,
         explicit_dir=explicit_dir,
-        targets=[*focus_refs, *highlight_refs],
+        targets=matched_refs,
         tree=o["tree"],
         numbered=o["numbered"],
-        focus=(focus_refs or None),
+        focus=focus_refs,
         status=o["status"],
     )
 
@@ -660,6 +691,9 @@ def main(argv: list[str] | None = None) -> int:
             elif a == "--ready":
                 ready = True
                 i += 1
+            elif a == "--all":
+                filt = "all"
+                i += 1
             elif a.startswith("-"):
                 raise SystemExit(f"{prog}: unknown option for list: {a}")
             else:
@@ -675,7 +709,7 @@ def main(argv: list[str] | None = None) -> int:
                         f"{prog}: usage: {prog} list [filter] [<ID>...] [--role ROLE] [--ready] [--limit N] [--full]"
                     )
         target_refs: list[tuple[Path, str]] = [
-            resolve_project_task_ref(base_dir, ref, explicit_dir=explicit_dir)
+            resolve_filter_task_ref(base_dir, ref, explicit_dir=explicit_dir)
             for ref in raw_target_refs
         ]
         if workspace or (not is_todo_project(base_dir) and not (base_dir / "TODO.md").is_file()):

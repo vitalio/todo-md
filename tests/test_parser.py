@@ -658,7 +658,7 @@ class TestParser(TodoMdTestCase):
         # Highlight local finale F1, external prereq todo_flow:D1, local chain task F2, standalone F3,
         # local held D2, and external held todo_flow:D2
         r_chain_hl = self._run(
-            [str(SCRIPT), "chain", "--numbered=right", "F1,todo_flow:D1", "F3", "D2,todo_flow:D2"],
+            [str(SCRIPT), "chain", "--numbered=right", "run_block:F1,todo_flow:D1", "F3", "D2,todo_flow:D2"],
             cwd=str(run_block),
             env=color_env,
             check=True,
@@ -693,7 +693,7 @@ class TestParser(TodoMdTestCase):
 
         # Strip ANSI equals plain output at identical terminal width
         r_chain_plain = self._run(
-            [str(SCRIPT), "chain", "--numbered=right", "F1,todo_flow:D1", "F3", "D2,todo_flow:D2"],
+            [str(SCRIPT), "chain", "--numbered=right", "run_block:F1,todo_flow:D1", "F3", "D2,todo_flow:D2"],
             cwd=str(run_block),
             env={**base_env, "COLUMNS": "80"},
             check=True,
