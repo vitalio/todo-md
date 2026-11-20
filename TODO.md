@@ -1,4 +1,4 @@
-# 🎯 [NEXT] F47: Restrict Chain finales to work tasks and rank chains by role-weighted velocity (work=1, plan=2, design=5)
+# 🔵 [WIP] F47: Restrict Chain finales to work tasks and rank chains by role-weighted velocity (work=1, plan=2, design=5)
 
 - Role: work
 - Define `ROLE_EFFORT_WEIGHTS` in `src/header.py` mapping task roles to expected implementation-task equivalents (`"work": 1`, `"plan": 2`, `"design": 5`, with unknown/unannotated roles defaulting to `5`) alongside `ROLE_EASE_ORDER`.
@@ -7,6 +7,16 @@
 - When a connected component has `open_count == 1` and `done_count >= 1` (`total_tasks >= 2`) but its sole remaining open task has role `plan` or `design` (not `work`), place it in regular numbered chains (`Chain 1..N`) instead of `Chain finales:`, while preserving the `[ready | after: ...]` tag in `cmd_chain()` (`src/commands.py`) for any ready task with completed `DONE` prerequisites and no downstream open dependents.
 - Update `_build_chain_entry()` in `src/parser.py` to compute role-weighted remaining effort for each chain (`remaining_effort = sum(_resolve_node_role_weight(nodes, u) for u in comp)` using `work=1`, `plan=2`, `design=5`) and incorporate role-weighted completion velocity / effort (`-done_count / (done_count + remaining_effort)` and `remaining_effort`) into `rank_key` so chains burdened by `design` or `plan` tasks rank lower than fast `work` chains.
 - Update `src/rules/todo_md.md`, `README.md`, and unit tests in `tests/test_todo_md.py` (`test_chain_finales_section_ranking_and_after_tags`, `test_chain_rpg_progress_transitive_done_bug_and_role_ranking`), rebuild `./todo_md` via `build.py`, and bump `VERSION` for a MINOR release.
+
+# 🎯 [NEXT] F48: Integrate .todo_projects orchestrator DAG into todo_md chain and dim external-project tasks in project-scoped views
+
+- Role: work
+- When `todo_md chain` runs inside an orchestrator repository containing `.todo_projects` (or `.todo_projects.local` / `TODO_MD_PROJECTS`), automatically build execution chains across the orchestrator and all configured projects from `.todo_projects` by default (without requiring `-w`), and filter `todo_md chain -w` discovery to `.todo_projects` when present.
+- When `todo_md chain` targets a child project (either run directly inside `<child>` or via `todo_md -C <child> chain` / `--project <child>`), automatically discover any workspace orchestrator whose `.todo_projects` lists `<child>` and merge the orchestrator's cross-project dependency edges into `build_execution_chain_dag()` (`src/parser.py`) so child tasks (such as `run_block:F72`) reflect their real orchestrator prerequisites (`[blocked by: todo_flow:D8, todo_flow:F4]`) and join their full chain instead of appearing as `[ready]` standalone tasks.
+- In project-scoped `cmd_chain()` views (`src/commands.py`), filter displayed `Chain finales:`, `Chain 1..N`, `Standalone tasks:`, `Ready tasks:`, `Queues:`, and `Held branches:` to only chains and tasks containing at least one task from the target project.
+- Format task references in `build_execution_chain_dag()` / `cmd_chain()` relative to the caller's actual current working directory (`Path.cwd().resolve()`): omit the `<project>:` prefix for tasks belonging to `Path.cwd()` when run directly inside that project directory (`F72`), and keep the `<project>:<ID>` prefix (`run_block:F72`) when targeting the project from outside via `-C` / `--project` so IDs are always ready for copy-paste in the current shell directory.
+- Visually distinguish target-project tasks from external-project tasks inside displayed chains: render tasks belonging to the target project in normal/bright text, and dim tasks from other repositories in the same chain using ANSI dim styling (`\033[2m...\033[0m` when `sys.stdout.isatty()` and `NO_COLOR` is unset, or `FORCE_COLOR` is set; plain text in pipes) without shifting `_display_width()` / `_wrap_table_row()` column alignment (coordinating with `F38`).
+- Keep `src/header.py` (`--help`), `src/rules/todo_md.md`, `README.md`, and `tests/test_todo_md.py` in sync, rebuild `./todo_md` via `build.py`, and bump `VERSION` for a MINOR release.
 
 # 🎯 [NEXT] F44: Sync with git upstream (git pull --ff-only) before mutating backlog commands
 
