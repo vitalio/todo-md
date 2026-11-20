@@ -153,7 +153,7 @@ class TestTodoMd(unittest.TestCase):
         self.assertIn("-C DIR|PROJ, --project NAME", rh.stdout)
         self.assertIn("add", rh.stdout)
         self.assertIn("--role ROLE", rh.stdout)
-        self.assertIn("opts: --role ROLE, --ready, --tree, --limit N, --full", rh.stdout)
+        self.assertIn("opts: --role ROLE, --ready, --limit N, --full", rh.stdout)
         self.assertIn("edit", rh.stdout)
         self.assertIn("append", rh.stdout)
 
@@ -182,7 +182,7 @@ class TestTodoMd(unittest.TestCase):
         self.assertIn("--max-total-bytes N", rule_txt)
         self.assertIn("key symbol names in backticks", rule_txt)
         self.assertIn("-C <dir|project>` or `--project <name>`", rule_txt)
-        self.assertIn("list [active|archive|all|<STATUS>] [--role <role>] [--ready] [--tree]", rule_txt)
+        self.assertIn("list [active|archive|all|<STATUS>] [--role <role>] [--ready] [--limit N] [--full]", rule_txt)
         self.assertIn("⏳ [WIP]` / `⏳ [NEXT]", rule_txt)
         self.assertIn("[blocked: A (<STATUS>) -> B (<STATUS>)]", rule_txt)
         self.assertIn("--max-total-lines N", rh.stdout)
@@ -2072,187 +2072,13 @@ class TestTodoMd(unittest.TestCase):
         self._run([str(SCRIPT), "check"], cwd=str(fix_arch), check=True)
 
 
-    def test_list_tree_hierarchy_shared_deps_and_terminal_width_truncation(self):
-        ws = self.tmp / "ws_tree"
-        proj_a = ws / "proj_a"
-        proj_b = ws / "proj_b"
-        proj_a.mkdir(parents=True)
-        proj_b.mkdir(parents=True)
-        self._run([str(SCRIPT), "init"], cwd=str(proj_a), check=True)
-        self._run([str(SCRIPT), "init"], cwd=str(proj_b), check=True)
-
-        # Build multi-step chain across status buckets + shared dependency:
-        # F1 (NEW) -> F2 (NEXT) -> F3 (WIP)
-        # F1 (NEW) -> F4 (NEXT)
-        # F2, F4 -> F5 (NEW, shared dependent)
-        # F6 (NEXT, standalone ready)
-        self._run(
-            [str(SCRIPT), "add", "Foundation schema migration and storage layer"],
-            cwd=str(proj_a),
-            check=True,
-        )
-        self._run(
-            [str(SCRIPT), "add", "Backend service endpoints", "--next", "--depends", "F1"],
-            cwd=str(proj_a),
-            check=True,
-        )
-        self._run(
-            [str(SCRIPT), "add", "Active UI implementation", "--status", "WIP", "--depends", "F2"],
-            cwd=str(proj_a),
-            check=True,
-        )
-        self._run(
-            [str(SCRIPT), "add", "Auth middleware adapter", "--next", "--depends", "F1"],
-            cwd=str(proj_a),
-            check=True,
-        )
-        self._run(
-            [str(SCRIPT), "add", "End-to-end integration verification", "--depends", "F2, F4"],
-            cwd=str(proj_a),
-            check=True,
-        )
-        self._run(
-            [str(SCRIPT), "add", "Standalone ready task", "--next"],
-            cwd=str(proj_a),
-            check=True,
-        )
-
-        # Wide terminal (COLUMNS=160): prerequisites placed above dependents across status buckets,
-        # multi-step connectors (├─ / └─ / │), and shared dependent marked (shared) without duplicating subtree
-        # Note: add --next prepends newer NEXT items above older NEXT items, so F4 precedes F2 in TODO.md.
-        r_wide = self._run(
-            [str(SCRIPT), "list", "--tree"],
-            cwd=str(proj_a),
-            env={**os.environ, "COLUMNS": "160"},
-            check=True,
-        )
-        out = r_wide.stdout
-        self.assertLess(out.index("F6"), out.index("F1"))
-        self.assertLess(out.index("F1"), out.index("F4"))
-        self.assertLess(out.index("F4"), out.index("F5"))
-        self.assertLess(out.index("F4"), out.index("F2"))
-        self.assertLess(out.index("F2"), out.index("F3"))
-        self.assertIn("├─ F4", out)
-        self.assertIn("│   └─ F5", out)
-        self.assertIn("└─ F2", out)
-        self.assertIn("    ├─ F3", out)
-        self.assertIn("    └─ F5", out)
-        self.assertIn("(shared)", out)
-        self.assertIn("Foundation schema migration and storage layer", out)
-        self.assertIn("End-to-end integration verification", out)
-        self.assertNotIn("...", out)
-
-        # Non-TTY fallback (no COLUMNS set): renders tree cleanly within default 100 columns
-        env_no_cols = {k: v for k, v in os.environ.items() if k != "COLUMNS"}
-        r_nontty = self._run(
-            [str(SCRIPT), "list", "--tree"],
-            cwd=str(proj_a),
-            env=env_no_cols,
-            check=True,
-        )
-        self.assertIn("├─ F4", r_nontty.stdout)
-        self.assertIn("└─ F2", r_nontty.stdout)
-
-        # Narrow terminal with room for truncated titles (COLUMNS=58): truncates titles with '...'
-        # and keeps every row within 58 display columns on a single line
-        r_trunc = self._run(
-            [str(SCRIPT), "list", "--tree"],
-            cwd=str(proj_a),
-            env={**os.environ, "COLUMNS": "58"},
-            check=True,
-        )
-        tree_rows_trunc = [
-            l for l in r_trunc.stdout.splitlines() if l.startswith("  ") and not l.strip().startswith("IDs")
-        ]
-        self.assertEqual(len(tree_rows_trunc), 7)
-        self.assertIn("...", r_trunc.stdout)
-        self.assertIn("├─ F4", r_trunc.stdout)
-        for row in tree_rows_trunc:
-            self.assertLessEqual(self.todo_md_mod._display_width(row), 58, msg=f"row overflow: {row!r}")
-
-        # Very narrow terminal (COLUMNS=30): falls back to compact ID-only tree lines
-        r_narrow = self._run(
-            [str(SCRIPT), "list", "--tree"],
-            cwd=str(proj_a),
-            env={**os.environ, "COLUMNS": "30"},
-            check=True,
-        )
-        narrow_rows = [
-            l for l in r_narrow.stdout.splitlines() if l.startswith("  ") and not l.strip().startswith("IDs")
-        ]
-        self.assertEqual(
-            narrow_rows,
-            [
-                "  F6",
-                "  F1",
-                "  ├─ F4",
-                "  │   └─ F5",
-                "  └─ F2",
-                "      ├─ F3",
-                "      └─ F5 (shared)",
-            ],
-        )
-        self.assertNotIn("Foundation schema", r_narrow.stdout)
-        self.assertNotIn("[work]", r_narrow.stdout)
-
-        # Status filter + --tree renders only matching status tasks cleanly
-        r_next_tree = self._run(
-            [str(SCRIPT), "list", "NEXT", "--tree"],
-            cwd=str(proj_a),
-            env={**os.environ, "COLUMNS": "140"},
-            check=True,
-        )
-        next_ids = [
-            l.split()[0] for l in r_next_tree.stdout.splitlines() if l.startswith("  ") and not l.strip().startswith("IDs")
-        ]
-        self.assertEqual(next_ids, ["F6", "F4", "F2"])
-
-        # Workspace list -w --tree connects cross-project prerequisite -> dependent
-        self._run(
-            [str(SCRIPT), "add", "Cross-project consumer", "--next", "--depends", "proj_a:F3"],
-            cwd=str(proj_b),
-            check=True,
-        )
-        r_ws_tree = self._run(
-            [str(SCRIPT), "list", "-w", "--tree"],
-            cwd=str(ws),
-            env={**os.environ, "COLUMNS": "140"},
-            check=True,
-        )
-        self.assertIn("proj_a:F1", r_ws_tree.stdout)
-        self.assertIn("proj_b:F1", r_ws_tree.stdout)
-        self.assertLess(r_ws_tree.stdout.index("proj_a:F3"), r_ws_tree.stdout.index("proj_b:F1"))
-        self.assertIn("└─ proj_b:F1", r_ws_tree.stdout)
-
-        # --limit N caps rendered tree rows
-        r_lim = self._run(
-            [str(SCRIPT), "list", "--tree", "--limit", "3"],
-            cwd=str(proj_a),
-            env={**os.environ, "COLUMNS": "30"},
-            check=True,
-        )
-        lim_rows = [
-            l for l in r_lim.stdout.splitlines() if l.startswith("  ") and not l.strip().startswith("IDs")
-        ]
-        self.assertEqual(lim_rows, ["  F6", "  F1", "  ├─ F4"])
-
-        # Cycle safety in list --tree: renders all tasks without infinite recursion
-        cyc_tree = ws / "cyc_tree"
-        cyc_tree.mkdir()
-        self._run([str(SCRIPT), "init"], cwd=str(cyc_tree), check=True)
-        (cyc_tree / "TODO.md").write_text(
-            "# ⚪ [NEW] F1: Cycle one\n\n- Depends on: F2\n\n"
-            "# ⚪ [NEW] F2: Cycle two\n\n- Depends on: F1\n",
-            encoding="utf-8",
-        )
-        r_cyc_tree = self._run(
-            [str(SCRIPT), "list", "--tree"],
-            cwd=str(cyc_tree),
-            env={**os.environ, "COLUMNS": "120"},
-            check=True,
-        )
-        self.assertIn("F1", r_cyc_tree.stdout)
-        self.assertIn("F2", r_cyc_tree.stdout)
+    def test_list_rejects_retired_tree_flag(self):
+        proj = self.tmp / "proj_no_tree"
+        proj.mkdir(parents=True)
+        self._run([str(SCRIPT), "init"], cwd=str(proj), check=True)
+        r = self._run([str(SCRIPT), "list", "--tree"], cwd=str(proj), check=False)
+        self.assertNotEqual(r.returncode, 0, msg=r.stdout)
+        self.assertIn("unknown option for list: --tree", r.stderr)
 
 
     def test_tabular_column_wrapping_and_emoji_alignment(self):

@@ -16,8 +16,8 @@ rules are loaded via `.agents_bundle`.
   badges, dependency chains (`->`, `├─`, `└─`), and downstream impact
   indicators (`[unblocks N]`, `Blocks: ...`).
 - Progressive disclosure: keep default views compact and scannable while
-  letting users drill into full quest details, dependency trees (`--tree`),
-  and execution paths (`queue`, `chain`, `--full`) on demand.
+  letting users drill into full quest details, dependency chains (`chain`),
+  and execution paths (`queue`, `--full`) on demand.
 - Unlock feedback loop: closing a quest (`todo_md done <ID>`) should report
   newly unlocked downstream quests (`Unblocked: ...`) so the next playable
   step is obvious without manually re-scanning the backlog.

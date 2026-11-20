@@ -1,9 +1,3 @@
-# 🔵 [WIP] F51: Retire todo_md list --tree so todo_md list stays a flat table and todo_md chain is the single tree view
-
-- Remove `--tree` option parsing from `list` in `main()` (`src/cli.py`) and remove the `tree: bool = False` branch from `cmd_list()` and `cmd_workspace_list()` in `src/parser.py`.
-- Remove dead `--tree` helpers and constants (`_build_tree_entries()`, `_render_tree_lines()`, `_truncate_display()`, `MIN_TREE_TITLE_COLS`) from `src/parser.py` / `src/header.py`.
-- Update `src/header.py` (`--help`), `src/rules/todo_md.md`, `README.md`, and `tests/test_todo_md.py` to remove `list --tree` references, rebuild `./todo_md` via `build.py`, and bump `VERSION` for a MINOR release.
-
 # 🎯 [NEXT] F54: Support nested .todo_projects orchestrator hierarchies and external project path aliases (e.g. ~/chrome/canary)
 
 - In `read_configured_todo_projects()` (`src/parser.py`), recursively expand nested orchestrator projects (tracking `visited_configs: set[Path]` to prevent cycles): when a configured entry (such as `todo_flow`) has its own `.todo_projects` / `.todo_projects.local`, transitively include its child projects (`agents-rules`, `agents_bundle`, `todo_md`, `run_block`) alongside sibling projects (such as `~/chrome/canary`).

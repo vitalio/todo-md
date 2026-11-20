@@ -7,7 +7,7 @@
   {prog} <ID> | show <ID|last>               Show task <ID> with Task/Title/Role/Workdir headers (or last [<STATUS|archive>], supports <project>:<ID>)
   {prog} last [<STATUS|archive>]           Show full section for last task in status/archive (default: NEW)
   {prog} last-id [<STATUS|archive>]        Print ID of last task in status/archive (default: NEW)
-  {prog} list [filter] [opts]                List tasks (active | archive | all | <STATUS>; opts: --role ROLE, --ready, --tree, --limit N, --full)
+  {prog} list [filter] [opts]                List tasks (active | archive | all | <STATUS>; opts: --role ROLE, --ready, --limit N, --full)
   {prog} archive [<ID>] [-m NOTE]            Print TODO_ARCHIVE.md, or archive task <ID>
   {prog} add [<PROJ>] [<PREFIX>] <TITLE>     Add a new task with auto-assigned ID (reads body from -b TEXT|- or stdin)
                                              Opts: -p PREFIX (default: F), --next, --status STATUS, -m NOTE, -b BODY|-, --role ROLE, --depends SPEC
@@ -42,7 +42,7 @@ Global options (accepted before subcommands):
 
 Tabular views (list, chain, queue, projects) align status badges by display width and wrap long
 descriptions into aligned columns based on terminal width (falling back to a 4-space indent on
-narrow terminals; list --tree truncates to one line). Mutating commands automatically validate and
+narrow terminals). Mutating commands automatically validate and
 status-order TODO.md (pass -c / --commit to also git-commit TODO*.md when inside a Git repository;
 --no-commit is accepted as a no-op alias).
 
