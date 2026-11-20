@@ -25,6 +25,9 @@ Enhance `todo_md --ready` (and add the `-r` short flag) so ready tasks are ranke
 - Tests in `tests/test_chain.py` and `tests/test_cli.py`:
   - Cover `-r` short flag in default view, `chain -r`, and `list -r`, multi-chain and `+M ready` priority ordering, role ease ordering (`work` ahead of `design`), Quest Momentum continuation in `-r`, and explicit stat counter formatting.
 
+- Bidirectional DAG chain integration rule in `src/rules/todo_md.md` and `src/bundles/todo_md.bundle`:
+  - Update `src/rules/todo_md.md` and the `[if role=plan]` prompt in `src/bundles/todo_md.bundle` to require checking existing open chains in both directions whenever adding or refining a task: upstream prerequisites (`--depends` on the new task) and downstream dependents (`todo_md edit <ID> --depends ...` on existing open tasks, doc/help alignment tasks, or orchestrator waves that touch the same files or build on the new capability) so new tasks are wired into chains rather than left as unintended standalone tasks.
+
 # 🎯 [NEXT] F57: Support glob path patterns in todo_md files (extract_task_files) for backticked file masks
 
 - In `extract_task_files()` (`src/commands.py`), allow `*` and `?` in backticked relative path tokens (instead of rejecting them in `any(ch in cand for ch in "<>*?{}")`): when a relative token contains glob metacharacters (`*`, `?`, `[`) along with a path separator `/` or file extension `.` (so bare prefix tokens like `D*` or `*` are ignored) and contains no `..` traversal segments, expand `sorted(repo_root.glob(cand))` into matching regular files inside `repo_root` (skipping `.git` and `__pycache__` directories and deduplicating via `seen`).
