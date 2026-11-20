@@ -1,3 +1,13 @@
+# 🎯 [NEXT] F43: Implement status-aware task role fallback, promotion transition, and role validation
+
+- Role: work
+- Implement the status-aware role assignment and validation contract from `todo_flow` (`docs/adr/0001-task-role-assignment-and-status-fallback.md`):
+  1. Status-aware role fallback (`src/header.py`, `src/parser.py`): set `PREFIX_DEFAULT_ROLES = {"D": "design"}` (removing `"F": "work"` and `"B": "work"`). Update `resolve_task_role(task_id, section_text, status=...)` (and callers across `show`, `list`, `chain`, `next-id`) so explicit `- Role: <role>` always wins (normalized to lowercase); when omitted, `D*` resolves to `"design"`, and any non-`D` prefix (`F`, `B`, or custom `A-Z`) resolves to `"work"` when status is `WIP` or `NEXT` and to `"plan"` when status is `NEW`, `QUESTION`, or `HOLD`. Ensure `todo_md <ID>` (`show`) always emits `Role: <role>` in its preamble.
+  2. Promotion transition & CLI role normalization (`src/commands.py`): normalize `--role` values in `_normalize_role_arg()` to lowercase and validate against `^[a-z][a-z0-9_-]*$` (rejecting retired roles `execute` and `audit` with a clear hint to use `work` or `review`). When promoting a task to `NEXT` via `todo_md next <ID>` (or `todo_md status <ID> NEXT`), remove an existing `- Role: plan` line from the task body so the promoted non-`D` task resolves to `work` automatically.
+  3. Active backlog validation (`validate_all()` in `src/parser.py`): in `TODO.md` (excluding historical `TODO_ARCHIVE.md`), report an error if a task contains multiple `- Role:` lines, a `- Role:` value not matching `^[a-z][a-z0-9_-]*$`, or a retired role name (`execute` -> `work`, `audit` -> `review`).
+  4. Pipe deduplication & rule sync (`src/bundles/todo_md.bundle`, `src/rules/todo_md.md`): guard `$ todo_md {task:}` with `[if piped!=1]` in `src/bundles/todo_md.bundle` so `todo_md <ID> | agents_bundle | run_block` does not print the task twice, and document the status-aware role fallback, `todo_md next <ID>` transition, and role-agnostic pipe auto-consumption in `src/rules/todo_md.md` and `README.md`.
+- Update `tests/test_todo_md.py`, rebuild `./todo_md` via `build.py`, and bump `VERSION` for a MINOR release.
+
 # 🎯 [NEXT] F49: Include diagnostic stdout/stderr msg context across all returncode assertions in tests/test_todo_md.py
 
 - Role: work
@@ -22,13 +32,13 @@
 
 # 🎯 [NEXT] F17: Add CLI prefix legend (F, B, D) and document prefix conventions and design lifecycle
 
-- Define a single canonical prefix metadata table in `src/header.py` (alongside `PREFIX_DEFAULT_ROLES`) mapping standard prefixes `F` (feature, default, role `work`), `B` (bugfix, role `work`), and `D` (design, role `design`) to their descriptions and default roles.
-- Update `cmd_ids` in `src/parser.py` to print a compact prefix legend (explaining `F`, `B`, `D`, and noting any custom `A-Z` prefixes in use) below `IDs in use: ...`, and summarize the standard prefixes in `src/header.py` (`--help`).
-- Document standard task ID prefixes (`F`, `B`, `D`) and custom `A-Z` prefix conventions in `src/rules/todo_md.md`.
-- Update `src/bundles/todo_md.bundle` (`[if role=design]`) so design tasks (`D*`) are closed via `todo_md done <ID>` once architectural invariants are persisted in `AGENTS.md` and follow-up `F*` implementation tasks are created.
-- Rebuild and reinstall `todo_md` via `build.py` and `install.sh`, keep `README.md` and `tests/test_todo_md.py` in sync, and bump `VERSION` for a PATCH release.
-
-- Document in `src/rules/todo_md.md` (and `src/bundles/todo_md.bundle` planning prompt) that non-`D` tasks (`F`/`B`/custom) still lacking backticked target files, a chosen approach, or acceptance criteria must be created/edited with `--role plan` explicitly rather than leaving the default `work` role.
+- Role: work
+- Coordinate with `F43` (`todo_flow` `docs/adr/0001-task-role-assignment-and-status-fallback.md`):
+  - Define a canonical prefix metadata table in `src/header.py` describing standard prefixes `F` (feature, default prefix on `add`), `B` (bugfix, priority boost in `chain`), and `D` (design, default role `design`), plus custom `A-Z` domain prefixes (where all non-`D` prefixes resolve to `plan` in `NEW`/`QUESTION`/`HOLD` and `work` in `WIP`/`NEXT` unless overridden by `- Role: <role>`).
+  - Update `cmd_ids` in `src/parser.py` to print a compact prefix legend (explaining `F`, `B`, `D`, and noting any custom `A-Z` prefixes in use) below `IDs in use: ...`, and summarize the prefix and status-role conventions in `src/header.py` (`--help`).
+  - Document standard task ID prefixes (`F`, `B`, `D`), custom `A-Z` prefix conventions, status-aware role resolution, and when to pass `--role` explicitly in `src/rules/todo_md.md`.
+  - Update `src/bundles/todo_md.bundle` (`[if role=design]`) so design tasks (`D*`) are closed via `todo_md done <ID>` once architectural invariants are persisted in `AGENTS.md` (and `docs/adr/`) and follow-up implementation tasks are created.
+  - Rebuild and reinstall `todo_md` via `build.py` and `install.sh`, keep `README.md` and `tests/test_todo_md.py` in sync, and bump `VERSION` for a PATCH release.
 
 # 🎯 [NEXT] D3: Design explicit HOLD task review workflow and reverse dependency visibility
 
@@ -77,10 +87,3 @@ Allow exporting parsed tasks as JSON for scripting.
 - Rename project/repository references from `todo_md` to `todo-markdown` and CLI entrypoint from `todo_md` to `tmd` (preserving `TODO.md`/`TODO_ARCHIVE.md` task-file conventions and applying agreed env-var/alias decisions from the ecosystem rename design).
 - Target files: `build.py`, `install.sh`, `install.ps1`, `src/cli.py`, `src/commands.py`, `src/header.py`, `src/parser.py`, `src/rules/todo_md.md`, `src/bundles/todo_md.bundle`, `.agents_bundle`, `AGENTS.md`, `README.md`, `VERSION`, `tests/test_todo_md.py`, and `.github/`.
 - Acceptance criteria: `build.py` outputs `tmd`, `install.sh`/`install.ps1` install `tmd` (plus any agreed compatibility alias), `--help`/rules/bundles/docs/tests reflect `todo-markdown` and `tmd`, and `tests/test_todo_md.py` passes.
-
-# ⚪ [NEW] F43: Default unannotated non-design tasks to plan instead of inferring work
-
-- Remove implicit `"F": "work"` and `"B": "work"` defaults from `PREFIX_DEFAULT_ROLES` and `resolve_task_role()` (`src/header.py`, `src/parser.py`): `todo_md` must never infer or emit `Role: work` unless `- Role: work` is explicitly set on the task.
-- Default unannotated non-`D` tasks (where `- Role:` is omitted and prefix is not `D`) to `plan` (keeping `D` -> `design` unless overridden), so raw or unvetted `NEW` tasks route to planning instead of `Queue 1 (work)` in `cmd_chain()` / `plan_execution_chains()`.
-- Require explicit `- Role: work` (`--role work` via `todo_md add` or `todo_md edit`) once a task is decomposed and ready for execution; coordinate with `F17` (`cmd_ids` prefix legend and `src/rules/todo_md.md` documentation).
-- Update `src/header.py`, `src/parser.py`, `src/commands.py`, `src/rules/todo_md.md`, `README.md`, and `tests/test_todo_md.py`, rebuild `./todo_md` via `build.py`, and bump `VERSION` for a MINOR release.
