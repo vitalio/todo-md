@@ -1189,7 +1189,7 @@ def cmd_chain(
                 status_tag = f"[blocked by: {', '.join(blockers)}]" + (
                     f" [unblocks {impact}]" if impact > 0 else ""
                 )
-            elif u in finale_set:
+            elif u in finale_set or (impact == 0 and bool(done_prereqs.get(u))):
                 done_refs = done_prereqs.get(u, [])
                 shown_done = list(done_refs[:3])
                 if len(done_refs) > 3:

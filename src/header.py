@@ -120,6 +120,11 @@ ROLE_EASE_ORDER: dict[str, int] = {
     "plan": 1,
     "design": 2,
 }
+ROLE_EFFORT_WEIGHTS: dict[str, int] = {
+    "work": 1,
+    "plan": 2,
+    "design": 5,
+}
 WORKSPACE_SKIP_DIRS = frozenset({
     "node_modules",
     "vendor",

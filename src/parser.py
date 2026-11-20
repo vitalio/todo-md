@@ -2105,20 +2105,40 @@ def _is_bug_node_key(u: tuple[Path, str]) -> bool:
     return tid.startswith("B")
 
 
-def _resolve_node_role_ease(
+def _resolve_node_role(
     nodes: dict[tuple[Path, str], dict[str, object]],
     u: tuple[Path, str],
-) -> int:
+) -> str | None:
     nd = nodes.get(u)
     if nd is None or not nd.get("exists", True):
-        return len(ROLE_EASE_ORDER)
+        return None
     raw_role = nd.get("role")
     if not raw_role:
         raw_id = str(nd.get("id") or u[1]).split(":")[-1].strip()
         raw_role = resolve_task_role(raw_id, str(nd.get("section", "")))
     if not raw_role:
+        return None
+    return str(raw_role).strip().lower() or None
+
+
+def _resolve_node_role_ease(
+    nodes: dict[tuple[Path, str], dict[str, object]],
+    u: tuple[Path, str],
+) -> int:
+    role = _resolve_node_role(nodes, u)
+    if not role:
         return len(ROLE_EASE_ORDER)
-    return ROLE_EASE_ORDER.get(str(raw_role).strip().lower(), len(ROLE_EASE_ORDER))
+    return ROLE_EASE_ORDER.get(role, len(ROLE_EASE_ORDER))
+
+
+def _resolve_node_role_weight(
+    nodes: dict[tuple[Path, str], dict[str, object]],
+    u: tuple[Path, str],
+) -> int:
+    role = _resolve_node_role(nodes, u)
+    if not role:
+        return ROLE_EFFORT_WEIGHTS["design"]
+    return ROLE_EFFORT_WEIGHTS.get(role, ROLE_EFFORT_WEIGHTS["design"])
 
 
 def _prepare_active_plan(
@@ -2159,6 +2179,7 @@ def _prepare_active_plan(
         if bool(done_prereqs.get(u) or done_nodes.get(u))
         and _is_ready_in_dag(nodes, prereqs, u, include_hold=include_hold)
         and active_unblocks.get(u, 0) == 0
+        and _resolve_node_role(nodes, u) == "work"
     }
 
     def _node_rank(
@@ -2283,8 +2304,21 @@ def plan_execution_chains(
             raw_chains.append(comp)
         elif comp[0] in finale_set:
             finales.append(comp[0])
+        elif bool(done_nodes.get(comp[0]) or dag.get("done_prereqs", {}).get(comp[0])):  # type: ignore[union-attr]
+            raw_chains.append(comp)
         else:
             standalone.append(comp[0])
+
+    def _finale_sort_key(
+        u: tuple[Path, str],
+    ) -> tuple[int, int, int, int, tuple[str, str, str]]:
+        return (
+            0 if _is_bug_task_node(nodes, u) else 1,
+            ACTIVE_STATUS_ORDER.get(str(nodes[u]["status"]), 99),
+            -len(done_nodes.get(u, set())),
+            order_idx.get(u, 0),
+            _canonical_task_ref_key(nodes, u),
+        )
 
     def _standalone_sort_key(
         u: tuple[Path, str],
@@ -2337,6 +2371,10 @@ def plan_execution_chains(
         max_open_ease = max(open_eases) if open_eases else len(ROLE_EASE_ORDER)
         role_ease_key = (ready_role_ease, min_rem_ease, max_rem_ease, max_open_ease)
 
+        remaining_effort = sum(_resolve_node_role_weight(nodes, u) for u in comp)
+        weighted_denom = done_count + remaining_effort
+        weighted_velocity = (done_count / weighted_denom) if weighted_denom > 0 else 0.0
+
         best_status = min(ACTIVE_STATUS_ORDER.get(str(nodes[u]["status"]), 99) for u in comp)
         canon_ref = _canonical_task_ref_key(nodes, comp[0])
 
@@ -2346,8 +2384,10 @@ def plan_execution_chains(
             bug_dist_rank,
             role_ease_key,
             best_status,
+            -weighted_velocity,
             -total_tasks,
             -done_count,
+            remaining_effort,
             canon_ref,
         )
         return {
@@ -2357,6 +2397,8 @@ def plan_execution_chains(
             "done_count": done_count,
             "total_tasks": total_tasks,
             "progress_pct": progress_pct,
+            "remaining_effort": remaining_effort,
+            "weighted_velocity": weighted_velocity,
             "ready_bugs": ready_bugs,
             "open_bugs": open_bugs,
             "done_bugs": done_bugs,
@@ -2367,7 +2409,7 @@ def plan_execution_chains(
             "rank_key": rank_key,
         }
 
-    finales.sort(key=_standalone_sort_key)
+    finales.sort(key=_finale_sort_key)
     chain_entries = [_build_chain_entry(comp) for comp in raw_chains]
     chain_entries.sort(key=lambda entry: entry["rank_key"])  # type: ignore[arg-type, return-value]
     chains: list[list[tuple[Path, str]]] = [entry["nodes"] for entry in chain_entries]  # type: ignore[misc]

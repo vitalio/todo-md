@@ -2676,9 +2676,10 @@ class TestTodoMd(unittest.TestCase):
             check=True,
         )
 
-        # Chain finale in NEW tier (plan role): F7 (depends on D1)
+        # Non-work leaf with DONE prerequisite (plan role): F7 (depends on D1)
+        # Must NOT appear in Chain finales:; placed in numbered Chain 1..N while keeping [ready | after: D1]
         self._run(
-            [str(SCRIPT), "add", "F", "Finale plan", "--role", "plan", "--depends", "D1"],
+            [str(SCRIPT), "add", "F", "Plan after done", "--role", "plan", "--depends", "D1"],
             cwd=str(proj_a),
             check=True,
         )
@@ -2687,6 +2688,19 @@ class TestTodoMd(unittest.TestCase):
         self._run([str(SCRIPT), "add", "F", "New chain root"], cwd=str(proj_a), check=True)
         self._run([str(SCRIPT), "add", "F", "New chain leaf", "--depends", "F8"], cwd=str(proj_a), check=True)
 
+        # Two work finales in NEW tier to verify done_count ranking (longer completed chain ranks above 2-task chain):
+        # F10 depends on D1 (1 done), F11 depends on D1, F1, F2 (3 done) -> F11 ranks before F10 in Chain finales:
+        self._run(
+            [str(SCRIPT), "add", "F", "Short work finale", "--depends", "D1"],
+            cwd=str(proj_a),
+            check=True,
+        )
+        self._run(
+            [str(SCRIPT), "add", "F", "Long work finale", "--depends", "D1, F1, F2"],
+            cwd=str(proj_a),
+            check=True,
+        )
+
         # Cross-project finale in proj_b depending on proj_a:F3
         self._run(
             [str(SCRIPT), "add", "F", "Cross finale", "--depends", "proj_a:F3"],
@@ -2694,7 +2708,7 @@ class TestTodoMd(unittest.TestCase):
             check=True,
         )
 
-        # 1. Default chain: Chain finales: is the very first section before Chain <N> and Standalone tasks:
+        # 1. Default chain: Chain finales: is restricted strictly to role=work (F6, F11, F10), while F7 (plan) is in Chain 3
         r_chain = self._run(
             [str(SCRIPT), "chain"],
             cwd=str(proj_a),
@@ -2705,24 +2719,36 @@ class TestTodoMd(unittest.TestCase):
         self.assertIn("Chain finales:", out)
         self.assertIn("Chain 1 (2 tasks, 0% | 0 done, 2 open):", out)
         self.assertIn("Chain 2 (2 tasks, 0% | 0 done, 2 open):", out)
+        self.assertIn("Chain 3 (2 tasks, 50% | 1 done, 1 open):", out)
         self.assertIn("Standalone tasks:", out)
         self.assertLess(out.index("Chain finales:"), out.index("Chain 1 (2 tasks, 0% | 0 done, 2 open):"))
         self.assertLess(
             out.index("Chain 1 (2 tasks, 0% | 0 done, 2 open):"),
             out.index("Chain 2 (2 tasks, 0% | 0 done, 2 open):"),
         )
-        self.assertLess(out.index("3. F4"), out.index("5. F8"))
-        self.assertLess(out.index("Chain 2 (2 tasks, 0% | 0 done, 2 open):"), out.index("Standalone tasks:"))
+        self.assertLess(
+            out.index("Chain 2 (2 tasks, 0% | 0 done, 2 open):"),
+            out.index("Chain 3 (2 tasks, 50% | 1 done, 1 open):"),
+        )
+        self.assertLess(out.index("Chain 3 (2 tasks, 50% | 1 done, 1 open):"), out.index("Standalone tasks:"))
 
         fin_sec = out[out.index("Chain finales:"):out.index("Chain 1 (2 tasks, 0% | 0 done, 2 open):")]
         self.assertIn("F6", fin_sec)
-        self.assertIn("F7", fin_sec)
-        self.assertLess(fin_sec.index("F6"), fin_sec.index("F7"))
+        self.assertIn("F11", fin_sec)
+        self.assertIn("F10", fin_sec)
+        self.assertNotIn("F7", fin_sec)
+        self.assertLess(fin_sec.index("F6"), fin_sec.index("F11"))
+        self.assertLess(fin_sec.index("F11"), fin_sec.index("F10"))
         self.assertIn("[ready | after: D1, F1, F2, ...]", fin_sec)
+        self.assertIn("[ready | after: D1, F1, F2]", fin_sec)
         self.assertIn("[ready | after: D1]", fin_sec)
         self.assertNotIn("B1", fin_sec)
 
-        # 2. --ready ranks chain finales first within their status tier (F6 before F4 and B1; F7 before F8)
+        chain3_sec = out[out.index("Chain 3 (2 tasks, 50% | 1 done, 1 open):"):out.index("Standalone tasks:")]
+        self.assertIn("F7", chain3_sec)
+        self.assertIn("[ready | after: D1]", chain3_sec)
+
+        # 2. --ready ranks work chain finales first within their status tier (F6 before F4 and B1; F10 & F11 before F8; F7 is not a finale so ranks after F8)
         r_ready = self._run(
             [str(SCRIPT), "chain", "--ready"],
             cwd=str(proj_a),
@@ -2730,16 +2756,18 @@ class TestTodoMd(unittest.TestCase):
             check=True,
         )
         ready_rows = {k: v for k, v in self._table_rows(r_ready.stdout).items() if k.endswith(".")}
-        self.assertEqual(sorted(ready_rows), ["1.", "2.", "3.", "4.", "5."], msg=r_ready.stdout)
+        self.assertEqual(sorted(ready_rows), ["1.", "2.", "3.", "4.", "5.", "6.", "7."], msg=r_ready.stdout)
         self.assertIn("F6", ready_rows["1."])
         self.assertIn("[ready | after: D1, F1, F2, ...]", ready_rows["1."])
         self.assertIn("F4", ready_rows["2."])
         self.assertIn("[ready | unblocks 1 -> F5]", ready_rows["2."])
         self.assertIn("B1", ready_rows["3."])
-        self.assertIn("F7", ready_rows["4."])
-        self.assertIn("[ready | after: D1]", ready_rows["4."])
-        self.assertIn("F8", ready_rows["5."])
-        self.assertIn("[ready | unblocks 1 -> F9]", ready_rows["5."])
+        self.assertIn("F10", ready_rows["4."])
+        self.assertIn("F11", ready_rows["5."])
+        self.assertIn("F8", ready_rows["6."])
+        self.assertIn("[ready | unblocks 1 -> F9]", ready_rows["6."])
+        self.assertIn("F7", ready_rows["7."])
+        self.assertIn("[ready | after: D1]", ready_rows["7."])
 
         # 3. --by-role ranks chain finales first within their status tier in each role queue
         r_by_role = self._run(
@@ -2762,8 +2790,8 @@ class TestTodoMd(unittest.TestCase):
         )
         self.assertIn("Chain finales:", r_lim.stdout)
         self.assertIn("F6", r_lim.stdout)
-        self.assertNotIn("F7", r_lim.stdout)
-        self.assertNotIn("Chain:", r_lim.stdout)
+        self.assertNotIn("F11", r_lim.stdout)
+        self.assertNotIn("Chain 1", r_lim.stdout)
         self.assertNotIn("Standalone tasks:", r_lim.stdout)
 
         r_role_lim = self._run(
@@ -2772,8 +2800,10 @@ class TestTodoMd(unittest.TestCase):
             env={**os.environ, "COLUMNS": "160"},
             check=True,
         )
-        self.assertIn("Chain finales:", r_role_lim.stdout)
+        self.assertNotIn("Chain finales:", r_role_lim.stdout)
+        self.assertIn("Chain 1 (2 tasks, 50% | 1 done, 1 open):", r_role_lim.stdout)
         self.assertIn("F7", r_role_lim.stdout)
+        self.assertIn("[ready | after: D1]", r_role_lim.stdout)
         self.assertNotIn("F6", r_role_lim.stdout)
 
         # 5. Workspace -w formats cross-project after refs
@@ -2953,6 +2983,44 @@ class TestTodoMd(unittest.TestCase):
         # B2 -> F12 (3 tasks, 33% | 1 done, 2 open) now has a ready bug AND higher total_tasks (3 vs 2) than B1 -> F4!
         self.assertIn("Chain 1 (3 tasks, 33% | 1 done, 2 open):", r_after.stdout)
         self.assertLess(r_after.stdout.index("1. B2"), r_after.stdout.index("3. B1"), msg=r_after.stdout)
+
+        # Verify role-weighted velocity & effort ranking between chains with identical role_ease and status:
+        # Compare two work-only NEW chains with 1 done prerequisite (proj_b:D1):
+        # - Fast 2-open work chain (F13 -> F14, remaining_effort = 2, velocity = 1/3)
+        # - Long 3-open work chain (F15 -> F16 -> F17, remaining_effort = 3, velocity = 1/4)
+        # Fast 2-open work chain has higher weighted velocity (1/3 > 1/4) and lower effort (2 < 3), so it ranks before the 3-open chain!
+        self._run(
+            [str(SCRIPT), "add", "F", "Fast vel 1", "--depends", "proj_b:D1"],
+            cwd=str(proj_a),
+            check=True,
+        )
+        self._run(
+            [str(SCRIPT), "add", "F", "Fast vel 2", "--depends", "F13"],
+            cwd=str(proj_a),
+            check=True,
+        )
+        self._run(
+            [str(SCRIPT), "add", "F", "Slow vel 1", "--depends", "proj_b:D1"],
+            cwd=str(proj_a),
+            check=True,
+        )
+        self._run(
+            [str(SCRIPT), "add", "F", "Slow vel 2", "--depends", "F15"],
+            cwd=str(proj_a),
+            check=True,
+        )
+        self._run(
+            [str(SCRIPT), "add", "F", "Slow vel 3", "--depends", "F16"],
+            cwd=str(proj_a),
+            check=True,
+        )
+        r_vel = self._run(
+            [str(SCRIPT), "chain"],
+            cwd=str(proj_a),
+            env={**os.environ, "COLUMNS": "160"},
+            check=True,
+        )
+        self.assertLess(r_vel.stdout.index("F13"), r_vel.stdout.index("F15"), msg=r_vel.stdout)
 
         # Verify workspace -w mode matches bug prefix on <project>:<ID> in Standalone tasks:
         self._run([str(SCRIPT), "add", "F", "Proj B next work", "--next"], cwd=str(proj_b), check=True)
