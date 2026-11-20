@@ -1,3 +1,13 @@
+# 🎯 [NEXT] F47: Restrict Chain finales to work tasks and rank chains by role-weighted velocity (work=1, plan=2, design=5)
+
+- Role: work
+- Define `ROLE_EFFORT_WEIGHTS` in `src/header.py` mapping task roles to expected implementation-task equivalents (`"work": 1`, `"plan": 2`, `"design": 5`, with unknown/unannotated roles defaulting to `5`) alongside `ROLE_EASE_ORDER`.
+- Restrict `finale_set` and `Chain finales:` in `_prepare_active_plan()` and `plan_execution_chains()` (`src/parser.py`) strictly to ready leaf tasks (`active_unblocks == 0`) that have completed `DONE` prerequisites (`done_prereqs` or `done_nodes`) AND resolve to `role == "work"`. Within `Chain finales:`, sort by bug priority (`B*` first), active status tier, descending `done_count` (`-len(done_nodes)` so finales of longer completed chains rank above 2-task chains), `order_idx`, and canonical task ref.
+- Keep standalone tasks with no open or completed dependencies (`open_count == 1` and `done_count == 0`) in `Standalone tasks:` regardless of role (`work`, `plan`, or `design`).
+- When a connected component has `open_count == 1` and `done_count >= 1` (`total_tasks >= 2`) but its sole remaining open task has role `plan` or `design` (not `work`), place it in regular numbered chains (`Chain 1..N`) instead of `Chain finales:`, while preserving the `[ready | after: ...]` tag in `cmd_chain()` (`src/commands.py`) for any ready task with completed `DONE` prerequisites and no downstream open dependents.
+- Update `_build_chain_entry()` in `src/parser.py` to compute role-weighted remaining effort for each chain (`remaining_effort = sum(_resolve_node_role_weight(nodes, u) for u in comp)` using `work=1`, `plan=2`, `design=5`) and incorporate role-weighted completion velocity / effort (`-done_count / (done_count + remaining_effort)` and `remaining_effort`) into `rank_key` so chains burdened by `design` or `plan` tasks rank lower than fast `work` chains.
+- Update `src/rules/todo_md.md`, `README.md`, and unit tests in `tests/test_todo_md.py` (`test_chain_finales_section_ranking_and_after_tags`, `test_chain_rpg_progress_transitive_done_bug_and_role_ranking`), rebuild `./todo_md` via `build.py`, and bump `VERSION` for a MINOR release.
+
 # 🎯 [NEXT] F44: Sync with git upstream (git pull --ff-only) before mutating backlog commands
 
 - Role: work
