@@ -182,15 +182,15 @@ class TestTodoMd(unittest.TestCase):
         self.assertIn("--max-total-bytes N", rule_txt)
         self.assertIn("key symbol names in backticks", rule_txt)
         self.assertIn("-C <dir|project>` or `--project <name>`", rule_txt)
-        self.assertIn("list [active|archive|all|<STATUS>] [--role <role>] [--ready] [--limit N] [--full]", rule_txt)
+        self.assertIn("list [active|archive|all|<STATUS>] [<ID>...] [--role <role>] [--ready] [--limit N] [--full]", rule_txt)
         self.assertIn("⏳ [WIP]` / `⏳ [NEXT]", rule_txt)
         self.assertIn("[blocked: A (<STATUS>) -> B (<STATUS>)]", rule_txt)
         self.assertIn("--max-total-lines N", rh.stdout)
         self.assertIn("queue <ID> [--all]", rh.stdout)
-        self.assertIn("chain [--by-role] [--role ROLE] [--ready] [--limit N] [--include-hold]", rh.stdout)
+        self.assertIn("chain [<ID>...] [--by-role] [--role ROLE] [--ready] [--limit N] [--include-hold]", rh.stdout)
         self.assertIn("next-id [<ID>] [--role ROLE]", rh.stdout)
         self.assertIn("queue <ID> [--all]", rule_txt)
-        self.assertIn("chain [--by-role] [--role <role>] [--ready] [--limit N] [--include-hold]", rule_txt)
+        self.assertIn("chain [<ID>...] [--by-role] [--role <role>] [--ready] [--limit N] [--include-hold]", rule_txt)
         self.assertIn("next-id [<ID>] [--role <role>]", rule_txt)
         self.assertIn("A -> B -> C", rule_txt)
         self.assertIn("do not introduce a separate `- Order:` field", rule_txt)
@@ -3111,10 +3111,10 @@ class TestTodoMd(unittest.TestCase):
         self.assertNotIn("Queue 3 (design):", r_by_role.stdout)
         self.assertNotIn("todo_md:F2", r_by_role.stdout)
 
-        # 6. ANSI dim styling for external-project tasks inside displayed chains:
+        # 6. ANSI dim-italic styling for external-project tasks inside displayed chains:
         # - In pipes (default without FORCE_COLOR): no ANSI escape sequences
-        self.assertNotIn("\033[2m", out_direct)
-        # - With FORCE_COLOR=1: external tasks (todo_flow:*, todo_md:*) inside Chain 1 are wrapped in \033[2m...\033[0m,
+        self.assertNotIn("\033[", out_direct)
+        # - With FORCE_COLOR=1: external tasks (todo_flow:*, todo_md:*) inside Chain 1 are wrapped in \033[2;3m...\033[0m,
         #   while target-project tasks (run_block:*) are rendered in normal text without dim styling!
         color_env = {**base_env, "FORCE_COLOR": "1", "COLUMNS": "72"}
         r_color = self._run(
@@ -3124,8 +3124,8 @@ class TestTodoMd(unittest.TestCase):
             check=True,
         )
         color_lines = r_color.stdout.splitlines()
-        dim_lines = [ln for ln in color_lines if ln.startswith("\033[2m")]
-        normal_task_lines = [ln for ln in color_lines if ln.startswith("  ") and not ln.startswith("\033[2m")]
+        dim_lines = [ln for ln in color_lines if ln.startswith("\033[2;3m")]
+        normal_task_lines = [ln for ln in color_lines if ln.startswith("  ") and not ln.startswith("\033[")]
         self.assertTrue(any("2. todo_flow:F1" in ln for ln in dim_lines), msg=r_color.stdout)
         self.assertTrue(any("3. todo_flow:D1" in ln for ln in dim_lines), msg=r_color.stdout)
         self.assertTrue(any("5. todo_md:F1" in ln for ln in dim_lines), msg=r_color.stdout)
@@ -3172,7 +3172,7 @@ class TestTodoMd(unittest.TestCase):
                 break
         os.close(master_fd)
         pty_out = b"".join(pty_chunks).decode("utf-8", errors="replace")
-        self.assertNotIn("\033[2m", pty_out)
+        self.assertNotIn("\033[", pty_out)
 
         # 7. Support .todo_projects.local and TODO_MD_PROJECTS env override
         (todo_flow / ".todo_projects").unlink()
@@ -3188,6 +3188,230 @@ class TestTodoMd(unittest.TestCase):
         r_env_child = self._run([str(SCRIPT), "chain"], cwd=str(run_block), env=env_projects, check=True)
         self.assertIn("[blocked by: todo_flow:D1, todo_flow:F1]", r_env_child.stdout)
         self.assertNotIn("Flow internal step", r_env_child.stdout)
+
+    def test_composable_task_styling_in_chain_and_list(self):
+        mod = self.todo_md_mod
+        # 1. Direct unit tests for _style_task_row() across all 8 combinations + plain text mode
+        sample = "  1. F1                    ✅ [DONE]       [work]      Done task\n"
+        self.assertEqual(
+            mod._style_task_row(sample, is_external=True, is_done=True, is_highlighted=True, use_color=False),
+            sample,
+        )
+        self.assertEqual(
+            mod._style_task_row(sample, is_external=False, is_done=False, is_highlighted=False, use_color=True),
+            sample,
+        )
+        self.assertTrue(
+            mod._style_task_row(sample, is_external=True, is_done=False, is_highlighted=False, use_color=True).startswith("\033[2;3m")
+        )
+        self.assertTrue(
+            mod._style_task_row(sample, is_external=False, is_done=True, is_highlighted=False, use_color=True).startswith("\033[2;90m")
+        )
+        self.assertTrue(
+            mod._style_task_row(sample, is_external=True, is_done=True, is_highlighted=False, use_color=True).startswith("\033[2;3;90m")
+        )
+        for is_done_flag in (False, True):
+            hl_local = mod._style_task_row(
+                sample, is_external=False, is_done=is_done_flag, is_highlighted=True, use_color=True
+            )
+            self.assertTrue(hl_local.startswith("\033[1;93m"), msg=hl_local)
+            self.assertIn("✅ [DONE]", hl_local)
+            hl_ext = mod._style_task_row(
+                sample, is_external=True, is_done=is_done_flag, is_highlighted=True, use_color=True
+            )
+            self.assertTrue(hl_ext.startswith("\033[1;3;93m"), msg=hl_ext)
+            self.assertIn("✅ [DONE]", hl_ext)
+
+        # 2. Multi-project workspace setup to test chain & list multi-ID highlighting, external, and DONE styling
+        ws = self.tmp / "ws_style"
+        todo_flow = ws / "todo_flow"
+        run_block = ws / "run_block"
+        for d in (todo_flow, run_block):
+            d.mkdir(parents=True)
+            self._run([str(SCRIPT), "init"], cwd=str(d), check=True)
+        (todo_flow / ".todo_projects").write_text("run_block\n", encoding="utf-8")
+
+        # run_block: D1 (DONE), F1 (finale after D1), F2 (in cross-project chain), F3 (standalone),
+        # D2 (HOLD) -> F4 (held leaf), F5 (canceled)
+        self._run([str(SCRIPT), "add", "D", "RB done design"], cwd=str(run_block), check=True)
+        self._run([str(SCRIPT), "done", "D1", "-m", "done"], cwd=str(run_block), check=True)
+        self._run([str(SCRIPT), "add", "F", "RB finale task", "--role", "work", "--depends", "D1"], cwd=str(run_block), check=True)
+        self._run([str(SCRIPT), "add", "F", "RB chain task", "--role", "work"], cwd=str(run_block), check=True)
+        self._run([str(SCRIPT), "add", "F", "RB standalone task", "--role", "work"], cwd=str(run_block), check=True)
+        self._run([str(SCRIPT), "add", "D", "RB held root", "--status", "HOLD"], cwd=str(run_block), check=True)
+        self._run([str(SCRIPT), "add", "F", "RB held leaf", "--role", "work", "--depends", "D2"], cwd=str(run_block), check=True)
+        self._run([str(SCRIPT), "add", "F", "RB canceled task", "--role", "work"], cwd=str(run_block), check=True)
+        self._run([str(SCRIPT), "cancel", "F5", "-m", "drop"], cwd=str(run_block), check=True)
+
+        # todo_flow orchestrator sequences todo_flow:D1 -> run_block:F2 -> todo_flow:F1,
+        # and also has held dependency todo_flow:D2 (HOLD) -> run_block:F4
+        self._run([str(SCRIPT), "add", "D", "Flow prereq", "--next"], cwd=str(todo_flow), check=True)
+        self._run(
+            [str(SCRIPT), "add", "F", "Flow goal", "--depends", "D1 -> run_block:F2"],
+            cwd=str(todo_flow),
+            check=True,
+        )
+        self._run([str(SCRIPT), "add", "D", "Flow held root", "--status", "HOLD"], cwd=str(todo_flow), check=True)
+        self._run(
+            [str(SCRIPT), "add", "F", "Flow held wrapper", "--depends", "D2 -> run_block:F4"],
+            cwd=str(todo_flow),
+            check=True,
+        )
+
+        base_env = {k: v for k, v in os.environ.items() if k not in ("NO_COLOR", "FORCE_COLOR", "TODO_MD_PROJECTS")}
+        color_env = {**base_env, "FORCE_COLOR": "1", "COLUMNS": "80"}
+
+        # 3. `todo_md chain [<ID>...]` with space- and comma-separated refs in child project view:
+        # Highlight local finale F1, external prereq todo_flow:D1, local chain task F2, standalone F3,
+        # local held D2, and external held todo_flow:D2
+        r_chain_hl = self._run(
+            [str(SCRIPT), "chain", "F1,todo_flow:D1", "F3", "D2,todo_flow:D2"],
+            cwd=str(run_block),
+            env=color_env,
+            check=True,
+        )
+        out_hl = r_chain_hl.stdout
+        lines_hl = out_hl.splitlines()
+        # Enclosing Chain 1 header is highlighted because todo_flow:D1 belongs to Chain 1
+        self.assertTrue(
+            any(ln.startswith("\033[1;93mChain 1 (") and ln.endswith("\033[0m") for ln in lines_hl),
+            msg=out_hl,
+        )
+        # Local finale F1 and standalone F3 are bold bright yellow (\033[1;93m)
+        self.assertTrue(any(ln.startswith("\033[1;93m") and "1. F1 " in ln for ln in lines_hl), msg=out_hl)
+        self.assertTrue(any(ln.startswith("\033[1;93m") and "5. F3 " in ln for ln in lines_hl), msg=out_hl)
+        # External highlighted todo_flow:D1 is bold italic bright yellow (\033[1;3;93m)
+        self.assertTrue(any(ln.startswith("\033[1;3;93m") and "2. todo_flow:D1 " in ln for ln in lines_hl), msg=out_hl)
+        # Non-highlighted local F2 is unstyled normal text
+        self.assertTrue(
+            any(ln.startswith("  ") and not ln.startswith("\033[") and "3. F2 " in ln for ln in lines_hl),
+            msg=out_hl,
+        )
+        # Non-highlighted external todo_flow:F1 is dim italic (\033[2;3m)
+        self.assertTrue(any(ln.startswith("\033[2;3m") and "4. todo_flow:F1 " in ln for ln in lines_hl), msg=out_hl)
+        # Held branches tokens: D2 (local highlighted -> \033[1;93m), todo_flow:D2 (external highlighted -> \033[1;3;93m),
+        # F4 (local unhighlighted -> plain), todo_flow:F2 (external unhighlighted -> \033[2;3m)
+        self.assertIn("\033[1;93mD2 (HOLD)\033[0m -> F4 (NEW)", out_hl)
+        self.assertIn("\033[1;3;93mtodo_flow:D2 (HOLD)\033[0m -> F4 (NEW) -> \033[2;3mtodo_flow:F2 (NEW)\033[0m", out_hl)
+
+        # Strip ANSI equals plain output at identical terminal width
+        r_chain_plain = self._run(
+            [str(SCRIPT), "chain", "F1,todo_flow:D1", "F3", "D2,todo_flow:D2"],
+            cwd=str(run_block),
+            env={**base_env, "COLUMNS": "80"},
+            check=True,
+        )
+        self.assertNotIn("\033[", r_chain_plain.stdout)
+        self.assertEqual(mod._strip_ansi(out_hl), r_chain_plain.stdout)
+
+        # Chain header is NOT highlighted when target ID is only in standalone / finale outside Chain 1
+        r_chain_only_f3 = self._run(
+            [str(SCRIPT), "chain", "F3"],
+            cwd=str(run_block),
+            env=color_env,
+            check=True,
+        )
+        self.assertTrue(
+            any(ln.startswith("Chain 1 (") for ln in r_chain_only_f3.stdout.splitlines()),
+            msg=r_chain_only_f3.stdout,
+        )
+        self.assertTrue(
+            any(ln.startswith("\033[1;93m") and "5. F3 " in ln for ln in r_chain_only_f3.stdout.splitlines()),
+            msg=r_chain_only_f3.stdout,
+        )
+
+        # Also works with --ready and --by-role
+        r_ready_hl = self._run(
+            [str(SCRIPT), "chain", "--ready", "F1"],
+            cwd=str(run_block),
+            env=color_env,
+            check=True,
+        )
+        self.assertTrue(
+            any(ln.startswith("\033[1;93m") and "1. F1 " in ln for ln in r_ready_hl.stdout.splitlines()),
+            msg=r_ready_hl.stdout,
+        )
+        r_by_role_hl = self._run(
+            [str(SCRIPT), "chain", "--by-role", "F2"],
+            cwd=str(run_block),
+            env=color_env,
+            check=True,
+        )
+        self.assertTrue(
+            any(ln.startswith("\033[1;93m") and "F2 " in ln for ln in r_by_role_hl.stdout.splitlines()),
+            msg=r_by_role_hl.stdout,
+        )
+
+        # 4. `todo_md list [<filter>] [<ID>...]` and `todo_md list -w [<filter>] [<ID>...]`
+        # Test default filter with <ID>... directly (`todo_md list F1,F3`)
+        r_list_def = self._run(
+            [str(SCRIPT), "list", "F1,F3"],
+            cwd=str(run_block),
+            env=color_env,
+            check=True,
+        )
+        list_def_lines = r_list_def.stdout.splitlines()
+        self.assertTrue(any(ln.startswith("\033[1;93m") and "  F1 " in ln for ln in list_def_lines), msg=r_list_def.stdout)
+        self.assertTrue(any(ln.startswith("\033[1;93m") and "  F3 " in ln for ln in list_def_lines), msg=r_list_def.stdout)
+        self.assertTrue(
+            any(ln.startswith("  ") and not ln.startswith("\033[") and "  F2 " in ln for ln in list_def_lines),
+            msg=r_list_def.stdout,
+        )
+
+        # Test `todo_md list all F2` — D1 (DONE) is dimmed (\033[2;90m), F2 is highlighted (\033[1;93m),
+        # F5 (CANCELED) is neither dimmed nor highlighted
+        r_list_all = self._run(
+            [str(SCRIPT), "list", "all", "F2"],
+            cwd=str(run_block),
+            env=color_env,
+            check=True,
+        )
+        all_lines = r_list_all.stdout.splitlines()
+        self.assertTrue(any(ln.startswith("\033[2;90m") and "  D1 " in ln and "✅ [DONE]" in ln for ln in all_lines), msg=r_list_all.stdout)
+        self.assertTrue(any(ln.startswith("\033[1;93m") and "  F2 " in ln for ln in all_lines), msg=r_list_all.stdout)
+        self.assertTrue(
+            any(ln.startswith("  ") and not ln.startswith("\033[") and "  F5 " in ln and "❌ [CANCELED]" in ln for ln in all_lines),
+            msg=r_list_all.stdout,
+        )
+
+        # Test `todo_md list archive D1` — highlighting a DONE task uses bold bright yellow (\033[1;93m)
+        # while preserving the ✅ [DONE] badge
+        r_list_arch_hl = self._run(
+            [str(SCRIPT), "list", "archive", "D1"],
+            cwd=str(run_block),
+            env=color_env,
+            check=True,
+        )
+        arch_lines = r_list_arch_hl.stdout.splitlines()
+        self.assertTrue(
+            any(ln.startswith("\033[1;93m") and "  D1 " in ln and "✅ [DONE]" in ln for ln in arch_lines),
+            msg=r_list_arch_hl.stdout,
+        )
+
+        # Test workspace list `todo_md list -w all run_block:D1,todo_flow:D1`
+        r_ws_list = self._run(
+            [str(SCRIPT), "list", "-w", "all", "run_block:D1,todo_flow:D1"],
+            cwd=str(ws),
+            env=color_env,
+            check=True,
+        )
+        ws_lines = r_ws_list.stdout.splitlines()
+        self.assertTrue(
+            any(ln.startswith("\033[1;93m") and "run_block:D1 " in ln and "✅ [DONE]" in ln for ln in ws_lines),
+            msg=r_ws_list.stdout,
+        )
+        self.assertTrue(
+            any(ln.startswith("\033[1;93m") and "todo_flow:D1 " in ln for ln in ws_lines),
+            msg=r_ws_list.stdout,
+        )
+        self.assertTrue(
+            any(ln.startswith("  ") and not ln.startswith("\033[") and "run_block:F2 " in ln for ln in ws_lines),
+            msg=r_ws_list.stdout,
+        )
+
+        # Invalid extra non-ID positional arguments in list fail explicitly
+        r_bad_list = self._run([str(SCRIPT), "list", "active", "not_an_id"], cwd=str(run_block))
+        self.assertNotEqual(r_bad_list.returncode, 0)
 
 
 if __name__ == "__main__":

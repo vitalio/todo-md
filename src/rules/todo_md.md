@@ -37,23 +37,25 @@
     and `Workdir:` headers before `# TODO*.md:<line>`),
     `{cmd:todo_md} last [<STATUS|archive>]` (default: `NEW`),
     `{cmd:todo_md} last-id [<STATUS|archive>]` (default: `NEW`),
-    `{cmd:todo_md} list [active|archive|all|<STATUS>] [--role <role>] [--ready] [--limit N] [--full]`
+    `{cmd:todo_md} list [active|archive|all|<STATUS>] [<ID>...] [--role <role>] [--ready] [--limit N] [--full]`
     (orders each status bucket with ready tasks first and prerequisites before dependents;
     renders blocked `WIP`/`NEXT` items as `⏳ [WIP]` / `⏳ [NEXT]` and multi-step chains as full
-    ordered paths `[blocked: A (<STATUS>) -> B (<STATUS>)]`;
+    ordered paths `[blocked: A (<STATUS>) -> B (<STATUS>)]`; highlights any target `<ID>...`
+    and dims `DONE` rows in TTY views;
     `--ready` filters active tasks to those with no unresolved dependencies),
     `{cmd:todo_md} archive`, `{cmd:todo_md} ids`,
     `{cmd:todo_md} queue <ID> [--all]` (topologically sorted execution queue;
     hides `DONE` unless `--all` is passed; prints `[ready]` / `[blocked by: ...]`
     and `Next actionable: <ref>`),
-    `{cmd:todo_md} chain [--by-role] [--role <role>] [--ready] [--limit N] [--include-hold]`
+    `{cmd:todo_md} chain [<ID>...] [--by-role] [--role <role>] [--ready] [--limit N] [--include-hold]`
     (local, `.todo_projects` orchestrator, or `-w` workspace work-only chain
     finales `[ready | after: ...]` with all prerequisites resolved shown first
     before numbered RPG progress chains
     `Chain <N> (<total> tasks, <pct>% | <done> done, <open> open):` and
     standalone tasks, merging `.todo_projects` orchestrator dependency edges into
-    child project views, formatting IDs relative to `cwd`, dimming external
-    project tasks in project-scoped chains, showing padded `[role]` badges and
+    child project views, formatting IDs relative to `cwd`, applying composable TTY
+    styling for external-project tasks, `DONE` tasks, and target `<ID>...`
+    highlights, showing padded `[role]` badges and
     `[unblocks N]`, and ranking by bug priority `B*`, role execution ease,
     status, role-weighted velocity `work=1, plan=2, design=5`, and total chain
     value; `--by-role`

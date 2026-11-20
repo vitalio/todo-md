@@ -48,18 +48,6 @@
 
 - Shortlist/chain export workflow: evaluate supporting an exported or agent-generated shortlist Markdown file (e.g. a custom prioritized sequence or `chain` snapshot) that users can inspect, filter, and step through with `todo_md -f <path>` while resolving `<project>:<ID>` references against `TODO_MD_WORKSPACE`.
 
-# 🎯 [NEXT] F38: Unify composable task styling (external project, DONE, and multi-ID target highlight) in todo_md chain and list — *Return to NEXT*
-
-- Depends on: F51
-- Update `main()` in `src/cli.py` to accept one or more optional task references `<ID>...` (or `<project>:<ID>...`, space- or comma-separated and resolved via `resolve_project_task_ref()`) on `chain` (`todo_md chain [<ID>...] ...`) and `list` (`todo_md list [<filter>] [<ID>...] ...`).
-- Define a unified, orthogonal TTY-aware ANSI styling helper (`_style_task_row()` in `src/parser.py`, active when `sys.stdout.isatty()` and `NO_COLOR` is unset, or `FORCE_COLOR` is set; plain text in pipes) so three visual modes compose simultaneously without conflict and without affecting `_display_width()` / `_wrap_table_row()` alignment:
-  1. External-project task (`is_external=True`): dim italic (`\033[2;3m`, or `\033[2;3;90m` when also `DONE`).
-  2. Completed task (`is_done=True`, status `✅ [DONE]`): dim gray (`\033[2;90m`).
-  3. Target highlighted task (`is_highlighted=True`, matching any requested `<ID>`): bold bright yellow (`\033[1;93m`, or bold italic bright yellow `\033[1;3;93m` when also `is_external=True`, preserving the `✅ [DONE]` badge when `is_done=True` so highlight never gets swallowed by dim).
-- In `cmd_chain()` (`src/commands.py`), apply `_style_task_row()` across task rows (`finales`, `chains`, `standalone`, `--ready`, `--by-role`) and `Held branches:` tokens, and highlight enclosing `Chain <N> ...:` headers when any target task belongs to that chain.
-- In `cmd_list()` and `cmd_workspace_list()` (`src/parser.py`), highlight all matching target `<ID>...` rows via `_style_task_row()` (and dim `DONE` rows when listing `all` or `archive`).
-- Keep `src/header.py` (`--help`), `src/rules/todo_md.md`, `README.md`, and `tests/test_todo_md.py` in sync, rebuild `./todo_md` via `build.py`, and bump `VERSION` for a MINOR release.
-
 # ⚪ [NEW] P1: JSON output mode (`--json`)
 
 - Role: plan

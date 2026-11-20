@@ -245,6 +245,7 @@ def main(argv: list[str] | None = None) -> int:
         ready = False
         by_role = False
         role_filter: str | None = None
+        raw_target_refs: list[str] = []
         i = 1
         while i < len(args):
             a = args[i]
@@ -282,7 +283,17 @@ def main(argv: list[str] | None = None) -> int:
             elif a.startswith("-"):
                 raise SystemExit(f"{prog}: unknown option for chain: {a}")
             else:
-                raise SystemExit(f"{prog}: usage: {prog} chain [--by-role] [--role ROLE] [--ready] [--limit N] [--include-hold]")
+                ref_parts = _split_task_ref_arg(a)
+                if ref_parts is None:
+                    raise SystemExit(
+                        f"{prog}: usage: {prog} chain [<ID>...] [--by-role] [--role ROLE] [--ready] [--limit N] [--include-hold]"
+                    )
+                raw_target_refs.extend(ref_parts)
+                i += 1
+        target_refs: list[tuple[Path, str]] = [
+            resolve_project_task_ref(base_dir, ref, explicit_dir=explicit_dir)
+            for ref in raw_target_refs
+        ]
         use_ws = workspace
         if not use_ws and not is_todo_project(base_dir) and not (base_dir / "TODO.md").is_file():
             ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
@@ -297,6 +308,7 @@ def main(argv: list[str] | None = None) -> int:
             by_role=by_role,
             workspace=use_ws,
             explicit_dir=explicit_dir,
+            targets=target_refs,
         )
     if args[0] in ("next-id", "--next-id"):
         role_filter: str | None = None
@@ -417,6 +429,7 @@ def main(argv: list[str] | None = None) -> int:
         limit: int | None = None
         role_filter: str | None = None
         ready = False
+        raw_target_refs: list[str] = []
         i = 1
         while i < len(args):
             a = args[i]
@@ -447,16 +460,43 @@ def main(argv: list[str] | None = None) -> int:
                 i += 1
             elif a.startswith("-"):
                 raise SystemExit(f"{prog}: unknown option for list: {a}")
-            elif filt is None:
-                filt = a
-                i += 1
             else:
-                raise SystemExit(f"{prog}: usage: {prog} list [filter] [--role ROLE] [--ready] [--limit N] [--full]")
+                ref_parts = _split_task_ref_arg(a)
+                if ref_parts is not None:
+                    raw_target_refs.extend(ref_parts)
+                    i += 1
+                elif filt is None and not raw_target_refs:
+                    filt = a
+                    i += 1
+                else:
+                    raise SystemExit(
+                        f"{prog}: usage: {prog} list [filter] [<ID>...] [--role ROLE] [--ready] [--limit N] [--full]"
+                    )
+        target_refs: list[tuple[Path, str]] = [
+            resolve_project_task_ref(base_dir, ref, explicit_dir=explicit_dir)
+            for ref in raw_target_refs
+        ]
         if workspace or (not is_todo_project(base_dir) and not (base_dir / "TODO.md").is_file()):
             ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
             if workspace or discover_projects(ws_root):
-                return cmd_workspace_list(ws_root, filt, limit=limit, full=full, role=role_filter, ready=ready)
-        return cmd_list(base_dir, filt, limit=limit, full=full, role=role_filter, ready=ready)
+                return cmd_workspace_list(
+                    ws_root,
+                    filt,
+                    limit=limit,
+                    full=full,
+                    role=role_filter,
+                    ready=ready,
+                    targets=target_refs,
+                )
+        return cmd_list(
+            base_dir,
+            filt,
+            limit=limit,
+            full=full,
+            role=role_filter,
+            ready=ready,
+            targets=target_refs,
+        )
     if args[0] in ("show", "--show"):
         if len(args) < 2 or len(args) > 3:
             raise SystemExit(f"{prog}: usage: {prog} show <ID|last> [<STATUS|archive>]")

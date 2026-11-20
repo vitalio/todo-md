@@ -7,7 +7,7 @@
   {prog} <ID> | show <ID|last>               Show task <ID> with Task/Title/Role/Workdir headers (or last [<STATUS|archive>], supports <project>:<ID>)
   {prog} last [<STATUS|archive>]           Show full section for last task in status/archive (default: NEW)
   {prog} last-id [<STATUS|archive>]        Print ID of last task in status/archive (default: NEW)
-  {prog} list [filter] [opts]                List tasks (active | archive | all | <STATUS>; opts: --role ROLE, --ready, --limit N, --full)
+  {prog} list [filter] [<ID>...] [opts]      List tasks (active | archive | all | <STATUS>; highlight <ID>...; opts: --role ROLE, --ready, --limit N, --full)
   {prog} archive [<ID>] [-m NOTE]            Print TODO_ARCHIVE.md, or archive task <ID>
   {prog} add [<PROJ>] [<PREFIX>] <TITLE>     Add a new task with auto-assigned ID (reads body from -b TEXT|- or stdin)
                                              Opts: -p PREFIX (default: F), --next, --status STATUS, -m NOTE, -b BODY|-, --role ROLE, --depends SPEC
@@ -20,7 +20,7 @@
   {prog} cancel <ID> [-m REASON]             Mark task <ID> as CANCELED and move it to TODO_ARCHIVE.md
   {prog} ids                                 Print highest task IDs in use and next available ID per prefix
   {prog} queue <ID> [--all]                  Show topologically sorted execution queue for <ID> (use --all to include DONE)
-  {prog} chain [--by-role] [--role ROLE] [--ready] [--limit N] [--include-hold]  Show chain finales, numbered RPG progress chains, role queues (--by-role), & ready tasks
+  {prog} chain [<ID>...] [--by-role] [--role ROLE] [--ready] [--limit N] [--include-hold]  Show chain finales, numbered RPG progress chains, role queues (--by-role), & ready tasks (highlight <ID>...)
   {prog} next-id [<ID>] [--role ROLE] | --top  Print top ready WIP/NEXT ID, or first ready ID in <ID>'s queue
   {prog} files [<ID>] | --files [<ID>]       List existing repository file paths referenced in backticks in task <ID>
                                              Opts: --max-lines N, --max-total-lines N, --max-bytes N, --max-total-bytes N

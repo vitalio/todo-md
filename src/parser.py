@@ -173,6 +173,51 @@ def resolve_project_task_ref(
     return base_dir, ref.strip()
 
 
+def _is_valid_task_ref_token(tok: str) -> bool:
+    raw = tok.strip()
+    if not raw:
+        return False
+    if re.fullmatch(r"[A-Za-z]\d+", raw):
+        return True
+    pm = PROJECT_TASK_RE.match(raw)
+    if pm:
+        proj_part = pm.group(1).strip().replace("\\", "/").strip("/")
+        return bool(proj_part) and ".." not in proj_part.split("/")
+    return False
+
+
+def _split_task_ref_arg(arg: str) -> list[str] | None:
+    parts = [p.strip() for p in arg.split(",") if p.strip()]
+    if not parts:
+        return None
+    if not all(_is_valid_task_ref_token(p) for p in parts):
+        return None
+    return parts
+
+
+def _normalize_target_refs(
+    base_dir: Path,
+    targets: list[tuple[Path, str]] | None,
+    explicit_dir: str | None = None,
+) -> tuple[set[tuple[Path, str]], set[str]]:
+    target_set: set[tuple[Path, str]] = set()
+    unscoped_ids: set[str] = set()
+    for tdir, raw_tid in targets or []:
+        tok = raw_tid.strip()
+        if not tok:
+            continue
+        if PROJECT_TASK_RE.match(tok):
+            r_dir, r_tid = resolve_project_task_ref(base_dir, tok, explicit_dir=explicit_dir)
+            target_set.add((r_dir.resolve(), r_tid.upper()))
+        else:
+            t_res = tdir.resolve()
+            tid_up = tok.upper()
+            target_set.add((t_res, tid_up))
+            if not is_todo_project(t_res) and not (t_res / "TODO.md").is_file():
+                unscoped_ids.add(tid_up)
+    return target_set, unscoped_ids
+
+
 EMPTY_DEPENDS_LINE_RE = re.compile(r"^\s*[-*]\s*Depends on:\s*$", re.IGNORECASE)
 
 
@@ -1082,6 +1127,11 @@ def _char_display_width(ch: str) -> int:
 
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 ANSI_DIM_ON = "\033[2m"
+ANSI_EXTERNAL_ON = "\033[2;3m"
+ANSI_DONE_ON = "\033[2;90m"
+ANSI_EXTERNAL_DONE_ON = "\033[2;3;90m"
+ANSI_HIGHLIGHT_ON = "\033[1;93m"
+ANSI_EXTERNAL_HIGHLIGHT_ON = "\033[1;3;93m"
 ANSI_RESET = "\033[0m"
 
 
@@ -1110,6 +1160,29 @@ def _style_ansi_lines(text: str, sgr_open: str) -> str:
     raw = text[:-1] if has_nl else text
     styled = "\n".join(f"{sgr_open}{line}{ANSI_RESET}" if line else line for line in raw.split("\n"))
     return f"{styled}\n" if has_nl else styled
+
+
+def _style_task_row(
+    text: str,
+    is_external: bool = False,
+    is_done: bool = False,
+    is_highlighted: bool = False,
+    use_color: bool | None = None,
+) -> str:
+    active_color = _use_ansi_color() if use_color is None else use_color
+    if not active_color:
+        return text
+    if is_highlighted:
+        sgr = ANSI_EXTERNAL_HIGHLIGHT_ON if is_external else ANSI_HIGHLIGHT_ON
+    elif is_external and is_done:
+        sgr = ANSI_EXTERNAL_DONE_ON
+    elif is_external:
+        sgr = ANSI_EXTERNAL_ON
+    elif is_done:
+        sgr = ANSI_DONE_ON
+    else:
+        return text
+    return _style_ansi_lines(text, sgr)
 
 
 def _display_width(text: str) -> int:
@@ -1235,6 +1308,7 @@ def cmd_list(
     full: bool = False,
     role: str | None = None,
     ready: bool = False,
+    targets: list[tuple[Path, str]] | None = None,
 ) -> int:
     mode = (filt or "active").strip().lower()
     tasks = collect_all_tasks(base_dir)
@@ -1293,10 +1367,15 @@ def cmd_list(
         sys.stdout.write("\n\n".join(sections) + "\n")
     else:
         term_width = _get_terminal_columns()
+        use_color = _use_ansi_color()
+        b_res = base_dir.resolve()
+        target_set, unscoped_ids = _normalize_target_refs(base_dir, targets)
         for t in shown:
             is_blocked, dep_suffix = _dep_info(t)
-            emoji = "⏳" if (str(t["status"]) in ("WIP", "NEXT") and is_blocked) else str(t["emoji"])
-            badge = f"{emoji} [{t['status']}]"
+            st_str = str(t["status"])
+            tid_up = str(t["id"]).upper()
+            emoji = "⏳" if (st_str in ("WIP", "NEXT") and is_blocked) else str(t["emoji"])
+            badge = f"{emoji} [{st_str}]"
             role_badge = _task_role_badge(t)
             loc = str(t["file"])
             prefix = (
@@ -1306,7 +1385,16 @@ def cmd_list(
                 f"{_pad_display(loc, 16)}  "
             )
             desc = f"{t['title']}{dep_suffix}"
-            sys.stdout.write(_wrap_table_row(prefix, desc, term_width) + "\n")
+            rendered = _wrap_table_row(prefix, desc, term_width) + "\n"
+            is_highlighted = (b_res, tid_up) in target_set or tid_up in unscoped_ids
+            sys.stdout.write(
+                _style_task_row(
+                    rendered,
+                    is_done=(st_str == "DONE"),
+                    is_highlighted=is_highlighted,
+                    use_color=use_color,
+                )
+            )
     top = highest_ids_in_use(base_dir)
     sys.stdout.write(f"\nIDs in use: {format_ids_summary(top)}\n")
     return 0
@@ -1516,6 +1604,7 @@ def cmd_workspace_list(
     full: bool = False,
     role: str | None = None,
     ready: bool = False,
+    targets: list[tuple[Path, str]] | None = None,
 ) -> int:
     projects = discover_projects(workspace_root)
     if not projects:
@@ -1583,11 +1672,15 @@ def cmd_workspace_list(
         sys.stdout.write("\n\n".join(sections) + "\n")
         return 0
     term_width = _get_terminal_columns()
+    use_color = _use_ansi_color()
+    target_set, unscoped_ids = _normalize_target_refs(workspace_root, targets)
     for name, proj_dir, t in items:
         is_blocked, dep_suffix = _ws_dep_info(proj_dir, t)
+        st_str = str(t["status"])
+        tid_up = str(t["id"]).upper()
         ref = f"{name}:{t['id']}"
-        emoji = "⏳" if (str(t["status"]) in ("WIP", "NEXT") and is_blocked) else str(t["emoji"])
-        badge = f"{emoji} [{t['status']}]"
+        emoji = "⏳" if (st_str in ("WIP", "NEXT") and is_blocked) else str(t["emoji"])
+        badge = f"{emoji} [{st_str}]"
         role_badge = _task_role_badge(t)
         prefix = (
             f"  {_pad_display(ref, 28)}  "
@@ -1595,7 +1688,16 @@ def cmd_workspace_list(
             f"{_pad_display(role_badge, 10)}  "
         )
         desc = f"{t['title']}{dep_suffix}"
-        sys.stdout.write(_wrap_table_row(prefix, desc, term_width) + "\n")
+        rendered = _wrap_table_row(prefix, desc, term_width) + "\n"
+        is_highlighted = (proj_dir.resolve(), tid_up) in target_set or tid_up in unscoped_ids
+        sys.stdout.write(
+            _style_task_row(
+                rendered,
+                is_done=(st_str == "DONE"),
+                is_highlighted=is_highlighted,
+                use_color=use_color,
+            )
+        )
     return 0
 
 

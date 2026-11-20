@@ -1153,6 +1153,7 @@ def cmd_chain(
     by_role: bool = False,
     workspace: bool = False,
     explicit_dir: str | None = None,
+    targets: list[tuple[Path, str]] | None = None,
 ) -> int:
     b_res = base_dir.resolve()
     ws_root = resolve_workspace_root(b_res, explicit_dir=explicit_dir)
@@ -1258,8 +1259,12 @@ def cmd_chain(
 
     term_width = _get_terminal_columns()
     use_color = _use_ansi_color()
+    target_set, unscoped_target_ids = _normalize_target_refs(base_dir, targets, explicit_dir=explicit_dir)
     wanted_role = role.strip().lower() if role is not None else None
     rank_pos = {node: idx for idx, node in enumerate(active_nodes)}
+
+    def _is_highlighted_node(u: tuple[Path, str]) -> bool:
+        return (u[0].resolve(), u[1].upper()) in target_set or u[1].upper() in unscoped_target_ids
 
     def _matches_role(u: tuple[Path, str]) -> bool:
         if wanted_role is None:
@@ -1271,13 +1276,12 @@ def cmd_chain(
         idx: int,
         u: tuple[Path, str],
         show_downstream: bool = False,
-        dim_external: bool = False,
     ) -> str:
         nd = nodes[u]
         st = str(nd["status"])
         ref = str(nd["ref"])
         title = str(nd["title"])
-        blockers = [str(nodes[p]["ref"]) for p in prereqs[u] if str(nodes[p]["status"]) != "DONE"]
+        blockers = [str(nodes[p]["ref"]) for p in prereqs.get(u, []) if str(nodes[p]["status"]) != "DONE"]
         role_badge = _task_role_badge(nd) if nd.get("exists") else ""
         impact = active_unblocks.get(u, 0)
         if st == "MISSING":
@@ -1286,6 +1290,9 @@ def cmd_chain(
         elif st == "CANCELED":
             badge = f"{nd['emoji']} [CANCELED]"
             status_tag = "[blocked]" + (f" [unblocks {impact}]" if impact > 0 else "")
+        elif st == "DONE":
+            badge = f"{nd['emoji']} [DONE]"
+            status_tag = ""
         else:
             emoji = "⏳" if (st in ("WIP", "NEXT") and blockers) else str(nd["emoji"])
             badge = f"{emoji} [{st}]"
@@ -1318,11 +1325,15 @@ def cmd_chain(
             f"{_pad_display(badge, 14)}  "
             f"{_pad_display(role_badge, 10)}  "
         )
-        desc = f"{title}  {status_tag}"
+        desc = f"{title}  {status_tag}" if status_tag else title
         rendered = _wrap_table_row(prefix, desc, term_width) + "\n"
-        if dim_external and use_color and not _is_target_node(u):
-            return _style_ansi_lines(rendered, ANSI_DIM_ON)
-        return rendered
+        return _style_task_row(
+            rendered,
+            is_external=not _is_target_node(u),
+            is_done=(st == "DONE"),
+            is_highlighted=_is_highlighted_node(u),
+            use_color=use_color,
+        )
 
     held_paths: list[list[tuple[Path, str]]] = []
     if excluded_hold:
@@ -1483,11 +1494,24 @@ def cmd_chain(
                 pct = int(st_info.get("progress_pct", 0))
                 done_c = int(st_info.get("done_count", 0))
                 open_c = int(st_info.get("open_count", len(comp)))
-                sys.stdout.write(
+                chain_nodes = (
+                    set(comp)
+                    | set(st_info.get("nodes", []))  # type: ignore[arg-type]
+                    | set(st_info.get("done_nodes", set()))  # type: ignore[arg-type]
+                )
+                chain_highlighted = any(_is_highlighted_node(u) for u in chain_nodes)
+                header_line = (
                     f"Chain {chain_idx} ({total_t} tasks, {pct}% | {done_c} done, {open_c} open):\n"
                 )
+                sys.stdout.write(
+                    _style_task_row(
+                        header_line,
+                        is_highlighted=chain_highlighted,
+                        use_color=use_color,
+                    )
+                )
                 for u in comp:
-                    sys.stdout.write(_format_row(row_idx, u, dim_external=(target_project is not None)))
+                    sys.stdout.write(_format_row(row_idx, u))
                     row_idx += 1
                 wrote_section = True
             if standalone:
@@ -1512,9 +1536,13 @@ def cmd_chain(
         for path in held_paths:
             parts: list[str] = []
             for k in path:
-                token = f"{nodes[k]['ref']} ({nodes[k]['status']})"
-                if target_project is not None and use_color and not _is_target_node(k):
-                    token = f"{ANSI_DIM_ON}{token}{ANSI_RESET}"
+                token = _style_task_row(
+                    f"{nodes[k]['ref']} ({nodes[k]['status']})",
+                    is_external=not _is_target_node(k),
+                    is_done=(str(nodes[k]["status"]) == "DONE"),
+                    is_highlighted=_is_highlighted_node(k),
+                    use_color=use_color,
+                )
                 parts.append(token)
             rendered = " -> ".join(parts)
             sys.stdout.write(f"  {rendered}\n")

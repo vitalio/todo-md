@@ -7,7 +7,7 @@
   {prog} <ID> | show <ID|last>               Show task <ID> with Task/Title/Role/Workdir headers (or last [<STATUS|archive>], supports <project>:<ID>)
   {prog} last [<STATUS|archive>]           Show full section for last task in status/archive (default: NEW)
   {prog} last-id [<STATUS|archive>]        Print ID of last task in status/archive (default: NEW)
-  {prog} list [filter] [opts]                List tasks (active | archive | all | <STATUS>; opts: --role ROLE, --ready, --limit N, --full)
+  {prog} list [filter] [<ID>...] [opts]      List tasks (active | archive | all | <STATUS>; highlight <ID>...; opts: --role ROLE, --ready, --limit N, --full)
   {prog} archive [<ID>] [-m NOTE]            Print TODO_ARCHIVE.md, or archive task <ID>
   {prog} add [<PROJ>] [<PREFIX>] <TITLE>     Add a new task with auto-assigned ID (reads body from -b TEXT|- or stdin)
                                              Opts: -p PREFIX (default: F), --next, --status STATUS, -m NOTE, -b BODY|-, --role ROLE, --depends SPEC
@@ -20,7 +20,7 @@
   {prog} cancel <ID> [-m REASON]             Mark task <ID> as CANCELED and move it to TODO_ARCHIVE.md
   {prog} ids                                 Print highest task IDs in use and next available ID per prefix
   {prog} queue <ID> [--all]                  Show topologically sorted execution queue for <ID> (use --all to include DONE)
-  {prog} chain [--by-role] [--role ROLE] [--ready] [--limit N] [--include-hold]  Show chain finales, numbered RPG progress chains, role queues (--by-role), & ready tasks
+  {prog} chain [<ID>...] [--by-role] [--role ROLE] [--ready] [--limit N] [--include-hold]  Show chain finales, numbered RPG progress chains, role queues (--by-role), & ready tasks (highlight <ID>...)
   {prog} next-id [<ID>] [--role ROLE] | --top  Print top ready WIP/NEXT ID, or first ready ID in <ID>'s queue
   {prog} files [<ID>] | --files [<ID>]       List existing repository file paths referenced in backticks in task <ID>
                                              Opts: --max-lines N, --max-total-lines N, --max-bytes N, --max-total-bytes N
@@ -74,7 +74,7 @@ import unicodedata
 from datetime import date
 from pathlib import Path
 
-VERSION = "0.29.0"
+VERSION = "0.30.0"
 REPO_MARKER = "todo_md-repo: vitalio/todo_md"
 DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/vitalio/todo_md/main/todo_md"
 FENCE = chr(96) * 3
@@ -330,6 +330,51 @@ def resolve_project_task_ref(
         proj_name, tid = m.group(1), m.group(2).upper()
         return resolve_project_dir(base_dir, proj_name, explicit_dir=explicit_dir), tid
     return base_dir, ref.strip()
+
+
+def _is_valid_task_ref_token(tok: str) -> bool:
+    raw = tok.strip()
+    if not raw:
+        return False
+    if re.fullmatch(r"[A-Za-z]\d+", raw):
+        return True
+    pm = PROJECT_TASK_RE.match(raw)
+    if pm:
+        proj_part = pm.group(1).strip().replace("\\", "/").strip("/")
+        return bool(proj_part) and ".." not in proj_part.split("/")
+    return False
+
+
+def _split_task_ref_arg(arg: str) -> list[str] | None:
+    parts = [p.strip() for p in arg.split(",") if p.strip()]
+    if not parts:
+        return None
+    if not all(_is_valid_task_ref_token(p) for p in parts):
+        return None
+    return parts
+
+
+def _normalize_target_refs(
+    base_dir: Path,
+    targets: list[tuple[Path, str]] | None,
+    explicit_dir: str | None = None,
+) -> tuple[set[tuple[Path, str]], set[str]]:
+    target_set: set[tuple[Path, str]] = set()
+    unscoped_ids: set[str] = set()
+    for tdir, raw_tid in targets or []:
+        tok = raw_tid.strip()
+        if not tok:
+            continue
+        if PROJECT_TASK_RE.match(tok):
+            r_dir, r_tid = resolve_project_task_ref(base_dir, tok, explicit_dir=explicit_dir)
+            target_set.add((r_dir.resolve(), r_tid.upper()))
+        else:
+            t_res = tdir.resolve()
+            tid_up = tok.upper()
+            target_set.add((t_res, tid_up))
+            if not is_todo_project(t_res) and not (t_res / "TODO.md").is_file():
+                unscoped_ids.add(tid_up)
+    return target_set, unscoped_ids
 
 
 EMPTY_DEPENDS_LINE_RE = re.compile(r"^\s*[-*]\s*Depends on:\s*$", re.IGNORECASE)
@@ -1241,6 +1286,11 @@ def _char_display_width(ch: str) -> int:
 
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 ANSI_DIM_ON = "\033[2m"
+ANSI_EXTERNAL_ON = "\033[2;3m"
+ANSI_DONE_ON = "\033[2;90m"
+ANSI_EXTERNAL_DONE_ON = "\033[2;3;90m"
+ANSI_HIGHLIGHT_ON = "\033[1;93m"
+ANSI_EXTERNAL_HIGHLIGHT_ON = "\033[1;3;93m"
 ANSI_RESET = "\033[0m"
 
 
@@ -1269,6 +1319,29 @@ def _style_ansi_lines(text: str, sgr_open: str) -> str:
     raw = text[:-1] if has_nl else text
     styled = "\n".join(f"{sgr_open}{line}{ANSI_RESET}" if line else line for line in raw.split("\n"))
     return f"{styled}\n" if has_nl else styled
+
+
+def _style_task_row(
+    text: str,
+    is_external: bool = False,
+    is_done: bool = False,
+    is_highlighted: bool = False,
+    use_color: bool | None = None,
+) -> str:
+    active_color = _use_ansi_color() if use_color is None else use_color
+    if not active_color:
+        return text
+    if is_highlighted:
+        sgr = ANSI_EXTERNAL_HIGHLIGHT_ON if is_external else ANSI_HIGHLIGHT_ON
+    elif is_external and is_done:
+        sgr = ANSI_EXTERNAL_DONE_ON
+    elif is_external:
+        sgr = ANSI_EXTERNAL_ON
+    elif is_done:
+        sgr = ANSI_DONE_ON
+    else:
+        return text
+    return _style_ansi_lines(text, sgr)
 
 
 def _display_width(text: str) -> int:
@@ -1394,6 +1467,7 @@ def cmd_list(
     full: bool = False,
     role: str | None = None,
     ready: bool = False,
+    targets: list[tuple[Path, str]] | None = None,
 ) -> int:
     mode = (filt or "active").strip().lower()
     tasks = collect_all_tasks(base_dir)
@@ -1452,10 +1526,15 @@ def cmd_list(
         sys.stdout.write("\n\n".join(sections) + "\n")
     else:
         term_width = _get_terminal_columns()
+        use_color = _use_ansi_color()
+        b_res = base_dir.resolve()
+        target_set, unscoped_ids = _normalize_target_refs(base_dir, targets)
         for t in shown:
             is_blocked, dep_suffix = _dep_info(t)
-            emoji = "⏳" if (str(t["status"]) in ("WIP", "NEXT") and is_blocked) else str(t["emoji"])
-            badge = f"{emoji} [{t['status']}]"
+            st_str = str(t["status"])
+            tid_up = str(t["id"]).upper()
+            emoji = "⏳" if (st_str in ("WIP", "NEXT") and is_blocked) else str(t["emoji"])
+            badge = f"{emoji} [{st_str}]"
             role_badge = _task_role_badge(t)
             loc = str(t["file"])
             prefix = (
@@ -1465,7 +1544,16 @@ def cmd_list(
                 f"{_pad_display(loc, 16)}  "
             )
             desc = f"{t['title']}{dep_suffix}"
-            sys.stdout.write(_wrap_table_row(prefix, desc, term_width) + "\n")
+            rendered = _wrap_table_row(prefix, desc, term_width) + "\n"
+            is_highlighted = (b_res, tid_up) in target_set or tid_up in unscoped_ids
+            sys.stdout.write(
+                _style_task_row(
+                    rendered,
+                    is_done=(st_str == "DONE"),
+                    is_highlighted=is_highlighted,
+                    use_color=use_color,
+                )
+            )
     top = highest_ids_in_use(base_dir)
     sys.stdout.write(f"\nIDs in use: {format_ids_summary(top)}\n")
     return 0
@@ -1675,6 +1763,7 @@ def cmd_workspace_list(
     full: bool = False,
     role: str | None = None,
     ready: bool = False,
+    targets: list[tuple[Path, str]] | None = None,
 ) -> int:
     projects = discover_projects(workspace_root)
     if not projects:
@@ -1742,11 +1831,15 @@ def cmd_workspace_list(
         sys.stdout.write("\n\n".join(sections) + "\n")
         return 0
     term_width = _get_terminal_columns()
+    use_color = _use_ansi_color()
+    target_set, unscoped_ids = _normalize_target_refs(workspace_root, targets)
     for name, proj_dir, t in items:
         is_blocked, dep_suffix = _ws_dep_info(proj_dir, t)
+        st_str = str(t["status"])
+        tid_up = str(t["id"]).upper()
         ref = f"{name}:{t['id']}"
-        emoji = "⏳" if (str(t["status"]) in ("WIP", "NEXT") and is_blocked) else str(t["emoji"])
-        badge = f"{emoji} [{t['status']}]"
+        emoji = "⏳" if (st_str in ("WIP", "NEXT") and is_blocked) else str(t["emoji"])
+        badge = f"{emoji} [{st_str}]"
         role_badge = _task_role_badge(t)
         prefix = (
             f"  {_pad_display(ref, 28)}  "
@@ -1754,7 +1847,16 @@ def cmd_workspace_list(
             f"{_pad_display(role_badge, 10)}  "
         )
         desc = f"{t['title']}{dep_suffix}"
-        sys.stdout.write(_wrap_table_row(prefix, desc, term_width) + "\n")
+        rendered = _wrap_table_row(prefix, desc, term_width) + "\n"
+        is_highlighted = (proj_dir.resolve(), tid_up) in target_set or tid_up in unscoped_ids
+        sys.stdout.write(
+            _style_task_row(
+                rendered,
+                is_done=(st_str == "DONE"),
+                is_highlighted=is_highlighted,
+                use_color=use_color,
+            )
+        )
     return 0
 
 
@@ -4137,6 +4239,7 @@ def cmd_chain(
     by_role: bool = False,
     workspace: bool = False,
     explicit_dir: str | None = None,
+    targets: list[tuple[Path, str]] | None = None,
 ) -> int:
     b_res = base_dir.resolve()
     ws_root = resolve_workspace_root(b_res, explicit_dir=explicit_dir)
@@ -4242,8 +4345,12 @@ def cmd_chain(
 
     term_width = _get_terminal_columns()
     use_color = _use_ansi_color()
+    target_set, unscoped_target_ids = _normalize_target_refs(base_dir, targets, explicit_dir=explicit_dir)
     wanted_role = role.strip().lower() if role is not None else None
     rank_pos = {node: idx for idx, node in enumerate(active_nodes)}
+
+    def _is_highlighted_node(u: tuple[Path, str]) -> bool:
+        return (u[0].resolve(), u[1].upper()) in target_set or u[1].upper() in unscoped_target_ids
 
     def _matches_role(u: tuple[Path, str]) -> bool:
         if wanted_role is None:
@@ -4255,13 +4362,12 @@ def cmd_chain(
         idx: int,
         u: tuple[Path, str],
         show_downstream: bool = False,
-        dim_external: bool = False,
     ) -> str:
         nd = nodes[u]
         st = str(nd["status"])
         ref = str(nd["ref"])
         title = str(nd["title"])
-        blockers = [str(nodes[p]["ref"]) for p in prereqs[u] if str(nodes[p]["status"]) != "DONE"]
+        blockers = [str(nodes[p]["ref"]) for p in prereqs.get(u, []) if str(nodes[p]["status"]) != "DONE"]
         role_badge = _task_role_badge(nd) if nd.get("exists") else ""
         impact = active_unblocks.get(u, 0)
         if st == "MISSING":
@@ -4270,6 +4376,9 @@ def cmd_chain(
         elif st == "CANCELED":
             badge = f"{nd['emoji']} [CANCELED]"
             status_tag = "[blocked]" + (f" [unblocks {impact}]" if impact > 0 else "")
+        elif st == "DONE":
+            badge = f"{nd['emoji']} [DONE]"
+            status_tag = ""
         else:
             emoji = "⏳" if (st in ("WIP", "NEXT") and blockers) else str(nd["emoji"])
             badge = f"{emoji} [{st}]"
@@ -4302,11 +4411,15 @@ def cmd_chain(
             f"{_pad_display(badge, 14)}  "
             f"{_pad_display(role_badge, 10)}  "
         )
-        desc = f"{title}  {status_tag}"
+        desc = f"{title}  {status_tag}" if status_tag else title
         rendered = _wrap_table_row(prefix, desc, term_width) + "\n"
-        if dim_external and use_color and not _is_target_node(u):
-            return _style_ansi_lines(rendered, ANSI_DIM_ON)
-        return rendered
+        return _style_task_row(
+            rendered,
+            is_external=not _is_target_node(u),
+            is_done=(st == "DONE"),
+            is_highlighted=_is_highlighted_node(u),
+            use_color=use_color,
+        )
 
     held_paths: list[list[tuple[Path, str]]] = []
     if excluded_hold:
@@ -4467,11 +4580,24 @@ def cmd_chain(
                 pct = int(st_info.get("progress_pct", 0))
                 done_c = int(st_info.get("done_count", 0))
                 open_c = int(st_info.get("open_count", len(comp)))
-                sys.stdout.write(
+                chain_nodes = (
+                    set(comp)
+                    | set(st_info.get("nodes", []))  # type: ignore[arg-type]
+                    | set(st_info.get("done_nodes", set()))  # type: ignore[arg-type]
+                )
+                chain_highlighted = any(_is_highlighted_node(u) for u in chain_nodes)
+                header_line = (
                     f"Chain {chain_idx} ({total_t} tasks, {pct}% | {done_c} done, {open_c} open):\n"
                 )
+                sys.stdout.write(
+                    _style_task_row(
+                        header_line,
+                        is_highlighted=chain_highlighted,
+                        use_color=use_color,
+                    )
+                )
                 for u in comp:
-                    sys.stdout.write(_format_row(row_idx, u, dim_external=(target_project is not None)))
+                    sys.stdout.write(_format_row(row_idx, u))
                     row_idx += 1
                 wrote_section = True
             if standalone:
@@ -4496,9 +4622,13 @@ def cmd_chain(
         for path in held_paths:
             parts: list[str] = []
             for k in path:
-                token = f"{nodes[k]['ref']} ({nodes[k]['status']})"
-                if target_project is not None and use_color and not _is_target_node(k):
-                    token = f"{ANSI_DIM_ON}{token}{ANSI_RESET}"
+                token = _style_task_row(
+                    f"{nodes[k]['ref']} ({nodes[k]['status']})",
+                    is_external=not _is_target_node(k),
+                    is_done=(str(nodes[k]["status"]) == "DONE"),
+                    is_highlighted=_is_highlighted_node(k),
+                    use_color=use_color,
+                )
                 parts.append(token)
             rendered = " -> ".join(parts)
             sys.stdout.write(f"  {rendered}\n")
@@ -4753,6 +4883,7 @@ def main(argv: list[str] | None = None) -> int:
         ready = False
         by_role = False
         role_filter: str | None = None
+        raw_target_refs: list[str] = []
         i = 1
         while i < len(args):
             a = args[i]
@@ -4790,7 +4921,17 @@ def main(argv: list[str] | None = None) -> int:
             elif a.startswith("-"):
                 raise SystemExit(f"{prog}: unknown option for chain: {a}")
             else:
-                raise SystemExit(f"{prog}: usage: {prog} chain [--by-role] [--role ROLE] [--ready] [--limit N] [--include-hold]")
+                ref_parts = _split_task_ref_arg(a)
+                if ref_parts is None:
+                    raise SystemExit(
+                        f"{prog}: usage: {prog} chain [<ID>...] [--by-role] [--role ROLE] [--ready] [--limit N] [--include-hold]"
+                    )
+                raw_target_refs.extend(ref_parts)
+                i += 1
+        target_refs: list[tuple[Path, str]] = [
+            resolve_project_task_ref(base_dir, ref, explicit_dir=explicit_dir)
+            for ref in raw_target_refs
+        ]
         use_ws = workspace
         if not use_ws and not is_todo_project(base_dir) and not (base_dir / "TODO.md").is_file():
             ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
@@ -4805,6 +4946,7 @@ def main(argv: list[str] | None = None) -> int:
             by_role=by_role,
             workspace=use_ws,
             explicit_dir=explicit_dir,
+            targets=target_refs,
         )
     if args[0] in ("next-id", "--next-id"):
         role_filter: str | None = None
@@ -4925,6 +5067,7 @@ def main(argv: list[str] | None = None) -> int:
         limit: int | None = None
         role_filter: str | None = None
         ready = False
+        raw_target_refs: list[str] = []
         i = 1
         while i < len(args):
             a = args[i]
@@ -4955,16 +5098,43 @@ def main(argv: list[str] | None = None) -> int:
                 i += 1
             elif a.startswith("-"):
                 raise SystemExit(f"{prog}: unknown option for list: {a}")
-            elif filt is None:
-                filt = a
-                i += 1
             else:
-                raise SystemExit(f"{prog}: usage: {prog} list [filter] [--role ROLE] [--ready] [--limit N] [--full]")
+                ref_parts = _split_task_ref_arg(a)
+                if ref_parts is not None:
+                    raw_target_refs.extend(ref_parts)
+                    i += 1
+                elif filt is None and not raw_target_refs:
+                    filt = a
+                    i += 1
+                else:
+                    raise SystemExit(
+                        f"{prog}: usage: {prog} list [filter] [<ID>...] [--role ROLE] [--ready] [--limit N] [--full]"
+                    )
+        target_refs: list[tuple[Path, str]] = [
+            resolve_project_task_ref(base_dir, ref, explicit_dir=explicit_dir)
+            for ref in raw_target_refs
+        ]
         if workspace or (not is_todo_project(base_dir) and not (base_dir / "TODO.md").is_file()):
             ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
             if workspace or discover_projects(ws_root):
-                return cmd_workspace_list(ws_root, filt, limit=limit, full=full, role=role_filter, ready=ready)
-        return cmd_list(base_dir, filt, limit=limit, full=full, role=role_filter, ready=ready)
+                return cmd_workspace_list(
+                    ws_root,
+                    filt,
+                    limit=limit,
+                    full=full,
+                    role=role_filter,
+                    ready=ready,
+                    targets=target_refs,
+                )
+        return cmd_list(
+            base_dir,
+            filt,
+            limit=limit,
+            full=full,
+            role=role_filter,
+            ready=ready,
+            targets=target_refs,
+        )
     if args[0] in ("show", "--show"):
         if len(args) < 2 or len(args) > 3:
             raise SystemExit(f"{prog}: usage: {prog} show <ID|last> [<STATUS|archive>]")
