@@ -37,6 +37,9 @@ rules are loaded via `.agents_bundle`.
   and role/task workflow prompts for `bundle vitalio/todo_md`.
 - `src/cli.py` — CLI argument routing and self-update (`update`,
   `check-update`).
+- `tests/helpers.py` & `tests/test_*.py` — shared in-process/subprocess test
+  harness (`TodoMdTestCase`) and modular unit test suites (`test_cli.py`,
+  `test_parser.py`, `test_commands.py`, `test_deps.py`, `test_chain.py`).
 
 ## Dependency Graph & Sequencing Contract
 

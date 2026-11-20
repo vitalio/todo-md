@@ -1,0 +1,239 @@
+#!/usr/bin/env python3
+"""Tests for todo_md CLI flags, lazy imports, project selector, and install.sh."""
+
+import contextlib
+import io
+import os
+import sys
+import unittest
+from tests.helpers import INSTALL_SH, ROOT, SCRIPT, TodoMdTestCase
+
+
+class TestCli(TodoMdTestCase):
+    def test_help_version_and_agents(self):
+        rh = self._run_subprocess([str(SCRIPT), "-h"], check=True)
+        self.assertIn("Usage:", rh.stdout)
+        self.assertNotIn("resume", rh.stdout)
+        self.assertNotIn("TODO_PLAN.md", rh.stdout)
+        self.assertIn("next <ID>", rh.stdout)
+        self.assertIn("reopen <ID>", rh.stdout)
+        self.assertIn("--reopen", rh.stdout)
+        self.assertIn("-C DIR|PROJ, --project NAME", rh.stdout)
+        self.assertIn("add", rh.stdout)
+        self.assertIn("--role ROLE", rh.stdout)
+        self.assertIn("opts: --role ROLE, --ready, --limit N, --full", rh.stdout)
+        self.assertIn("edit", rh.stdout)
+        self.assertIn("append", rh.stdout)
+
+        rv = self._run_subprocess([str(SCRIPT), "--version"], check=True)
+        ver = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+        self.assertEqual(rv.stdout.strip(), f"todo_md {ver}")
+
+        self.assertNotIn("--agents", rh.stdout)
+        rule_txt = (ROOT / "src/rules/todo_md.md").read_text(encoding="utf-8")
+        self.assertIn("Repository scope only", rule_txt)
+        self.assertIn("🎯 [NEXT]", rule_txt)
+        self.assertIn("TODO_ARCHIVE.md", rule_txt)
+        self.assertIn("reopen <ID>", rule_txt)
+        self.assertIn("--reopen", rule_txt)
+        bundle_txt = (ROOT / "src/bundles/todo_md.bundle").read_text(encoding="utf-8")
+        self.assertIn("rule vitalio/todo_md:todo_md", bundle_txt)
+        self.assertNotIn("task=next", bundle_txt)
+        self.assertIn("$ todo_md status {task:} WIP", bundle_txt)
+        self.assertIn("todo_md next-id", bundle_txt)
+        self.assertIn("[if task=] var task=$(todo_md next-id --role work)", bundle_txt)
+        self.assertIn("Emit your first run_block in this very first reply", bundle_txt)
+        self.assertIn("propose the top task shown in the todo_md overview above", bundle_txt)
+        self.assertIn("include $(todo_md files {task:} --max-lines 400 --max-total-lines 1200 --max-bytes 32768)", bundle_txt)
+        self.assertIn("key symbol names (functions/classes) in backticks", bundle_txt)
+        self.assertIn("--max-total-bytes N", rule_txt)
+        self.assertIn("key symbol names in backticks", rule_txt)
+        self.assertIn("-C <dir|project>` or `--project <name>`", rule_txt)
+        self.assertIn("list [active|archive|all|<STATUS>] [<ID>...] [--role <role>] [--ready] [--limit N] [--full]", rule_txt)
+        self.assertIn("⏳ [WIP]` / `⏳ [NEXT]", rule_txt)
+        self.assertIn("[blocked: A (<STATUS>) -> B (<STATUS>)]", rule_txt)
+        self.assertIn("--max-total-lines N", rh.stdout)
+        self.assertIn("queue <ID> [--all]", rh.stdout)
+        self.assertIn("chain [<ID>...] [--all] [--by-role] [--role ROLE] [--ready] [--limit N] [--include-hold]", rh.stdout)
+        self.assertIn("next-id [<ID>] [--role ROLE]", rh.stdout)
+        self.assertIn("queue <ID> [--all]", rule_txt)
+        self.assertIn("chain [<ID>...] [--all] [--by-role] [--role <role>] [--ready] [--limit N] [--include-hold]", rule_txt)
+        self.assertIn("next-id [<ID>] [--role <role>]", rule_txt)
+        self.assertIn("A -> B -> C", rule_txt)
+        self.assertIn("do not introduce a separate `- Order:` field", rule_txt)
+        self.assertIn("[if task=last] var task=$(todo_md last-id DONE)", bundle_txt)
+        self.assertIn("[if task=DONE] var task=$(todo_md last-id DONE)", bundle_txt)
+        self.assertIn("[if role=work]", bundle_txt)
+        self.assertIn("[if role=review]", bundle_txt)
+        self.assertEqual(bundle_txt.count("[if piped!=1] $ todo_md {task:}"), 4)
+        self.assertNotIn("role=execute", bundle_txt)
+        self.assertNotIn("role=audit", bundle_txt)
+        self.assertIn("role=work", rule_txt)
+        self.assertIn("role=review", rule_txt)
+        self.assertIn("strips an existing `- Role: plan` line", rule_txt)
+        self.assertIn("agents_bundle | run_block", rule_txt)
+        self.assertNotIn("role=execute", rule_txt)
+        self.assertNotIn("role=audit", rule_txt)
+
+    def test_lazy_urllib_import_and_offline_update(self):
+        probe = (
+            "import contextlib, importlib.machinery, importlib.util, io, sys\n"
+            "loader = importlib.machinery.SourceFileLoader('todo_md_probe', sys.argv[1])\n"
+            "spec = importlib.util.spec_from_loader('todo_md_probe', loader)\n"
+            "mod = importlib.util.module_from_spec(spec)\n"
+            "loader.exec_module(mod)\n"
+            "buf = io.StringIO()\n"
+            "with contextlib.redirect_stdout(buf):\n"
+            "    assert mod.main(['--version']) == 0\n"
+            "    assert mod.main(['init']) == 0\n"
+            "    assert mod.main(['add', 'Lazy import task']) == 0\n"
+            "    assert mod.main(['check']) == 0\n"
+            "    assert mod.main(['list']) == 0\n"
+            "for banned in ('urllib.request', 'http.client', 'ssl'):\n"
+            "    assert banned not in sys.modules, f'unexpectedly imported {banned}'\n"
+        )
+        r_probe = self._run_subprocess([sys.executable, "-c", probe, str(SCRIPT)])
+        self.assertEqual(r_probe.returncode, 0, msg=r_probe.stderr)
+
+        remote_file = self.tmp / "remote_todo_md"
+        remote_payload = (
+            "#!/usr/bin/env python3\n"
+            "# todo_md-repo: vitalio/todo_md\n"
+            "VERSION = '99.0.0'\n"
+        )
+        remote_file.write_text(remote_payload, encoding="utf-8")
+        env = {**os.environ, "TODO_MD_UPDATE_URL": remote_file.as_uri()}
+
+        r_chk = self._run_subprocess([str(SCRIPT), "check-update"], env=env)
+        self.assertEqual(r_chk.returncode, 0, msg=r_chk.stderr)
+        self.assertIn("update available:", r_chk.stdout)
+        self.assertIn("99.0.0", r_chk.stdout)
+
+        dest_bin = self.tmp / "todo_md_local"
+        dest_bin.write_text("# old\n", encoding="utf-8")
+        out_buf = io.StringIO()
+        err_buf = io.StringIO()
+        with contextlib.redirect_stdout(out_buf), contextlib.redirect_stderr(err_buf):
+            rc = self.todo_md_mod.cmd_update(url=remote_file.as_uri(), target_path=dest_bin)
+        self.assertEqual(rc, 0, msg=err_buf.getvalue())
+        self.assertIn("-> 99.0.0", out_buf.getvalue())
+        self.assertEqual(dest_bin.read_text(encoding="utf-8"), remote_payload)
+
+    def test_global_project_selector_and_precedence(self):
+        ws = self.tmp / "ws"
+        proj_a = ws / "proj_a"
+        proj_b = ws / "parent_proj" / "sub_proj"
+        proj_c = ws / "proj_c"
+        dup_1 = ws / "g1" / "shared"
+        dup_2 = ws / "g2" / "shared"
+        outside = self.tmp / "outside"
+        for d in (proj_a, proj_b, proj_c, dup_1, dup_2, outside):
+            d.mkdir(parents=True)
+        for d in (proj_a, proj_b, proj_c, dup_1, dup_2):
+            self._run([str(SCRIPT), "-C", str(d), "init"], cwd=str(outside), check=True)
+
+        (proj_a / "mod.py").write_text("x = 1\n", encoding="utf-8")
+        env_ws = {**os.environ, "TODO_MD_WORKSPACE": str(ws)}
+
+        # -C <dir> and --project <name> across mutating and read-only subcommands from outside
+        self._run(
+            [str(SCRIPT), "-C", str(proj_a), "add", "-p", "B", "Bug from -C", "-b", "See `mod.py`."],
+            cwd=str(outside),
+            check=True,
+        )
+        self._run(
+            [str(SCRIPT), "--project", "parent_proj/sub_proj", "add", "Sub task", "--depends", "proj_a:B1"],
+            cwd=str(outside),
+            env=env_ws,
+            check=True,
+        )
+        # Unique leaf project name resolves across workspace
+        self._run(
+            [str(SCRIPT), "--project=sub_proj", "edit", "F1", "-t", "Sub task updated"],
+            cwd=str(outside),
+            env=env_ws,
+            check=True,
+        )
+        self._run([str(SCRIPT), "-C", "sub_proj", "append", "F1", "-b", "More notes."], cwd=str(outside), env=env_ws, check=True)
+        self._run([str(SCRIPT), "-C", "sub_proj", "status", "F1", "HOLD"], cwd=str(outside), env=env_ws, check=True)
+        self._run([str(SCRIPT), "-C", "sub_proj", "next", "F1"], cwd=str(outside), env=env_ws, check=True)
+
+        # Read-only commands with -C / --project from outside
+        r_ids = self._run([str(SCRIPT), "-C", "proj_a", "ids"], cwd=str(outside), env=env_ws, check=True)
+        self.assertIn("B:1", r_ids.stdout)
+        r_list = self._run([str(SCRIPT), "-C", "proj_a", "list"], cwd=str(outside), env=env_ws, check=True)
+        self.assertIn("B1", r_list.stdout)
+        r_show = self._run([str(SCRIPT), "-C", "proj_a", "show", "B1"], cwd=str(outside), env=env_ws, check=True)
+        self.assertIn("Bug from -C", r_show.stdout)
+        r_files = self._run([str(SCRIPT), "-C", "proj_a", "files", "B1"], cwd=str(outside), env=env_ws, check=True)
+        self.assertEqual(r_files.stdout.splitlines(), ["mod.py"])
+        r_last_id = self._run([str(SCRIPT), "-C", "proj_a", "last-id", "NEW"], cwd=str(outside), env=env_ws, check=True)
+        self.assertEqual(r_last_id.stdout.strip(), "B1")
+        r_last = self._run([str(SCRIPT), "-C", "proj_a", "last", "NEW"], cwd=str(outside), env=env_ws, check=True)
+        self.assertIn("Bug from -C", r_last.stdout)
+        self._run([str(SCRIPT), "-C", "proj_a", "check"], cwd=str(outside), env=env_ws, check=True)
+        r_nid_sub = self._run([str(SCRIPT), "-C", "sub_proj", "next-id", "F1"], cwd=str(outside), env=env_ws, check=True)
+        self.assertEqual(r_nid_sub.stdout.strip(), "proj_a:B1")
+        r_nid_blocked = self._run([str(SCRIPT), "-C", "sub_proj", "next-id"], cwd=str(outside), env=env_ws)
+        self.assertEqual(r_nid_blocked.returncode, 1, msg=r_nid_blocked.stderr)
+
+        # Complete and archive via -C, then verify sub_proj next-id unblocks, inspect archive and reopen
+        self._run([str(SCRIPT), "-C", "proj_a", "done", "B1", "-m", "fixed"], cwd=str(outside), env=env_ws, check=True)
+        r_nid_top = self._run([str(SCRIPT), "-C", "sub_proj", "next-id"], cwd=str(outside), env=env_ws, check=True)
+        self.assertEqual(r_nid_top.stdout.strip(), "F1")
+        r_arch = self._run([str(SCRIPT), "-C", "proj_a", "archive"], cwd=str(outside), env=env_ws, check=True)
+        self.assertIn("B1: Bug from -C", r_arch.stdout)
+        self._run([str(SCRIPT), "-C", "sub_proj", "cancel", "F1", "-m", "dropped"], cwd=str(outside), env=env_ws, check=True)
+        r_sub_arch = self._run([str(SCRIPT), "-C", "sub_proj", "archive"], cwd=str(outside), env=env_ws, check=True)
+        self.assertIn("F1: Sub task updated", r_sub_arch.stdout)
+
+        # Overview, queue, and reopen with -C from outside
+        r_sum = self._run([str(SCRIPT), "-C", "proj_a"], cwd=str(outside), env=env_ws, check=True)
+        self.assertIn("Archived in TODO_ARCHIVE.md: 1 task(s)", r_sum.stdout)
+        r_q = self._run([str(SCRIPT), "-C", "sub_proj", "queue", "F1", "--all"], cwd=str(outside), env=env_ws, check=True)
+        self.assertIn("proj_a:B1", r_q.stdout)
+        self._run([str(SCRIPT), "-C", "proj_a", "reopen", "B1"], cwd=str(outside), env=env_ws, check=True)
+
+        # Workspace discovery from sibling project without TODO_MD_WORKSPACE env var
+        r_sib = self._run([str(SCRIPT), "-C", "proj_a", "ids"], cwd=str(proj_c), check=True)
+        self.assertIn("B:1", r_sib.stdout)
+
+        # Precedence: -C/--project > TODO_MD_CWD > <project>:<ID> > cwd
+        env_cwd_a = {**os.environ, "TODO_MD_WORKSPACE": str(ws), "TODO_MD_CWD": str(proj_a)}
+        r_prec_env = self._run([str(SCRIPT), "ids"], cwd=str(proj_b), env=env_cwd_a, check=True)
+        self.assertIn("B:1", r_prec_env.stdout)
+        self.assertNotIn("F:1", r_prec_env.stdout)
+
+        r_prec_cli = self._run([str(SCRIPT), "-C", "sub_proj", "ids"], cwd=str(outside), env=env_cwd_a, check=True)
+        self.assertIn("F:1", r_prec_cli.stdout)
+        self.assertNotIn("B:1", r_prec_cli.stdout)
+
+        r_prec_ref = self._run([str(SCRIPT), "show", "proj_a:B1"], cwd=str(proj_c), check=True)
+        self.assertIn("Bug from -C", r_prec_ref.stdout)
+
+        # Explicit error on missing/empty/ambiguous targets and invalid <project>: on non-task commands
+        for bad_args in (
+            ["-C"],
+            ["--project"],
+            ["--project="],
+            ["-C", ""],
+            ["-C", "/nonexistent_todo_md_dir"],
+            ["-C", "does_not_exist", "list"],
+            ["--project", "shared", "list"],
+            ["list", "proj_a:"],
+        ):
+            with self.subTest(bad_args=bad_args):
+                proc = self._run([str(SCRIPT), *bad_args], cwd=str(outside), env=env_ws)
+                self.assertNotEqual(proc.returncode, 0, msg=proc.stdout)
+
+    def test_install_sh(self):
+        bin_dir = self.tmp / "bin"
+        bin_dir.mkdir()
+        env = {**os.environ, "PATH": f"{bin_dir}:/usr/bin:/bin"}
+        r = self._run_subprocess(["sh", str(INSTALL_SH), "--dir", str(bin_dir), "--yes"], env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue((bin_dir / "todo_md").is_file())
+
+
+if __name__ == "__main__":
+    unittest.main()

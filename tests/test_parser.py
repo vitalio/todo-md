@@ -1,0 +1,815 @@
+#!/usr/bin/env python3
+"""Tests for todo_md parser, overview, headers, files budget, check validation, and table rendering."""
+
+from datetime import date
+import os
+import unittest
+from tests.helpers import SCRIPT, TodoMdTestCase
+
+
+class TestParser(TodoMdTestCase):
+    def test_init_summary_priority_smart_truncation_and_check(self):
+        r_init = self._run([str(SCRIPT), "init"], check=True)
+        self.assertTrue((self.tmp / "TODO.md").is_file())
+        self.assertFalse((self.tmp / "TODO_PLAN.md").exists())
+        self.assertTrue((self.tmp / "TODO_ARCHIVE.md").is_file())
+
+        # Add 6 tasks using prefix / default auto-numbering; task P1 has a multi-line body
+        long_body = "\n".join(f"Detail line {i}" for i in range(1, 10))
+        self._run([str(SCRIPT), "add", "P", "Long backlog item", "-b", long_body], check=True)
+        for idx in range(1, 6):
+            self._run([str(SCRIPT), "add", f"Feature {idx}", "-b", f"Body {idx}"], check=True)
+
+        # Promote F3 to NEXT priority
+        r_nxt = self._run([str(SCRIPT), "next", "F3", "-m", "top priority"])
+        self.assertEqual(r_nxt.returncode, 0, r_nxt.stderr)
+        todo_content = (self.tmp / "TODO.md").read_text(encoding="utf-8")
+        self.assertLess(todo_content.index("F3:"), todo_content.index("P1:"))
+        self.assertIn("# 🎯 [NEXT] F3: Feature 3 — *top priority*", todo_content)
+
+        # Default summary truncates long NEW task P1 (>5 tasks total), while --full shows all lines
+        r_sum = self._run([str(SCRIPT)], check=True)
+        self.assertIn("Body 3", r_sum.stdout)
+        self.assertIn("Detail line 1", r_sum.stdout)
+        self.assertNotIn("Detail line 8", r_sum.stdout)
+        self.assertIn("+8 more lines", r_sum.stdout)
+
+        r_full = self._run([str(SCRIPT), "--full"], check=True)
+        self.assertIn("Detail line 8", r_full.stdout)
+
+        # Done automatically stamps ISO date
+        today = date.today().isoformat()
+        r_done = self._run([str(SCRIPT), "done", "F3", "-m", "abc1234"])
+        self.assertEqual(r_done.returncode, 0, r_done.stderr)
+        arch_txt = (self.tmp / "TODO_ARCHIVE.md").read_text(encoding="utf-8")
+        self.assertIn(f"# ✅ [DONE] F3: Feature 3 — *{today}, abc1234*", arch_txt)
+
+        r_chk = self._run([str(SCRIPT), "check"])
+        self.assertEqual(r_chk.returncode, 0, r_chk.stderr)
+
+    def test_summary_expands_first_task_when_only_new_or_hold(self):
+        self._run([str(SCRIPT), "init"], check=True)
+        self._run(
+            [str(SCRIPT), "add", "First new", "-b", "N1 line 1\nN1 line 2\nN1 line 3"],
+            check=True,
+        )
+        self._run(
+            [str(SCRIPT), "add", "Second new", "-b", "N2 line 1\nN2 line 2\nN2 line 3"],
+            check=True,
+        )
+        self._run(
+            [str(SCRIPT), "add", "First hold", "--status", "HOLD", "-b", "H1 line 1\nH1 line 2\nH1 line 3"],
+            check=True,
+        )
+
+        # No WIP/NEXT/QUESTION -> first ordered task (F1) is expanded, subsequent NEW/HOLD are compacted
+        r_only_new = self._run([str(SCRIPT)], check=True)
+        self.assertIn("N1 line 3", r_only_new.stdout)
+        self.assertIn("N2 line 1", r_only_new.stdout)
+        self.assertNotIn("N2 line 3", r_only_new.stdout)
+        self.assertIn("todo_md F2", r_only_new.stdout)
+        self.assertNotIn("H1 line 3", r_only_new.stdout)
+        self.assertIn("todo_md F3", r_only_new.stdout)
+
+        # Adding a WIP/NEXT/QUESTION task compacts all NEW/HOLD tasks including F1
+        self._run(
+            [str(SCRIPT), "add", "Active question", "--status", "QUESTION", "-b", "Q1 line 1\nQ1 line 2"],
+            check=True,
+        )
+        r_with_q = self._run([str(SCRIPT)], check=True)
+        self.assertIn("Q1 line 2", r_with_q.stdout)
+        self.assertIn("N1 line 1", r_with_q.stdout)
+        self.assertNotIn("N1 line 3", r_with_q.stdout)
+        self.assertIn("todo_md F1", r_with_q.stdout)
+
+        # When only HOLD tasks exist, the first HOLD task is expanded and later HOLD tasks stay compact
+        self._run([str(SCRIPT), "init", "--force"], check=True)
+        self._run(
+            [str(SCRIPT), "add", "Hold one", "--status", "HOLD", "-b", "H1 line 1\nH1 line 2\nH1 line 3"],
+            check=True,
+        )
+        self._run(
+            [str(SCRIPT), "add", "Hold two", "--status", "HOLD", "-b", "H2 line 1\nH2 line 2\nH2 line 3"],
+            check=True,
+        )
+        r_only_hold = self._run([str(SCRIPT)], check=True)
+        self.assertIn("H1 line 3", r_only_hold.stdout)
+        self.assertIn("H2 line 1", r_only_hold.stdout)
+        self.assertNotIn("H2 line 3", r_only_hold.stdout)
+        self.assertIn("todo_md F2", r_only_hold.stdout)
+
+    def test_single_task_headers_role_and_workdir(self):
+        ws = self.tmp / "ws"
+        ws.mkdir()
+        proj_a = ws / "proj_a"
+        proj_a.mkdir()
+        self._run([str(SCRIPT), str(proj_a), "init"], check=True)
+
+        # Status-aware role fallback: D* -> design in any status; non-D (F, B, P, etc.) -> plan in NEW/QUESTION/HOLD and work in WIP/NEXT
+        self._run([str(SCRIPT), "add", "D", "Explore architecture", "-m", "rfc draft", "-b", "Design body"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Implement feature", "-b", "Feature body"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "B", "Fix bug", "-b", "Bug body"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "P", "Idea without role", "-b", "Idea body"], cwd=str(proj_a), check=True)
+
+        resolved_proj_a = str(proj_a.resolve())
+        cases = [
+            ("D1", "Explore architecture", "design"),
+            ("F1", "Implement feature", "plan"),
+            ("B1", "Fix bug", "plan"),
+            ("P1", "Idea without role", "plan"),
+        ]
+        for tid, expected_title, expected_role in cases:
+            for cmd in ([str(SCRIPT), tid], [str(SCRIPT), "show", tid]):
+                with self.subTest(tid=tid, cmd=cmd):
+                    proc = self._run(cmd, cwd=str(proj_a), check=True)
+                    lines = proc.stdout.splitlines()
+                    self.assertEqual(
+                        lines[:5],
+                        [f"Task: {tid}", f"Title: {expected_title}", f"Role: {expected_role}", f"Workdir: {resolved_proj_a}", ""],
+                    )
+                    self.assertTrue(lines[5].startswith("# TODO.md:"), msg=proc.stdout)
+        r_d1_note = self._run([str(SCRIPT), "D1"], cwd=str(proj_a), check=True)
+        self.assertIn("# ⚪ [NEW] D1: Explore architecture — *rfc draft*", r_d1_note.stdout)
+
+        # Status transitions on non-D tasks without explicit - Role: update fallback role across QUESTION/HOLD (plan) and NEXT/WIP (work)
+        for st, expected_role in (("QUESTION", "plan"), ("HOLD", "plan"), ("NEXT", "work"), ("WIP", "work"), ("NEW", "plan")):
+            self._run([str(SCRIPT), "status", "P1", st], cwd=str(proj_a), check=True)
+            r_p1_st = self._run([str(SCRIPT), "P1"], cwd=str(proj_a), check=True)
+            self.assertEqual(
+                r_p1_st.stdout.splitlines()[:3],
+                ["Task: P1", "Title: Idea without role", f"Role: {expected_role}"],
+                msg=f"status={st}",
+            )
+
+        # Explicit --role overrides status/prefix fallback and normalizes uppercase input to lowercase
+        self._run([str(SCRIPT), "add", "F", "Audit task", "--role", "Review", "--depends", "D1", "-b", "Review body"], cwd=str(proj_a), check=True)
+        r_f2 = self._run([str(SCRIPT), "proj_a:F2"], cwd=str(ws), check=True)
+        self.assertEqual(
+            r_f2.stdout.splitlines()[:5],
+            ["Task: F2", "Title: Audit task", "Role: review", f"Workdir: {resolved_proj_a}", ""],
+        )
+        self.assertIn("- Role: review", r_f2.stdout)
+        self.assertIn("- Depends on: D1", r_f2.stdout)
+
+        # edit --role updates or clears - Role: without dropping - Depends on:
+        self._run([str(SCRIPT), "edit", "proj_a:F2", "--role", "PLAN"], cwd=str(ws), check=True)
+        r_f2_plan = self._run([str(SCRIPT), "show", "proj_a:F2"], cwd=str(ws), check=True)
+        self.assertEqual(r_f2_plan.stdout.splitlines()[:3], ["Task: F2", "Title: Audit task", "Role: plan"])
+        self.assertIn("- Role: plan", r_f2_plan.stdout)
+        self.assertIn("- Depends on: D1", r_f2_plan.stdout)
+
+        # Promoting a task with explicit - Role: plan to NEXT via `next` or `status <ID> NEXT` strips `- Role: plan` so it resolves to `work`
+        self._run([str(SCRIPT), "next", "F2"], cwd=str(proj_a), check=True)
+        r_f2_next = self._run([str(SCRIPT), "F2"], cwd=str(proj_a), check=True)
+        self.assertEqual(r_f2_next.stdout.splitlines()[:3], ["Task: F2", "Title: Audit task", "Role: work"])
+        self.assertNotIn("- Role: plan", r_f2_next.stdout)
+        self.assertIn("- Depends on: D1", r_f2_next.stdout)
+
+        # Also test `status <ID> NEXT` stripping `- Role: plan` in place
+        self._run([str(SCRIPT), "status", "F2", "NEW"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "edit", "F2", "--role=plan"], cwd=str(proj_a), check=True)
+        self.assertIn("- Role: plan", (proj_a / "TODO.md").read_text(encoding="utf-8"))
+        self._run([str(SCRIPT), "status", "F2", "NEXT"], cwd=str(proj_a), check=True)
+        r_f2_status_next = self._run([str(SCRIPT), "F2"], cwd=str(proj_a), check=True)
+        self.assertEqual(r_f2_status_next.stdout.splitlines()[:3], ["Task: F2", "Title: Audit task", "Role: work"])
+        self.assertNotIn("- Role: plan", r_f2_status_next.stdout)
+
+        # Clearing an explicit role on a NEXT task keeps fallback `work`; on a NEW task keeps fallback `plan`
+        self._run([str(SCRIPT), "edit", "F2", "--role", "review"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "edit", "F2", "--role", ""], cwd=str(proj_a), check=True)
+        r_f2_cleared = self._run([str(SCRIPT), "F2"], cwd=str(proj_a), check=True)
+        self.assertEqual(r_f2_cleared.stdout.splitlines()[:3], ["Task: F2", "Title: Audit task", "Role: work"])
+        self.assertIn("- Depends on: D1", r_f2_cleared.stdout)
+
+        self._run([str(SCRIPT), "edit", "P1", "--role", "design"], cwd=str(proj_a), check=True)
+        r_p1 = self._run([str(SCRIPT), str(proj_a), "P1"], cwd=str(ws), check=True)
+        self.assertEqual(
+            r_p1.stdout.splitlines()[:5],
+            ["Task: P1", "Title: Idea without role", "Role: design", f"Workdir: {resolved_proj_a}", ""],
+        )
+
+        # Fenced - Role: inside code block does not override status-aware fallback role
+        fenced_body = "`" * 3 + "markdown\n- Role: custom\n" + "`" * 3 + "\nDetails."
+        self._run([str(SCRIPT), "add", "F", "Fenced role test", "-b", fenced_body], cwd=str(proj_a), check=True)
+        r_f3 = self._run([str(SCRIPT), "F3"], cwd=str(proj_a), check=True)
+        self.assertEqual(r_f3.stdout.splitlines()[:3], ["Task: F3", "Title: Fenced role test", "Role: plan"])
+
+        # last / show last emit headers too
+        r_last = self._run([str(SCRIPT), "show", "last"], cwd=str(proj_a), check=True)
+        self.assertEqual(
+            r_last.stdout.splitlines()[:5],
+            ["Task: F3", "Title: Fenced role test", "Role: plan", f"Workdir: {resolved_proj_a}", ""],
+        )
+
+        # Overview and list commands remain unchanged (no Task:/Title:/Role:/Workdir: headers)
+        for cmd in (
+            [str(SCRIPT)],
+            [str(SCRIPT), "--full"],
+            [str(SCRIPT), "list"],
+        ):
+            r_ov = self._run(cmd, cwd=str(proj_a), check=True)
+            self.assertNotIn("Workdir:", r_ov.stdout, msg=f"cmd={cmd}")
+            self.assertNotIn("Task:", r_ov.stdout, msg=f"cmd={cmd}")
+            self.assertNotIn("Title:", r_ov.stdout, msg=f"cmd={cmd}")
+        r_ws = self._run([str(SCRIPT), "-w"], cwd=str(ws), check=True)
+        self.assertNotIn("Workdir:", r_ws.stdout)
+        self.assertNotIn("Task:", r_ws.stdout)
+        self.assertNotIn("Title:", r_ws.stdout)
+
+        # Invalid multi-line, malformed, or retired --role values fail explicitly on CLI
+        r_bad_role = self._run([str(SCRIPT), "add", "Bad role", "--role", "a\nb"], cwd=str(proj_a))
+        self.assertNotEqual(r_bad_role.returncode, 0, msg=r_bad_role.stdout)
+        self.assertIn("single line", r_bad_role.stderr)
+
+        for retired_arg, expected_hint in (("execute", "work"), ("EXECUTE", "work"), ("audit", "review"), ("Audit", "review")):
+            with self.subTest(retired_arg=retired_arg):
+                r_ret = self._run([str(SCRIPT), "add", "F", "Retired role", "--role", retired_arg], cwd=str(proj_a))
+                self.assertNotEqual(r_ret.returncode, 0, msg=r_ret.stdout)
+                self.assertIn("retired --role value", r_ret.stderr)
+                self.assertIn(expected_hint, r_ret.stderr)
+
+        for bad_role_val in ("", "123", "bad role", "-work", "role!"):
+            with self.subTest(bad_role_val=bad_role_val):
+                r_inv = self._run([str(SCRIPT), "add", "F", "Invalid role", "--role", bad_role_val], cwd=str(proj_a))
+                self.assertNotEqual(r_inv.returncode, 0, msg=r_inv.stdout)
+
+        # Active backlog validation (`todo_md check`) rejects multiple - Role: lines, non-lowercase/invalid roles,
+        # and retired roles in TODO.md, while exempting historical TODO_ARCHIVE.md
+        chk_dir = ws / "role_check_proj"
+        chk_dir.mkdir()
+        self._run([str(SCRIPT), "init"], cwd=str(chk_dir), check=True)
+        (chk_dir / "TODO.md").write_text(
+            "# ⚪ [NEW] F1: Multiple roles\n\n- Role: plan\n- Role: work\n\n"
+            "# ⚪ [NEW] F2: Retired execute\n\n- Role: execute\n\n"
+            "# ⚪ [NEW] F3: Retired audit\n\n- Role: audit\n\n"
+            "# ⚪ [NEW] F4: Uppercase role in file\n\n- Role: Work\n\n"
+            "# ⚪ [NEW] F5: Empty role line\n\n- Role:\n",
+            encoding="utf-8",
+        )
+        (chk_dir / "TODO_ARCHIVE.md").write_text(
+            "# ✅ [DONE] U20: Historical archived task — *2026-01-01*\n\n"
+            "- Role: execute\n- Role: UpperCase!\n",
+            encoding="utf-8",
+        )
+        r_chk_fail = self._run([str(SCRIPT), "check"], cwd=str(chk_dir))
+        self.assertNotEqual(r_chk_fail.returncode, 0, msg=r_chk_fail.stdout)
+        self.assertIn("task F1 has multiple Role: lines", r_chk_fail.stderr)
+        self.assertIn("task F2 uses retired role 'execute' (use 'work' instead)", r_chk_fail.stderr)
+        self.assertIn("task F3 uses retired role 'audit' (use 'review' instead)", r_chk_fail.stderr)
+        self.assertIn("task F4 has invalid Role: value 'Work'", r_chk_fail.stderr)
+        self.assertIn("task F5 has invalid Role: value ''", r_chk_fail.stderr)
+        self.assertNotIn("U20", r_chk_fail.stderr)
+
+        (chk_dir / "TODO.md").write_text(
+            "# 🎯 [NEXT] O4: Subsystem task\n\n- Role: work\n",
+            encoding="utf-8",
+        )
+        r_chk_ok = self._run([str(SCRIPT), "check"], cwd=str(chk_dir), check=True)
+        self.assertIn("OK", r_chk_ok.stdout)
+
+    def test_files_budget_options(self):
+        ws = self.tmp / "ws"
+        proj = ws / "proj"
+        proj.mkdir(parents=True)
+        self._run([str(SCRIPT), "init"], cwd=str(proj), check=True)
+
+        (proj / "small_a.py").write_text("\n".join(f"a{i}" for i in range(5)) + "\n", encoding="utf-8")
+        (proj / "big.py").write_text("\n".join(f"b{i}" for i in range(25)) + "\n", encoding="utf-8")
+        (proj / "small_b.py").write_text("\n".join(f"c{i}" for i in range(4)) + "\n", encoding="utf-8")
+        (proj / "wide.txt").write_text("x" * 200 + "\n", encoding="utf-8")
+
+        body = "Inspect `small_a.py`, `big.py`, `small_b.py`, and `wide.txt`."
+        self._run([str(SCRIPT), "add", "Budget test", "--next", "-b", body], cwd=str(proj), check=True)
+
+        # Bare files remains uncapped
+        r_all = self._run([str(SCRIPT), "files", "F1"], cwd=str(proj), check=True)
+        self.assertEqual(r_all.stdout.splitlines(), ["small_a.py", "big.py", "small_b.py", "wide.txt"])
+
+        # Per-file line cap skips big.py while keeping small files
+        r_ml = self._run([str(SCRIPT), "files", "--max-lines", "10", "F1"], cwd=str(proj), check=True)
+        self.assertEqual(r_ml.stdout.splitlines(), ["small_a.py", "small_b.py", "wide.txt"])
+
+        # Per-file byte cap skips big.py and wide.txt
+        r_mb = self._run([str(SCRIPT), "files", "F1", "--max-bytes=50"], cwd=str(proj), check=True)
+        self.assertEqual(r_mb.stdout.splitlines(), ["small_a.py", "small_b.py"])
+
+        # Total line cap skips big.py (5 + 25 > 10) and still fits small_b.py (5 + 4 <= 10) and wide.txt (9 + 1 <= 10)
+        r_mtl = self._run([str(SCRIPT), "files", "--max-total-lines", "10"], cwd=str(proj), check=True)
+        self.assertEqual(r_mtl.stdout.splitlines(), ["small_a.py", "small_b.py", "wide.txt"])
+
+        # Combined total byte cap + project:ID addressing
+        r_mtb = self._run(
+            [str(SCRIPT), "files", "proj:F1", "--max-bytes", "50", "--max-total-bytes", "20"],
+            cwd=str(ws),
+            check=True,
+        )
+        self.assertEqual(r_mtb.stdout.splitlines(), ["small_a.py"])
+
+        # Invalid budget flags fail explicitly
+        for bad_args in (
+            ["files", "F1", "--max-lines", "0"],
+            ["files", "F1", "--max-bytes=abc"],
+            ["files", "F1", "--max-total-lines"],
+            ["files", "F1", "--unknown"],
+            ["files", "F1", "F2"],
+        ):
+            with self.subTest(bad_args=bad_args):
+                proc = self._run([str(SCRIPT), *bad_args], cwd=str(proj))
+                self.assertNotEqual(proc.returncode, 0, msg=proc.stdout)
+
+    def test_check_detects_stale_completion_date_note_on_active_tasks(self):
+        self._run([str(SCRIPT), "init"], check=True)
+        self._run([str(SCRIPT), "add", "Valid priority note", "--next", "-m", "top priority"], check=True)
+        self._run([str(SCRIPT), "add", "Target milestone", "-m", "target 2026-12-01"], check=True)
+        fenced_example = "`" * 3 + "markdown\n# ⚪ [NEW] F99: Fenced — *2026-11-18*\n" + "`" * 3
+        self._run([str(SCRIPT), "add", "Fenced snippet", "-b", fenced_example], check=True)
+        self._run([str(SCRIPT), "add", "Archived item"], check=True)
+        self._run([str(SCRIPT), "done", "F4", "-m", "completed cleanly"], check=True)
+        self._run([str(SCRIPT), "check"], check=True)
+
+        # Active tasks with stale completion date stamps fail check across active statuses
+        for status, emoji, note in (
+            ("NEW", "⚪", "2026-11-18"),
+            ("WIP", "🔵", "2026-11-18, commit abc1234"),
+            ("NEXT", "🎯", "2026-11-18 — implemented"),
+            ("HOLD", "⏸️", "2026-11-18"),
+            ("QUESTION", "❓", "2026-11-18, check"),
+        ):
+            with self.subTest(status=status, note=note):
+                case_dir = self.tmp / f"stale_{status.lower()}"
+                case_dir.mkdir()
+                self._run([str(SCRIPT), "init"], cwd=str(case_dir), check=True)
+                (case_dir / "TODO.md").write_text(
+                    f"# {emoji} [{status}] F1: Reverted task — *{note}*\n\nBody text.\n",
+                    encoding="utf-8",
+                )
+                r_chk = self._run([str(SCRIPT), "check"], cwd=str(case_dir))
+                self.assertNotEqual(r_chk.returncode, 0, msg=r_chk.stdout)
+                self.assertIn("TODO.md:1", r_chk.stderr)
+                self.assertIn("F1", r_chk.stderr)
+                self.assertIn(note, r_chk.stderr)
+                self.assertIn("TODO_ARCHIVE.md", r_chk.stderr)
+                self.assertIn("clear the stale note", r_chk.stderr)
+
+                # Automatic post-mutation validation also catches the stale note
+                r_app = self._run([str(SCRIPT), "append", "F1", "-b", "Extra line"], cwd=str(case_dir))
+                self.assertNotEqual(r_app.returncode, 0, msg=r_app.stdout)
+                self.assertIn("TODO_ARCHIVE.md", r_app.stderr)
+
+        # Clearing the stale note via edit -m "" or moving back via done resolves the error
+        fix_clear = self.tmp / "fix_clear"
+        fix_clear.mkdir()
+        self._run([str(SCRIPT), "init"], cwd=str(fix_clear), check=True)
+        (fix_clear / "TODO.md").write_text(
+            "# ⚪ [NEW] F1: Reopened manually — *2026-11-18, old sha*\n\nBody.\n",
+            encoding="utf-8",
+        )
+        self._run([str(SCRIPT), "edit", "F1", "-m", ""], cwd=str(fix_clear), check=True)
+        self._run([str(SCRIPT), "check"], cwd=str(fix_clear), check=True)
+
+        fix_arch = self.tmp / "fix_arch"
+        fix_arch.mkdir()
+        self._run([str(SCRIPT), "init"], cwd=str(fix_arch), check=True)
+        (fix_arch / "TODO.md").write_text(
+            "# ⚪ [NEW] F1: Accidentally restored — *2026-11-18*\n\nBody.\n",
+            encoding="utf-8",
+        )
+        self._run([str(SCRIPT), "done", "F1"], cwd=str(fix_arch), check=True)
+        self._run([str(SCRIPT), "check"], cwd=str(fix_arch), check=True)
+
+    def test_tabular_column_wrapping_and_emoji_alignment(self):
+        ws = self.tmp / "ws_wrap"
+        proj_a = ws / "proj_a"
+        proj_b = ws / "proj_b"
+        proj_a.mkdir(parents=True)
+        proj_b.mkdir(parents=True)
+        self._run([str(SCRIPT), "init"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "init"], cwd=str(proj_b), check=True)
+
+        long_title_1 = "Wrap long task descriptions cleanly across aligned tabular output columns without breaking words"
+        long_title_2 = "Second chained task with multi-word description verifying hanging indent and emoji width alignment"
+        self._run([str(SCRIPT), "add", long_title_1, "--status", "WIP"], cwd=str(proj_a), check=True)
+        self._run(
+            [str(SCRIPT), "add", long_title_2, "--next", "--depends", "F1"],
+            cwd=str(proj_a),
+            check=True,
+        )
+        self._run([str(SCRIPT), "add", "Question item for alignment check", "--status", "QUESTION"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "Hold item for alignment check", "--status", "HOLD"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "New item for alignment check", "--status", "NEW"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "Done item for alignment check"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "done", "F6", "-m", "done"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "Canceled item for alignment check"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "cancel", "F7", "-m", "canceled"], cwd=str(proj_a), check=True)
+
+        self._run(
+            [str(SCRIPT), "add", "Cross-project dependent task with a lengthy title for workspace views", "--next", "--depends", "proj_a:F2"],
+            cwd=str(proj_b),
+            check=True,
+        )
+        self._run([str(SCRIPT), "add", "Second question in proj_b", "--status", "QUESTION"], cwd=str(proj_b), check=True)
+
+        disp_w = self.todo_md_mod._display_width
+
+        # 1. Emoji alignment across all statuses in list all at wide width (COLUMNS=220)
+        r_all_wide = self._run(
+            [str(SCRIPT), "list", "all"],
+            cwd=str(proj_a),
+            env={**os.environ, "COLUMNS": "220"},
+            check=True,
+        )
+        task_lines = [
+            l for l in r_all_wide.stdout.splitlines() if l.startswith("  ") and not l.strip().startswith("IDs")
+        ]
+        self.assertEqual(len(task_lines), 7)
+        desc_starts = {disp_w(l.split("TODO")[0]) for l in task_lines}
+        self.assertEqual(desc_starts, {38}, msg=f"misaligned loc column: {task_lines!r}")
+        title_starts = set()
+        for l in task_lines:
+            marker = "TODO_ARCHIVE.md   " if "TODO_ARCHIVE.md" in l else "TODO.md           "
+            idx = l.index(marker) + len(marker)
+            title_starts.add(disp_w(l[:idx]))
+        self.assertEqual(title_starts, {56}, msg=f"misaligned title column: {task_lines!r}")
+
+        # 2. Wrapped columns in list (COLUMNS=90 -> avail_first = 90 - 56 = 34 >= 20)
+        r_list_wrap = self._run(
+            [str(SCRIPT), "list", "active"],
+            cwd=str(proj_a),
+            env={**os.environ, "COLUMNS": "90"},
+            check=True,
+        )
+        list_body_lines = [
+            l for l in r_list_wrap.stdout.splitlines() if l.startswith("  ") and not l.strip().startswith("IDs")
+        ]
+        self.assertGreater(len(list_body_lines), 5)
+        cont_lines = [l for l in list_body_lines if l.startswith("    ")]
+        self.assertTrue(cont_lines)
+        for cl in cont_lines:
+            leading_spaces = len(cl) - len(cl.lstrip(" "))
+            self.assertEqual(leading_spaces, 56, msg=f"unexpected list continuation indent: {cl!r}")
+        for l in list_body_lines:
+            self.assertLessEqual(disp_w(l), 90, msg=f"line overflowed 90 cols: {l!r}")
+
+        # 3. Wrapped columns in list -w (COLUMNS=92 -> avail_first = 92 - 60 = 32 >= 20)
+        r_ws_list_wrap = self._run(
+            [str(SCRIPT), "list", "-w", "active"],
+            cwd=str(ws),
+            env={**os.environ, "COLUMNS": "92"},
+            check=True,
+        )
+        ws_lines = [l for l in r_ws_list_wrap.stdout.splitlines() if l.startswith("  ")]
+        ws_cont = [l for l in ws_lines if l.startswith("    ")]
+        self.assertTrue(ws_cont)
+        for cl in ws_cont:
+            self.assertEqual(len(cl) - len(cl.lstrip(" ")), 60, msg=f"unexpected list -w indent: {cl!r}")
+        for l in ws_lines:
+            self.assertLessEqual(disp_w(l), 92, msg=f"list -w overflowed 92 cols: {l!r}")
+
+        # 4. Wrapped columns in chain and chain -w (COLUMNS=80 -> avail_first = 80 - 56 = 24 >= 20)
+        for chain_args in (["chain"], ["chain", "-w"]):
+            with self.subTest(args=chain_args):
+                r_ch = self._run(
+                    [str(SCRIPT), *chain_args],
+                    cwd=str(proj_a),
+                    env={**os.environ, "COLUMNS": "80"},
+                    check=True,
+                )
+                row_lines = [
+                    l for l in r_ch.stdout.splitlines()
+                    if l.startswith("  ") and not l.lstrip().startswith("F4 (HOLD)") and not l.lstrip().startswith("proj_a:F4 (HOLD)")
+                ]
+                ch_cont = [l for l in row_lines if l.startswith("    ")]
+                self.assertTrue(ch_cont, msg=r_ch.stdout)
+                for cl in ch_cont:
+                    self.assertEqual(len(cl) - len(cl.lstrip(" ")), 56, msg=f"unexpected chain indent: {cl!r}")
+                for l in row_lines:
+                    self.assertLessEqual(disp_w(l), 80, msg=f"chain row overflowed 80 cols: {l!r}")
+
+        # 5. Wrapped columns in queue (COLUMNS=78 -> avail_first = 78 - 44 = 34 >= 20)
+        r_q = self._run(
+            [str(SCRIPT), "queue", "F2", "--all"],
+            cwd=str(proj_a),
+            env={**os.environ, "COLUMNS": "78"},
+            check=True,
+        )
+        q_rows = [l for l in r_q.stdout.splitlines() if l.startswith("  ")]
+        q_cont = [l for l in q_rows if l.startswith("    ")]
+        self.assertTrue(q_cont, msg=r_q.stdout)
+        for cl in q_cont:
+            self.assertEqual(len(cl) - len(cl.lstrip(" ")), 44, msg=f"unexpected queue indent: {cl!r}")
+        for l in q_rows:
+            self.assertLessEqual(disp_w(l), 78, msg=f"queue row overflowed 78 cols: {l!r}")
+
+        # 6. Wrapped columns in projects (COLUMNS=60 -> avail_first = 60 - 39 = 21 >= 20)
+        r_proj_wrap = self._run(
+            [str(SCRIPT), "projects"],
+            cwd=str(ws),
+            env={**os.environ, "COLUMNS": "60"},
+            check=True,
+        )
+        proj_rows = [l for l in r_proj_wrap.stdout.splitlines() if l.startswith("  ")]
+        proj_cont = [l for l in proj_rows if l.startswith("    ")]
+        self.assertTrue(proj_cont, msg=r_proj_wrap.stdout)
+        for cl in proj_cont:
+            self.assertEqual(len(cl) - len(cl.lstrip(" ")), 39, msg=f"unexpected projects indent: {cl!r}")
+        for l in proj_rows:
+            self.assertLessEqual(disp_w(l), 60, msg=f"projects row overflowed 60 cols: {l!r}")
+
+        # 7. Narrow terminal fallback to 4-space continuation indent when < 20 cols remain
+        r_narrow_list = self._run(
+            [str(SCRIPT), "list", "WIP"],
+            cwd=str(proj_a),
+            env={**os.environ, "COLUMNS": "68"},
+            check=True,
+        )
+        narrow_lines = [
+            l for l in r_narrow_list.stdout.splitlines() if l.startswith("  ") and not l.strip().startswith("IDs")
+        ]
+        self.assertGreaterEqual(len(narrow_lines), 2)
+        for cl in narrow_lines[1:]:
+            self.assertEqual(len(cl) - len(cl.lstrip(" ")), 4, msg=f"expected 4-space fallback indent: {cl!r}")
+        for l in narrow_lines:
+            self.assertLessEqual(disp_w(l), 68, msg=f"narrow line overflowed 68 cols: {l!r}")
+
+        # Very narrow terminal where prefix itself exceeds COLUMNS (COLUMNS=42)
+        r_very_narrow = self._run(
+            [str(SCRIPT), "list", "WIP"],
+            cwd=str(proj_a),
+            env={**os.environ, "COLUMNS": "42"},
+            check=True,
+        )
+        vn_lines = [
+            l for l in r_very_narrow.stdout.splitlines() if l.startswith("  ") and not l.strip().startswith("IDs")
+        ]
+        self.assertGreaterEqual(len(vn_lines), 2)
+        self.assertEqual(vn_lines[0].strip(), "F1      🔵 [WIP]        [work]      TODO.md")
+        for cl in vn_lines[1:]:
+            self.assertEqual(len(cl) - len(cl.lstrip(" ")), 4)
+            self.assertLessEqual(disp_w(cl), 42, msg=f"very narrow line overflowed 42 cols: {cl!r}")
+
+        # 8. CJK / wide Unicode text and long unbroken tokens wrap cleanly without overflowing
+        cjk_dir = ws / "cjk_proj"
+        cjk_dir.mkdir()
+        self._run([str(SCRIPT), "init"], cwd=str(cjk_dir), check=True)
+        self._run(
+            [str(SCRIPT), "add", "日本語の長いタスク説明文をテーブル列幅に合わせて折り返すテスト https://example.com/very/long/unbroken/path/segment"],
+            cwd=str(cjk_dir),
+            check=True,
+        )
+        r_cjk = self._run(
+            [str(SCRIPT), "list"],
+            cwd=str(cjk_dir),
+            env={**os.environ, "COLUMNS": "82"},
+            check=True,
+        )
+        cjk_lines = [l for l in r_cjk.stdout.splitlines() if l.startswith("  ") and not l.strip().startswith("IDs")]
+        self.assertGreaterEqual(len(cjk_lines), 2)
+        for l in cjk_lines:
+            self.assertLessEqual(disp_w(l), 82, msg=f"CJK/URL line overflowed 82 cols: {l!r}")
+
+        # 9. Full Markdown section views remain unwrapped even on narrow terminals
+        for cmd in ([str(SCRIPT)], [str(SCRIPT), "show", "F1"], [str(SCRIPT), "last", "NEW"], [str(SCRIPT), "archive"]):
+            r_unwrapped = self._run(
+                cmd,
+                cwd=str(proj_a),
+                env={**os.environ, "COLUMNS": "65"},
+                check=True,
+            )
+            if cmd[-1] == "archive":
+                self.assertIn("Canceled item for alignment check", r_unwrapped.stdout)
+            elif cmd[-1] == "NEW":
+                self.assertIn("New item for alignment check", r_unwrapped.stdout)
+            else:
+                self.assertIn(long_title_1, r_unwrapped.stdout)
+
+    def test_composable_task_styling_in_chain_and_list(self):
+        mod = self.todo_md_mod
+        # 1. Direct unit tests for _style_task_row() across all 8 combinations + plain text mode
+        sample = "  1. F1                    ✅ [DONE]       [work]      Done task\n"
+        self.assertEqual(
+            mod._style_task_row(sample, is_external=True, is_done=True, is_highlighted=True, use_color=False),
+            sample,
+        )
+        self.assertEqual(
+            mod._style_task_row(sample, is_external=False, is_done=False, is_highlighted=False, use_color=True),
+            sample,
+        )
+        self.assertTrue(
+            mod._style_task_row(sample, is_external=True, is_done=False, is_highlighted=False, use_color=True).startswith("\033[2;3m")
+        )
+        self.assertTrue(
+            mod._style_task_row(sample, is_external=False, is_done=True, is_highlighted=False, use_color=True).startswith("\033[2;90m")
+        )
+        self.assertTrue(
+            mod._style_task_row(sample, is_external=True, is_done=True, is_highlighted=False, use_color=True).startswith("\033[2;3;90m")
+        )
+        for is_done_flag in (False, True):
+            hl_local = mod._style_task_row(
+                sample, is_external=False, is_done=is_done_flag, is_highlighted=True, use_color=True
+            )
+            self.assertTrue(hl_local.startswith("\033[1;93m"), msg=hl_local)
+            self.assertIn("✅ [DONE]", hl_local)
+            hl_ext = mod._style_task_row(
+                sample, is_external=True, is_done=is_done_flag, is_highlighted=True, use_color=True
+            )
+            self.assertTrue(hl_ext.startswith("\033[1;3;93m"), msg=hl_ext)
+            self.assertIn("✅ [DONE]", hl_ext)
+
+        # 2. Multi-project workspace setup to test chain & list multi-ID highlighting, external, and DONE styling
+        ws = self.tmp / "ws_style"
+        todo_flow = ws / "todo_flow"
+        run_block = ws / "run_block"
+        for d in (todo_flow, run_block):
+            d.mkdir(parents=True)
+            self._run([str(SCRIPT), "init"], cwd=str(d), check=True)
+        (todo_flow / ".todo_projects").write_text("run_block\n", encoding="utf-8")
+
+        # run_block: D1 (DONE), F1 (finale after D1), F2 (in cross-project chain), F3 (standalone),
+        # D2 (HOLD) -> F4 (held leaf), F5 (canceled)
+        self._run([str(SCRIPT), "add", "D", "RB done design"], cwd=str(run_block), check=True)
+        self._run([str(SCRIPT), "done", "D1", "-m", "done"], cwd=str(run_block), check=True)
+        self._run([str(SCRIPT), "add", "F", "RB finale task", "--role", "work", "--depends", "D1"], cwd=str(run_block), check=True)
+        self._run([str(SCRIPT), "add", "F", "RB chain task", "--role", "work"], cwd=str(run_block), check=True)
+        self._run([str(SCRIPT), "add", "F", "RB standalone task", "--role", "work"], cwd=str(run_block), check=True)
+        self._run([str(SCRIPT), "add", "D", "RB held root", "--status", "HOLD"], cwd=str(run_block), check=True)
+        self._run([str(SCRIPT), "add", "F", "RB held leaf", "--role", "work", "--depends", "D2"], cwd=str(run_block), check=True)
+        self._run([str(SCRIPT), "add", "F", "RB canceled task", "--role", "work"], cwd=str(run_block), check=True)
+        self._run([str(SCRIPT), "cancel", "F5", "-m", "drop"], cwd=str(run_block), check=True)
+
+        # todo_flow orchestrator sequences todo_flow:D1 -> run_block:F2 -> todo_flow:F1,
+        # and also has held dependency todo_flow:D2 (HOLD) -> run_block:F4
+        self._run([str(SCRIPT), "add", "D", "Flow prereq", "--next"], cwd=str(todo_flow), check=True)
+        self._run(
+            [str(SCRIPT), "add", "F", "Flow goal", "--depends", "D1 -> run_block:F2"],
+            cwd=str(todo_flow),
+            check=True,
+        )
+        self._run([str(SCRIPT), "add", "D", "Flow held root", "--status", "HOLD"], cwd=str(todo_flow), check=True)
+        self._run(
+            [str(SCRIPT), "add", "F", "Flow held wrapper", "--depends", "D2 -> run_block:F4"],
+            cwd=str(todo_flow),
+            check=True,
+        )
+
+        base_env = {k: v for k, v in os.environ.items() if k not in ("NO_COLOR", "FORCE_COLOR", "TODO_MD_PROJECTS")}
+        color_env = {**base_env, "FORCE_COLOR": "1", "COLUMNS": "80"}
+
+        # 3. `todo_md chain [<ID>...]` with space- and comma-separated refs in child project view:
+        # Highlight local finale F1, external prereq todo_flow:D1, local chain task F2, standalone F3,
+        # local held D2, and external held todo_flow:D2
+        r_chain_hl = self._run(
+            [str(SCRIPT), "chain", "F1,todo_flow:D1", "F3", "D2,todo_flow:D2"],
+            cwd=str(run_block),
+            env=color_env,
+            check=True,
+        )
+        out_hl = r_chain_hl.stdout
+        lines_hl = out_hl.splitlines()
+        # Enclosing Chain 1 header is highlighted because todo_flow:D1 belongs to Chain 1
+        self.assertTrue(
+            any(
+                ln.startswith("\033[1;93mChain 1 -> todo_flow:F1: Flow goal (")
+                and ln.endswith("\033[0m")
+                for ln in lines_hl
+            ),
+            msg=out_hl,
+        )
+        # Local finale F1 and standalone F3 are bold bright yellow (\033[1;93m)
+        self.assertTrue(any(ln.startswith("\033[1;93m") and "1. F1 " in ln for ln in lines_hl), msg=out_hl)
+        self.assertTrue(any(ln.startswith("\033[1;93m") and "5. F3 " in ln for ln in lines_hl), msg=out_hl)
+        # External highlighted todo_flow:D1 is bold italic bright yellow (\033[1;3;93m)
+        self.assertTrue(any(ln.startswith("\033[1;3;93m") and "2. todo_flow:D1 " in ln for ln in lines_hl), msg=out_hl)
+        # Non-highlighted local F2 is unstyled normal text
+        self.assertTrue(
+            any(ln.startswith("  ") and not ln.startswith("\033[") and "3. F2 " in ln for ln in lines_hl),
+            msg=out_hl,
+        )
+        # Non-highlighted external todo_flow:F1 is dim italic (\033[2;3m)
+        self.assertTrue(any(ln.startswith("\033[2;3m") and "4. todo_flow:F1 " in ln for ln in lines_hl), msg=out_hl)
+        # Held branches tokens: D2 (local highlighted -> \033[1;93m), todo_flow:D2 (external highlighted -> \033[1;3;93m),
+        # F4 (local unhighlighted -> plain), todo_flow:F2 (external unhighlighted -> \033[2;3m)
+        self.assertIn("\033[1;93mD2 (HOLD)\033[0m -> F4 (NEW)", out_hl)
+        self.assertIn("\033[1;3;93mtodo_flow:D2 (HOLD)\033[0m -> F4 (NEW) -> \033[2;3mtodo_flow:F2 (NEW)\033[0m", out_hl)
+
+        # Strip ANSI equals plain output at identical terminal width
+        r_chain_plain = self._run(
+            [str(SCRIPT), "chain", "F1,todo_flow:D1", "F3", "D2,todo_flow:D2"],
+            cwd=str(run_block),
+            env={**base_env, "COLUMNS": "80"},
+            check=True,
+        )
+        self.assertNotIn("\033[", r_chain_plain.stdout)
+        self.assertEqual(mod._strip_ansi(out_hl), r_chain_plain.stdout)
+
+        # Chain header is NOT highlighted when target ID is only in standalone / finale outside Chain 1
+        r_chain_only_f3 = self._run(
+            [str(SCRIPT), "chain", "F3"],
+            cwd=str(run_block),
+            env=color_env,
+            check=True,
+        )
+        self.assertTrue(
+            any(ln.startswith("Chain 1 -> todo_flow:F1: Flow goal (") for ln in r_chain_only_f3.stdout.splitlines()),
+            msg=r_chain_only_f3.stdout,
+        )
+        self.assertTrue(
+            any(ln.startswith("\033[1;93m") and "5. F3 " in ln for ln in r_chain_only_f3.stdout.splitlines()),
+            msg=r_chain_only_f3.stdout,
+        )
+
+        # Also works with --ready and --by-role
+        r_ready_hl = self._run(
+            [str(SCRIPT), "chain", "--ready", "F1"],
+            cwd=str(run_block),
+            env=color_env,
+            check=True,
+        )
+        self.assertTrue(
+            any(ln.startswith("\033[1;93m") and "1. F1 " in ln for ln in r_ready_hl.stdout.splitlines()),
+            msg=r_ready_hl.stdout,
+        )
+        r_by_role_hl = self._run(
+            [str(SCRIPT), "chain", "--by-role", "F2"],
+            cwd=str(run_block),
+            env=color_env,
+            check=True,
+        )
+        self.assertTrue(
+            any(ln.startswith("\033[1;93m") and "F2 " in ln for ln in r_by_role_hl.stdout.splitlines()),
+            msg=r_by_role_hl.stdout,
+        )
+
+        # 4. `todo_md list [<filter>] [<ID>...]` and `todo_md list -w [<filter>] [<ID>...]`
+        # Test default filter with <ID>... directly (`todo_md list F1,F3`)
+        r_list_def = self._run(
+            [str(SCRIPT), "list", "F1,F3"],
+            cwd=str(run_block),
+            env=color_env,
+            check=True,
+        )
+        list_def_lines = r_list_def.stdout.splitlines()
+        self.assertTrue(any(ln.startswith("\033[1;93m") and "  F1 " in ln for ln in list_def_lines), msg=r_list_def.stdout)
+        self.assertTrue(any(ln.startswith("\033[1;93m") and "  F3 " in ln for ln in list_def_lines), msg=r_list_def.stdout)
+        self.assertTrue(
+            any(ln.startswith("  ") and not ln.startswith("\033[") and "  F2 " in ln for ln in list_def_lines),
+            msg=r_list_def.stdout,
+        )
+
+        # Test `todo_md list all F2` — D1 (DONE) is dimmed (\033[2;90m), F2 is highlighted (\033[1;93m),
+        # F5 (CANCELED) is neither dimmed nor highlighted
+        r_list_all = self._run(
+            [str(SCRIPT), "list", "all", "F2"],
+            cwd=str(run_block),
+            env=color_env,
+            check=True,
+        )
+        all_lines = r_list_all.stdout.splitlines()
+        self.assertTrue(any(ln.startswith("\033[2;90m") and "  D1 " in ln and "✅ [DONE]" in ln for ln in all_lines), msg=r_list_all.stdout)
+        self.assertTrue(any(ln.startswith("\033[1;93m") and "  F2 " in ln for ln in all_lines), msg=r_list_all.stdout)
+        self.assertTrue(
+            any(ln.startswith("  ") and not ln.startswith("\033[") and "  F5 " in ln and "❌ [CANCELED]" in ln for ln in all_lines),
+            msg=r_list_all.stdout,
+        )
+
+        # Test `todo_md list archive D1` — highlighting a DONE task uses bold bright yellow (\033[1;93m)
+        # while preserving the ✅ [DONE] badge
+        r_list_arch_hl = self._run(
+            [str(SCRIPT), "list", "archive", "D1"],
+            cwd=str(run_block),
+            env=color_env,
+            check=True,
+        )
+        arch_lines = r_list_arch_hl.stdout.splitlines()
+        self.assertTrue(
+            any(ln.startswith("\033[1;93m") and "  D1 " in ln and "✅ [DONE]" in ln for ln in arch_lines),
+            msg=r_list_arch_hl.stdout,
+        )
+
+        # Test workspace list `todo_md list -w all run_block:D1,todo_flow:D1`
+        r_ws_list = self._run(
+            [str(SCRIPT), "list", "-w", "all", "run_block:D1,todo_flow:D1"],
+            cwd=str(ws),
+            env=color_env,
+            check=True,
+        )
+        ws_lines = r_ws_list.stdout.splitlines()
+        self.assertTrue(
+            any(ln.startswith("\033[1;93m") and "run_block:D1 " in ln and "✅ [DONE]" in ln for ln in ws_lines),
+            msg=r_ws_list.stdout,
+        )
+        self.assertTrue(
+            any(ln.startswith("\033[1;93m") and "todo_flow:D1 " in ln for ln in ws_lines),
+            msg=r_ws_list.stdout,
+        )
+        self.assertTrue(
+            any(ln.startswith("  ") and not ln.startswith("\033[") and "run_block:F2 " in ln for ln in ws_lines),
+            msg=r_ws_list.stdout,
+        )
+
+        # Invalid extra non-ID positional arguments in list fail explicitly
+        r_bad_list = self._run([str(SCRIPT), "list", "active", "not_an_id"], cwd=str(run_block))
+        self.assertNotEqual(r_bad_list.returncode, 0, msg=r_bad_list.stderr)
+
+
+if __name__ == "__main__":
+    unittest.main()
