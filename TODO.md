@@ -1,3 +1,9 @@
+# 🎯 [NEXT] F51: Retire todo_md list --tree so todo_md list stays a flat table and todo_md chain is the single tree view
+
+- Remove `--tree` option parsing from `list` in `main()` (`src/cli.py`) and remove the `tree: bool = False` branch from `cmd_list()` and `cmd_workspace_list()` in `src/parser.py`.
+- Remove dead `--tree` helpers and constants (`_build_tree_entries()`, `_render_tree_lines()`, `_truncate_display()`, `MIN_TREE_TITLE_COLS`) from `src/parser.py` / `src/header.py`.
+- Update `src/header.py` (`--help`), `src/rules/todo_md.md`, `README.md`, and `tests/test_todo_md.py` to remove `list --tree` references, rebuild `./todo_md` via `build.py`, and bump `VERSION` for a MINOR release.
+
 # 🎯 [NEXT] F49: Include diagnostic stdout/stderr msg context across all returncode assertions in tests/test_todo_md.py
 
 - Role: work
@@ -10,15 +16,6 @@
 - Add a pre-mutation upstream sync helper in `src/commands.py` (invoked before `cmd_init()`, `cmd_add()`, `cmd_edit()`, `cmd_append()`, `cmd_transition()`, and `cmd_reopen()` when `commit` is enabled or the working tree has no uncommitted tracked code changes): if the repository has a configured git upstream (`@{u}`), run `git pull --ff-only --quiet` before reading/assigning task IDs or mutating `TODO.md` / `TODO_ARCHIVE.md`.
 - Skip upstream sync cleanly when not in a git repository, when no upstream remote is configured, or in offline unit tests (`TODO_MD_NO_GIT_PULL=1` or stubbed test environments), and fail fast with `die()` if the branch has diverged from upstream so `todo_md` never assigns duplicate task IDs or commits on top of a stale `HEAD`.
 - Update `src/rules/todo_md.md`, `README.md`, and `tests/test_todo_md.py`, rebuild `./todo_md` via `build.py`, and bump `VERSION` for a MINOR release.
-
-# 🎯 [NEXT] F38: Highlight a target task ID in todo_md chain and todo_md list output — *Return to NEXT*
-
-- Role: work
-- Update `main()` in `src/cli.py` to accept an optional task reference `<ID>` (or `<project>:<ID>`, resolved via `resolve_project_task_ref()`) on `chain` (`todo_md chain [<ID>] ...`) and `list` (both `todo_md list <ID> ...` when the positional argument matches a task ID and `todo_md list <filter> <ID> ...`).
-- Add a TTY-aware ANSI highlight helper in `src/parser.py` / `src/commands.py` (active when `sys.stdout.isatty()` and `NO_COLOR` is unset, or `FORCE_COLOR` is set; plain text in pipes), ensuring `_display_width()` / `_wrap_table_row()` alignment is unaffected by ANSI escape sequences.
-- In `cmd_chain()` (`src/commands.py`), highlight the target task brightly in bold across task rows (`finales`, `chains`, `standalone`, `--ready`, `--by-role`) and `Held branches:` paths (and highlight the enclosing `Chain <N> (...):` header when the target task belongs to that chain).
-- In `cmd_list()` and `cmd_workspace_list()` (`src/parser.py`), highlight matching task rows brightly in bold in both table mode and `--tree` view.
-- Keep `src/header.py` (`--help`), `src/rules/todo_md.md`, `README.md`, and `tests/test_todo_md.py` in sync, rebuild `./todo_md` via `build.py`, and bump `VERSION` for a MINOR release.
 
 # 🎯 [NEXT] F17: Add CLI prefix legend (F, B, D) and document prefix conventions and design lifecycle
 
@@ -50,6 +47,15 @@
 
 - Shortlist/chain export workflow: evaluate supporting an exported or agent-generated shortlist Markdown file (e.g. a custom prioritized sequence or `chain` snapshot) that users can inspect, filter, and step through with `todo_md -f <path>` while resolving `<project>:<ID>` references against `TODO_MD_WORKSPACE`.
 
+# 🎯 [NEXT] F38: Highlight a target task ID in todo_md chain and todo_md list output — *Return to NEXT*
+
+- Depends on: F51
+- Update `main()` in `src/cli.py` to accept an optional task reference `<ID>` (or `<project>:<ID>`, resolved via `resolve_project_task_ref()`) on `chain` (`todo_md chain [<ID>] ...`) and `list` (both `todo_md list <ID> ...` when the positional argument matches a task ID and `todo_md list <filter> <ID> ...`).
+- Add a TTY-aware ANSI highlight helper (`ANSI_HIGHLIGHT_ON` and `_style_ansi_lines()`) in `src/parser.py` / `src/commands.py` (active when `sys.stdout.isatty()` and `NO_COLOR` is unset, or `FORCE_COLOR` is set; plain text in pipes), ensuring `_display_width()` / `_wrap_table_row()` alignment is unaffected by ANSI escape sequences.
+- In `cmd_chain()` (`src/commands.py`), highlight the target task brightly in bold across task rows (`finales`, `chains`, `standalone`, `--ready`, `--by-role`) and `Held branches:` paths (and highlight the enclosing `Chain <N> ...:` header when the target task belongs to that chain).
+- In `cmd_list()` and `cmd_workspace_list()` (`src/parser.py`), highlight matching task rows brightly in bold in table mode.
+- Keep `src/header.py` (`--help`), `src/rules/todo_md.md`, `README.md`, and `tests/test_todo_md.py` in sync, rebuild `./todo_md` via `build.py`, and bump `VERSION` for a MINOR release.
+
 # ⚪ [NEW] P1: JSON output mode (`--json`)
 
 - Role: plan
@@ -78,13 +84,27 @@ Allow exporting parsed tasks as JSON for scripting.
 - Target files: `build.py`, `install.sh`, `install.ps1`, `src/cli.py`, `src/commands.py`, `src/header.py`, `src/parser.py`, `src/rules/todo_md.md`, `src/bundles/todo_md.bundle`, `.agents_bundle`, `AGENTS.md`, `README.md`, `VERSION`, `tests/test_todo_md.py`, and `.github/`.
 - Acceptance criteria: `build.py` outputs `tmd`, `install.sh`/`install.ps1` install `tmd` (plus any agreed compatibility alias), `--help`/rules/bundles/docs/tests reflect `todo-markdown` and `tmd`, and `tests/test_todo_md.py` passes.
 
-# ⚪ [NEW] F50: Unify Quest-Log graph view in todo_md chain [<ID>] with root-anchored chains, nested milestone sub-chains, and wrapped tree rows
+# ⚪ [NEW] F52: Build root-anchored chains per terminal closing task in plan_execution_chains with [also in: ...] shared annotations
 
-- Role: plan
 - Depends on: F38
-- Make `todo_md chain [<ID>]` the single canonical hierarchical Quest-Log view in `todo_md` (replacing `todo_md list --tree` and folding `todo_md queue <ID>` into `todo_md chain <ID>`):
-  1. Root-anchored chains (`plan_execution_chains()` in `src/parser.py`): instead of grouping by undirected weakly-connected components (which merges independent goal tasks such as `D1` and `F12` when they share a leaf prerequisite), build one chain per terminal closing root task (sink node in the active dependency DAG with `in_degree > 0` and no outgoing active dependents) from its transitive prerequisite cone. Header format: `Chain <N> -> <root_ref>: <root_title> (<total> tasks, <pct>% | <done> done, <open> open):`. When a prerequisite task is shared by multiple root chains, annotate it with `[also in: <other_root_ref>, ...]` instead of merging the chains.
-  2. Nested milestone sub-chains (`cmd_chain()` in `src/commands.py`, `src/parser.py`): when an internal node inside a chain's prerequisite cone is itself an intermediate milestone / orchestrator aggregator (has prerequisites of its own before feeding into downstream tasks, such as `F4` inside `F12` or `agents_bundle:F15` inside `D1`), render its prerequisite subtree as an indented `├─ Sub-chain -> <milestone_ref>: <title> (<pct>% | <done> done, <open> open):` block with tree connectors (`├─`, `│`, and `└─►` on closing root/milestone rows).
-  3. Full multi-line wrapping without `...` truncation (`_wrap_table_row()` in `src/parser.py`): render all chain and sub-chain tree rows via `_wrap_table_row()` (preserving vertical tree continuation prefixes `│   ` on wrapped continuation lines) so task titles and blocker lists are never truncated with `...` when run in a terminal or inside `run_block` pipes.
-  4. Target `<ID>` scoping and `queue` unification (`src/cli.py`, `src/commands.py`): when `todo_md chain <ID>` is called on a root or intermediate milestone task (a task with prerequisites), render only the hierarchical chain/sub-chain rooted at `<ID>` and print `Next actionable: <ref>` at the end (keeping `todo_md queue <ID>` as a CLI alias to `todo_md chain <ID>`); when called on a leaf task, filter to the chain(s) containing `<ID>` and highlight `<ID>` per `F38`.
-  5. Retire `todo_md list --tree`: remove `--tree` from `todo_md list` (`src/cli.py`, `src/parser.py`, `src/header.py`, `src/rules/todo_md.md`, `README.md`, `tests/test_todo_md.py`) so `todo_md list` remains a flat status-bucket table and `todo_md chain` is the single tree/graph mode.
+- In `plan_execution_chains()` (`src/parser.py`), replace undirected weakly-connected component grouping with root-anchored chains: build one chain per terminal closing root task (sink node in the active dependency DAG with `in_degree > 0` or resolved `DONE` prerequisites outside `finale_set` and no outgoing active dependents) from its transitive prerequisite cone.
+- Record `root` (`tuple[Path, str]`), `root_ref`, `root_title`, and `also_in` (`dict[tuple[Path, str], list[str]]` mapping shared prerequisite nodes to other root chain refs in chain rank order) in each chain entry returned by `plan_execution_chains()`.
+- Update `cmd_chain()` in `src/commands.py` to render root-anchored chain headers as `Chain <N> -> <root_ref>: <root_title> (<total> tasks, <pct>% | <done> done, <open> open):` and append `[also in: <other_root_ref>, ...]` to prerequisite rows shared across multiple root chains instead of merging independent goal chains.
+- Update `src/header.py`, `src/rules/todo_md.md`, `README.md`, and `tests/test_todo_md.py`, rebuild `./todo_md` via `build.py`, and bump `VERSION` for a MINOR release.
+
+# ⚪ [NEW] F53: Render nested milestone sub-chains and multi-line wrapped tree rows in todo_md chain
+
+- Depends on: F52
+- In `src/parser.py` and `cmd_chain()` (`src/commands.py`), detect intermediate milestone / aggregator nodes inside a chain's prerequisite cone (internal nodes that have active prerequisites of their own before feeding into downstream tasks) and render their prerequisite subtrees as indented `├─ Sub-chain -> <milestone_ref>: <title> (<pct>% | <done> done, <open> open):` blocks with tree connectors (`├─`, `│   `, and `└─►` on closing milestone and root rows).
+- Extend `_wrap_table_row()` in `src/parser.py` with an optional tree continuation prefix (`cont_prefix`) so all chain and sub-chain tree rows wrap cleanly across multiple lines while preserving active vertical tree bars (`│   `) on wrapped continuation lines without `...` truncation in terminals or pipes.
+- Update `src/header.py`, `src/rules/todo_md.md`, `README.md`, and `tests/test_todo_md.py`, rebuild `./todo_md` via `build.py`, and bump `VERSION` for a MINOR release.
+
+# ⚪ [NEW] F50: Unify todo_md queue <ID> into todo_md chain [<ID>] [--all] with target root/leaf scoping and Next actionable footer
+
+- Role: work
+- Depends on: F53
+- Update `main()` in `src/cli.py` and `cmd_chain()` in `src/commands.py` so `todo_md chain [<ID>] [--all]` accepts an optional task reference `<ID>` (or `<project>:<ID>`) and `--all`:
+  - When `<ID>` is a root or intermediate milestone task (a task with open or `DONE` prerequisites), render only the hierarchical chain/sub-chain rooted at `<ID>` (including `DONE` prerequisite tasks when `--all` is passed) and print `Next actionable: <ref>` at the end.
+  - When `<ID>` is a leaf task (no prerequisites of its own), filter `todo_md chain <ID>` to the chain(s) or section containing `<ID>`, highlight `<ID>` per `F38`, and print `Next actionable: <ref>` at the end.
+- Route `todo_md queue <ID> [--all]` in `src/cli.py` / `src/commands.py` as a CLI alias to `todo_md chain <ID> [--all]` (preserving error handling and exit codes for missing tasks, dependency syntax errors, and cycles).
+- Keep `src/header.py` (`--help`), `src/rules/todo_md.md`, `README.md`, and `tests/test_todo_md.py` in sync, rebuild `./todo_md` via `build.py`, and bump `VERSION` for a MINOR release.
