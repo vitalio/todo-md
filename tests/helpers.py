@@ -57,10 +57,22 @@ class TodoMdTestCase(unittest.TestCase):
             if not line.startswith("  ") or line.strip().startswith("IDs"):
                 cur_key = None
                 continue
+            if "Sub-chain -> " in line:
+                cur_key = None
+                continue
+            parts = [p for p in line.split() if p not in ("│", "├─", "└─", "└─►")]
+            if parts and parts[0].endswith(".") and parts[0][:-1].isdigit():
+                cur_key = parts[0]
+                rows[cur_key] = line
+                continue
             if line.startswith("    ") and cur_key is not None:
                 rows[cur_key] = f"{rows[cur_key]} {line.strip()}"
                 continue
-            parts = line.split()
+            if cur_key is not None and line.lstrip().startswith("│"):
+                stripped_cont = line.lstrip(" │").strip()
+                if stripped_cont:
+                    rows[cur_key] = f"{rows[cur_key]} {stripped_cont}"
+                continue
             if parts:
                 cur_key = parts[0]
                 rows[cur_key] = line

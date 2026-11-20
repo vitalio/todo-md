@@ -1190,6 +1190,9 @@ def cmd_chain(
     nodes: dict[tuple[Path, str], dict[str, object]] = dag["nodes"]  # type: ignore[assignment]
     prereqs: dict[tuple[Path, str], list[tuple[Path, str]]] = dag["prereqs"]  # type: ignore[assignment]
     done_prereqs: dict[tuple[Path, str], list[str]] = dag.get("done_prereqs", {})  # type: ignore[assignment]
+    done_nodes: dict[tuple[Path, str], set[tuple[Path, str]]] = dag.get("done_nodes", {})  # type: ignore[assignment]
+    direct_done_deps: dict[tuple[Path, str], list[tuple[Path, str]]] = dag.get("direct_done_deps", {})  # type: ignore[assignment]
+    done_graph_prereqs: dict[tuple[Path, str], list[tuple[Path, str]]] = dag.get("done_graph_prereqs", {})  # type: ignore[assignment]
     dependents: dict[tuple[Path, str], list[tuple[Path, str]]] = dag["dependents"]  # type: ignore[assignment]
     topo_order: list[tuple[Path, str]] = dag["topo_order"]  # type: ignore[assignment]
     target_project: Path | None = dag.get("target_project")  # type: ignore[assignment]
@@ -1280,6 +1283,9 @@ def cmd_chain(
         u: tuple[Path, str],
         show_downstream: bool = False,
         also_in_refs: list[str] | None = None,
+        tree_prefix: str = "",
+        cont_prefix: str | None = None,
+        lead_col_width: int = 24,
     ) -> str:
         nd = nodes[u]
         st = str(nd["status"])
@@ -1327,13 +1333,17 @@ def cmd_chain(
         if also_in_refs:
             also_tag = f"[also in: {', '.join(also_in_refs)}]"
             status_tag = f"{status_tag} {also_tag}" if status_tag else also_tag
+        if tree_prefix:
+            lead_cell = f"{tree_prefix}{idx}. {ref}"
+        else:
+            lead_cell = f"{idx:>2}. {ref}"
         prefix = (
-            f"  {idx:>2}. {_pad_display(ref, 20)}  "
+            f"  {_pad_display(lead_cell, lead_col_width)}  "
             f"{_pad_display(badge, 14)}  "
             f"{_pad_display(role_badge, 10)}  "
         )
         desc = f"{title}  {status_tag}" if status_tag else title
-        rendered = _wrap_table_row(prefix, desc, term_width) + "\n"
+        rendered = _wrap_table_row(prefix, desc, term_width, cont_prefix=cont_prefix) + "\n"
         return _style_task_row(
             rendered,
             is_external=not _is_target_node(u),
@@ -1554,9 +1564,126 @@ def cmd_chain(
                         use_color=use_color,
                     )
                 )
-                for u in comp:
-                    sys.stdout.write(_format_row(row_idx, u, also_in_refs=also_in_map.get(u)))
-                    row_idx += 1
+                tree_root: tuple[Path, str] = (
+                    root_key
+                    if isinstance(root_key, tuple) and root_key in nodes
+                    else (comp[-1] if comp else (b_res, ""))
+                )
+                chain_tree = build_chain_milestone_tree(
+                    root=tree_root,
+                    display_nodes=comp,
+                    nodes=nodes,
+                    prereqs=prereqs,
+                    done_nodes=done_nodes,
+                    direct_done_deps=direct_done_deps,
+                    done_graph_prereqs=done_graph_prereqs,
+                    include_done=include_done,
+                )
+
+                def _max_lead_width(
+                    t_node: dict[str, object],
+                    active_bars: list[bool],
+                    sim_idx: int,
+                ) -> tuple[int, int]:
+                    max_w = 24
+                    ch_list: list[dict[str, object]] = t_node.get("children", [])  # type: ignore[assignment]
+                    for c_i, ch_item in enumerate(ch_list):
+                        is_last_c = c_i == len(ch_list) - 1
+                        if ch_item.get("kind") == "subchain":
+                            sub_w, sim_idx = _max_lead_width(
+                                ch_item,
+                                [*active_bars, not is_last_c],
+                                sim_idx,
+                            )
+                            if sub_w > max_w:
+                                max_w = sub_w
+                        else:
+                            u_node: tuple[Path, str] = ch_item["node"]  # type: ignore[assignment]
+                            bars = "".join("│   " if b else "    " for b in active_bars)
+                            is_closing = bool(ch_item.get("is_closing")) and is_last_c
+                            conn = "└─► " if is_closing else ("└─ " if is_last_c else "├─ ")
+                            cell = f"{bars}{conn}{sim_idx}. {nodes[u_node]['ref']}"
+                            cw = _display_width(cell)
+                            if cw > max_w:
+                                max_w = cw
+                            sim_idx += 1
+                    return max_w, sim_idx
+
+                chain_lead_w, _ = _max_lead_width(chain_tree, [], row_idx)
+
+                def _render_chain_tree_children(
+                    t_node: dict[str, object],
+                    active_bars: list[bool],
+                    cur_idx: int,
+                ) -> int:
+                    ch_list: list[dict[str, object]] = t_node.get("children", [])  # type: ignore[assignment]
+                    for c_i, ch_item in enumerate(ch_list):
+                        is_last_c = c_i == len(ch_list) - 1
+                        bars = "".join("│   " if b else "    " for b in active_bars)
+                        if ch_item.get("kind") == "subchain":
+                            m_node: tuple[Path, str] = ch_item["milestone"]  # type: ignore[assignment]
+                            m_ref = str(ch_item.get("milestone_ref") or nodes[m_node]["ref"])
+                            m_title = str(ch_item.get("milestone_title") or nodes[m_node]["title"])
+                            m_pct = int(ch_item.get("progress_pct", 0))
+                            m_done = int(ch_item.get("done_count", 0))
+                            m_open = int(ch_item.get("open_count", 0))
+                            sub_nodes: set[tuple[Path, str]] = ch_item.get("subtree_nodes", {m_node})  # type: ignore[assignment]
+                            sub_hl = any(_is_highlighted_node(su) for su in sub_nodes)
+                            sub_conn = "└─ " if is_last_c else "├─ "
+                            sub_prefix = f"  {bars}{sub_conn}"
+                            sub_cont_bars = "".join(
+                                "│   " if b else "    " for b in [*active_bars, not is_last_c]
+                            )
+                            sub_cont_prefix = f"  {sub_cont_bars}" if sub_cont_bars.strip() else "    "
+                            sub_desc = (
+                                f"Sub-chain -> {m_ref}: {m_title} "
+                                f"({m_pct}% | {m_done} done, {m_open} open):"
+                            )
+                            sub_hdr = (
+                                _wrap_table_row(
+                                    sub_prefix,
+                                    sub_desc,
+                                    term_width,
+                                    cont_prefix=sub_cont_prefix,
+                                )
+                                + "\n"
+                            )
+                            sys.stdout.write(
+                                _style_task_row(
+                                    sub_hdr,
+                                    is_external=not _is_target_node(m_node),
+                                    is_done=(str(nodes[m_node]["status"]) == "DONE"),
+                                    is_highlighted=sub_hl,
+                                    use_color=use_color,
+                                )
+                            )
+                            cur_idx = _render_chain_tree_children(
+                                ch_item,
+                                [*active_bars, not is_last_c],
+                                cur_idx,
+                            )
+                        else:
+                            u_node: tuple[Path, str] = ch_item["node"]  # type: ignore[assignment]
+                            is_closing = bool(ch_item.get("is_closing")) and is_last_c
+                            conn = "└─► " if is_closing else ("└─ " if is_last_c else "├─ ")
+                            t_pref = f"{bars}{conn}"
+                            row_bars = [*active_bars, not is_last_c]
+                            cont_bars_str = "".join("│   " if b else "    " for b in row_bars)
+                            c_pref = f"  {cont_bars_str}" if any(row_bars) else None
+                            sys.stdout.write(
+                                _format_row(
+                                    cur_idx,
+                                    u_node,
+                                    also_in_refs=also_in_map.get(u_node),
+                                    tree_prefix=t_pref,
+                                    cont_prefix=c_pref,
+                                    lead_col_width=chain_lead_w,
+                                )
+                            )
+                            cur_idx += 1
+                    return cur_idx
+
+                row_idx = _render_chain_tree_children(chain_tree, [], row_idx)
                 wrote_section = True
             if standalone:
                 if wrote_section:

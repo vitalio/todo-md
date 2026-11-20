@@ -64,15 +64,6 @@ Allow exporting parsed tasks as JSON for scripting.
 - Target files: `build.py`, `install.sh`, `install.ps1`, `src/cli.py`, `src/commands.py`, `src/header.py`, `src/parser.py`, `src/rules/todo_md.md`, `src/bundles/todo_md.bundle`, `.agents_bundle`, `AGENTS.md`, `README.md`, `VERSION`, `tests/helpers.py`, `tests/test_*.py`, and `.github/`.
 - Acceptance criteria: `build.py` outputs `tmd`, `install.sh`/`install.ps1` install `tmd` (plus any agreed compatibility alias), `--help`/rules/bundles/docs/tests reflect `todo-markdown` and `tmd`, and `python3 -m unittest discover -s tests` passes.
 
-# ⚪ [NEW] F53: Render nested milestone sub-chains and multi-line wrapped tree rows in todo_md chain
-
-- Role: work
-- Depends on: F52
-- In `src/parser.py` and `cmd_chain()` (`src/commands.py`), detect intermediate milestone / aggregator nodes inside a chain's prerequisite cone (internal nodes that have prerequisites of their own before feeding into downstream tasks, including `DONE` prerequisites when `--all` is active) and render their prerequisite subtrees as indented `├─ Sub-chain -> <milestone_ref>: <title> (<pct>% | <done> done, <open> open):` blocks with tree connectors (`├─`, `│   `, and `└─►` on closing milestone and root rows).
-- Extend `_wrap_table_row()` in `src/parser.py` with an optional tree continuation prefix (`cont_prefix`) so all chain and sub-chain tree rows wrap cleanly across multiple lines while preserving active vertical tree bars (`│   `) on wrapped continuation lines without `...` truncation in terminals or pipes.
-- Preserve composable row styling (`_style_task_row()` for external-project, `DONE` under `--all`, and target highlighted tasks) across all wrapped lines and tree connectors.
-- Update `src/header.py`, `src/rules/todo_md.md`, `README.md`, and `tests/test_chain.py`, rebuild `./todo_md` via `build.py`, and bump `VERSION` for a MINOR release.
-
 # ⚪ [NEW] F50: Unify Quest-Log graph view in todo_md chain [<ID>...] [--all] with target root/leaf scoping, queue alias, and Quest-Log docs
 
 - Role: work

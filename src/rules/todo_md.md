@@ -52,7 +52,9 @@
     finales `[ready | after: ...]` with all prerequisites resolved shown first
     before root-anchored RPG progress chains
     `Chain <N> -> <root_ref>: <root_title> (<total> tasks, <pct>% | <done> done, <open> open):`
-    and standalone tasks, appending `[also in: <other_root_ref>, ...]` to
+    with nested `├─ Sub-chain -> <milestone_ref>: <title> (<pct>% | <done> done, <open> open):`
+    milestone trees (`├─`, `│   `, `└─►`) and standalone tasks, appending
+    `[also in: <other_root_ref>, ...]` to
     prerequisite rows shared across multiple root chains, including resolved
     `DONE` prerequisites in topological order when `--all` is passed, merging
     `.todo_projects` orchestrator dependency edges into child project views,

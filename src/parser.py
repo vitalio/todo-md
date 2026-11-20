@@ -1273,18 +1273,23 @@ def _wrap_table_row(
     prefix: str,
     description: str,
     term_width: int | None = None,
+    cont_prefix: str | None = None,
 ) -> str:
     if not description:
         return prefix
     width = _get_terminal_columns() if term_width is None else term_width
     prefix_w = _display_width(prefix)
     avail_first = width - prefix_w
+    base_cont = cont_prefix if cont_prefix is not None else ""
+    base_cont_w = _display_width(base_cont)
     if avail_first >= MIN_TABLE_DESC_COLS:
-        cont_indent = " " * prefix_w
-        wrapped = _wrap_display_lines(description, avail_first, avail_first)
+        cont_indent = base_cont + (" " * max(0, prefix_w - base_cont_w))
+        avail_cont = max(1, width - _display_width(cont_indent))
+        wrapped = _wrap_display_lines(description, avail_first, avail_cont)
     else:
-        cont_indent = " " * COMPACT_CONTINUATION_INDENT
-        avail_cont = max(1, width - COMPACT_CONTINUATION_INDENT)
+        target_cont_w = max(COMPACT_CONTINUATION_INDENT, base_cont_w)
+        cont_indent = base_cont + (" " * max(0, target_cont_w - base_cont_w))
+        avail_cont = max(1, width - _display_width(cont_indent))
         if avail_first <= 0:
             wrapped = _wrap_display_lines(description, avail_cont, avail_cont)
             return "\n".join([prefix.rstrip(), *(f"{cont_indent}{line}" for line in wrapped)])
@@ -2609,6 +2614,241 @@ def _prepare_active_plan(
     }
 
 
+def build_chain_milestone_tree(
+    root: tuple[Path, str],
+    display_nodes: list[tuple[Path, str]],
+    nodes: dict[tuple[Path, str], dict[str, object]],
+    prereqs: dict[tuple[Path, str], list[tuple[Path, str]]],
+    done_nodes: dict[tuple[Path, str], set[tuple[Path, str]]] | None = None,
+    direct_done_deps: dict[tuple[Path, str], list[tuple[Path, str]]] | None = None,
+    done_graph_prereqs: dict[tuple[Path, str], list[tuple[Path, str]]] | None = None,
+    include_done: bool = False,
+) -> dict[str, object]:
+    done_map = done_nodes or {}
+    direct_done_map = direct_done_deps or {}
+    done_graph_map = done_graph_prereqs or {}
+    display_set = set(display_nodes)
+    pos_map = {u: idx for idx, u in enumerate(display_nodes)}
+
+    raw_prereqs: dict[tuple[Path, str], list[tuple[Path, str]]] = {u: [] for u in display_nodes}
+    for u in display_nodes:
+        seen_p: set[tuple[Path, str]] = set()
+        st = str(nodes.get(u, {}).get("status", ""))
+        cand_prereqs: list[tuple[Path, str]] = []
+        if st == "DONE":
+            if include_done:
+                cand_prereqs.extend(done_graph_map.get(u, []))
+        else:
+            if include_done:
+                cand_prereqs.extend(direct_done_map.get(u, []))
+            cand_prereqs.extend(prereqs.get(u, []))
+        for p in cand_prereqs:
+            if p != u and p in display_set and p not in seen_p:
+                seen_p.add(p)
+                raw_prereqs[u].append(p)
+        raw_prereqs[u].sort(key=lambda p: pos_map.get(p, len(display_nodes)))
+
+    anc_cache: dict[tuple[Path, str], set[tuple[Path, str]]] = {}
+
+    def _ancestors(u: tuple[Path, str]) -> set[tuple[Path, str]]:
+        if u not in anc_cache:
+            found: set[tuple[Path, str]] = set()
+            stack = list(raw_prereqs.get(u, []))
+            while stack:
+                cur = stack.pop()
+                if cur == u or cur in found:
+                    continue
+                found.add(cur)
+                for nxt in raw_prereqs.get(cur, []):
+                    if nxt != u and nxt not in found:
+                        stack.append(nxt)
+            anc_cache[u] = found
+        return anc_cache[u]
+
+    reduced_prereqs: dict[tuple[Path, str], list[tuple[Path, str]]] = {}
+    for u in display_nodes:
+        direct = raw_prereqs.get(u, [])
+        reduced_prereqs[u] = [
+            p
+            for p in direct
+            if not any(p in _ancestors(other) for other in direct if other != p)
+        ]
+
+    full_open_cache: dict[tuple[Path, str], set[tuple[Path, str]]] = {}
+    full_done_cache: dict[tuple[Path, str], set[tuple[Path, str]]] = {}
+
+    def _milestone_stats(m: tuple[Path, str]) -> tuple[int, int, int, int]:
+        if m not in full_open_cache:
+            st_m = str(nodes.get(m, {}).get("status", ""))
+            if st_m == "DONE":
+                open_cone: set[tuple[Path, str]] = set()
+                done_cone = set(done_map.get(m, {m}))
+            else:
+                open_cone = {m}
+                stk = [m]
+                while stk:
+                    cur = stk.pop()
+                    for p in prereqs.get(cur, []):
+                        if p in nodes and str(nodes[p].get("status", "")) != "DONE" and p not in open_cone:
+                            open_cone.add(p)
+                            stk.append(p)
+                done_cone = set()
+                for u_open in open_cone:
+                    done_cone |= set(done_map.get(u_open, set()))
+            full_open_cache[m] = open_cone
+            full_done_cache[m] = done_cone
+        open_c = len(full_open_cache[m])
+        done_c = len(full_done_cache[m])
+        total_c = done_c + open_c
+        pct_c = round(100 * done_c / total_c) if total_c > 0 else 0
+        return total_c, pct_c, done_c, open_c
+
+    emitted: set[tuple[Path, str]] = set()
+
+    def _collect_subtree_nodes(u: tuple[Path, str]) -> set[tuple[Path, str]]:
+        return (_ancestors(u) | {u}) & display_set
+
+    def _build_node(target: tuple[Path, str], is_root: bool) -> dict[str, object]:
+        children_items: list[dict[str, object]] = []
+        direct_children = [p for p in reduced_prereqs.get(target, []) if p not in emitted]
+        def _child_subtree_sort_key(c: tuple[Path, str]) -> tuple[int, int]:
+            c_nodes = [u for u in (_ancestors(c) | {c}) if u in display_set and u not in emitted]
+            min_pos = min((pos_map.get(u, len(display_nodes)) for u in c_nodes), default=pos_map.get(c, len(display_nodes)))
+            return (min_pos, pos_map.get(c, len(display_nodes)))
+
+        direct_children.sort(key=_child_subtree_sort_key)
+        for child in direct_children:
+            if child in emitted:
+                continue
+            unemitted_prereqs = [p for p in reduced_prereqs.get(child, []) if p not in emitted]
+            if unemitted_prereqs:
+                children_items.append(_build_node(child, is_root=False))
+            else:
+                emitted.add(child)
+                children_items.append(
+                    {
+                        "kind": "task",
+                        "node": child,
+                        "is_closing": False,
+                    }
+                )
+        if target not in emitted and target in display_set:
+            emitted.add(target)
+            children_items.append(
+                {
+                    "kind": "task",
+                    "node": target,
+                    "is_closing": True,
+                }
+            )
+        total_c, pct_c, done_c, open_c = _milestone_stats(target)
+        nd = nodes.get(target, {})
+        return {
+            "kind": "chain" if is_root else "subchain",
+            "milestone": target,
+            "milestone_ref": str(nd.get("ref", target[1])),
+            "milestone_title": str(nd.get("title", "")),
+            "total_tasks": total_c,
+            "progress_pct": pct_c,
+            "done_count": done_c,
+            "open_count": open_c,
+            "subtree_nodes": _collect_subtree_nodes(target),
+            "children": children_items,
+        }
+
+    if root in display_set:
+        tree = _build_node(root, is_root=True)
+        remaining = [u for u in display_nodes if u not in emitted]
+        if remaining:
+            extra_children: list[dict[str, object]] = []
+            for rem_u in remaining:
+                if rem_u in emitted:
+                    continue
+                unemitted_p = [p for p in reduced_prereqs.get(rem_u, []) if p not in emitted]
+                if unemitted_p:
+                    extra_children.append(_build_node(rem_u, is_root=False))
+                else:
+                    emitted.add(rem_u)
+                    extra_children.append(
+                        {
+                            "kind": "task",
+                            "node": rem_u,
+                            "is_closing": False,
+                        }
+                    )
+            cur_children: list[dict[str, object]] = tree["children"]  # type: ignore[assignment]
+            if cur_children and cur_children[-1].get("kind") == "task" and cur_children[-1].get("node") == root:
+                tree["children"] = [*cur_children[:-1], *extra_children, cur_children[-1]]
+            else:
+                tree["children"] = [*cur_children, *extra_children]
+        return tree
+
+    # Fallback when root itself was filtered out (e.g. --role filter or --limit truncation)
+    fallback_children: list[dict[str, object]] = []
+    out_deg_in_disp: dict[tuple[Path, str], int] = {u: 0 for u in display_nodes}
+    for u in display_nodes:
+        for p in reduced_prereqs.get(u, []):
+            if p in out_deg_in_disp:
+                out_deg_in_disp[p] += 1
+    sinks = [u for u in display_nodes if out_deg_in_disp.get(u, 0) == 0]
+    for s in sinks:
+        if s in emitted:
+            continue
+        unemitted_p = [p for p in reduced_prereqs.get(s, []) if p not in emitted]
+        if unemitted_p and len(sinks) > 1:
+            fallback_children.append(_build_node(s, is_root=False))
+        elif unemitted_p and len(sinks) == 1:
+            sub = _build_node(s, is_root=True)
+            fallback_children.extend(sub["children"])  # type: ignore[arg-type]
+        else:
+            emitted.add(s)
+            fallback_children.append(
+                {
+                    "kind": "task",
+                    "node": s,
+                    "is_closing": (s == display_nodes[-1]),
+                }
+            )
+    for rem_u in display_nodes:
+        if rem_u not in emitted:
+            emitted.add(rem_u)
+            fallback_children.append(
+                {
+                    "kind": "task",
+                    "node": rem_u,
+                    "is_closing": (rem_u == root),
+                }
+            )
+    total_c, pct_c, done_c, open_c = _milestone_stats(root)
+    nd = nodes.get(root, {})
+    return {
+        "kind": "chain",
+        "milestone": root,
+        "milestone_ref": str(nd.get("ref", root[1])),
+        "milestone_title": str(nd.get("title", "")),
+        "total_tasks": total_c,
+        "progress_pct": pct_c,
+        "done_count": done_c,
+        "open_count": open_c,
+        "subtree_nodes": set(display_nodes),
+        "children": fallback_children,
+    }
+
+
+def flatten_chain_tree_ordered_nodes(tree: dict[str, object]) -> list[tuple[Path, str]]:
+    ordered: list[tuple[Path, str]] = []
+    for child in tree.get("children", []):  # type: ignore[union-attr]
+        if not isinstance(child, dict):
+            continue
+        if child.get("kind") == "subchain":
+            ordered.extend(flatten_chain_tree_ordered_nodes(child))
+        elif child.get("kind") == "task":
+            u = child.get("node")
+            if isinstance(u, tuple):
+                ordered.append(u)
+    return ordered
+
+
 def plan_execution_chains(
     dag: dict[str, object],
     include_hold: bool = False,
@@ -2620,6 +2860,8 @@ def plan_execution_chains(
     prereqs: dict[tuple[Path, str], list[tuple[Path, str]]] = dag["prereqs"]  # type: ignore[assignment]
     dependents: dict[tuple[Path, str], list[tuple[Path, str]]] = dag["dependents"]  # type: ignore[assignment]
     done_prereqs: dict[tuple[Path, str], list[str]] = dag.get("done_prereqs", {})  # type: ignore[assignment]
+    direct_done_deps: dict[tuple[Path, str], list[tuple[Path, str]]] = dag.get("direct_done_deps", {})  # type: ignore[assignment]
+    done_graph_prereqs: dict[tuple[Path, str], list[tuple[Path, str]]] = dag.get("done_graph_prereqs", {})  # type: ignore[assignment]
     done_nodes: dict[tuple[Path, str], set[tuple[Path, str]]] = dag.get("done_nodes", {})  # type: ignore[assignment]
     done_topo_order: list[tuple[Path, str]] = dag.get("done_topo_order", [])  # type: ignore[assignment]
     order_idx: dict[tuple[Path, str], int] = dag.get("order_idx", {})  # type: ignore[assignment]
@@ -2759,9 +3001,20 @@ def plan_execution_chains(
                 comp_done,
                 key=lambda d: (done_topo_pos.get(d, len(done_topo_pos)), _canonical_task_ref_key(nodes, d)),
             )
-            display_nodes = [*ordered_done, *comp_open]
+            base_display_nodes = [*ordered_done, *comp_open]
         else:
-            display_nodes = list(comp_open)
+            base_display_nodes = list(comp_open)
+        chain_tree = build_chain_milestone_tree(
+            root=root,
+            display_nodes=base_display_nodes,
+            nodes=nodes,
+            prereqs=prereqs,
+            done_nodes=done_nodes,
+            direct_done_deps=direct_done_deps,
+            done_graph_prereqs=done_graph_prereqs,
+            include_done=show_done,
+        )
+        display_nodes = flatten_chain_tree_ordered_nodes(chain_tree) or base_display_nodes
 
         ready_in_comp = [
             u
@@ -2840,6 +3093,7 @@ def plan_execution_chains(
             "root_ref": root_ref,
             "root_title": root_title,
             "also_in": {},
+            "tree": chain_tree,
             "is_active_quest": is_active_quest,
             "nodes": display_nodes,
             "open_nodes": comp_open,

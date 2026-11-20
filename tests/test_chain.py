@@ -1440,6 +1440,243 @@ class TestChain(TodoMdTestCase):
             msg=r_all_hl_local_done.stdout,
         )
 
+    def test_nested_milestone_subchains_tree_connectors_and_multiline_wrapped_bars(self):
+        mod = self.todo_md_mod
+
+        # 1. Direct unit test for _wrap_table_row() with cont_prefix preserving vertical bars
+        prefix = "  │   ├─ 1. F1            🎯 [NEXT]       [work]      "
+        desc = (
+            "Long nested sub-chain task description that wraps cleanly across multiple lines "
+            "without ellipsis truncation while keeping active vertical tree bars"
+        )
+        wrapped_80 = mod._wrap_table_row(prefix, desc, term_width=80, cont_prefix="  │   │   ")
+        w_lines = wrapped_80.splitlines()
+        self.assertGreaterEqual(len(w_lines), 3, msg=wrapped_80)
+        self.assertTrue(w_lines[0].startswith(prefix), msg=wrapped_80)
+        for cont_line in w_lines[1:]:
+            self.assertTrue(cont_line.startswith("  │   │   "), msg=cont_line)
+            self.assertEqual(cont_line.index(cont_line.lstrip(" │")), mod._display_width(prefix), msg=cont_line)
+            self.assertLessEqual(mod._display_width(cont_line), 80, msg=cont_line)
+        self.assertNotIn("...", wrapped_80)
+
+        # Narrow terminal fallback with cont_prefix still preserves tree bars
+        wrapped_narrow = mod._wrap_table_row(prefix, desc, term_width=64, cont_prefix="  │   │   ")
+        n_lines = wrapped_narrow.splitlines()
+        self.assertGreaterEqual(len(n_lines), 2, msg=wrapped_narrow)
+        for cont_line in n_lines[1:]:
+            self.assertTrue(cont_line.startswith("  │   │   "), msg=cont_line)
+            self.assertLessEqual(mod._display_width(cont_line), 64, msg=cont_line)
+
+        # 2. Multi-project workspace with nested milestone sub-chains, DONE prerequisites, and long titles
+        ws = self.tmp / "ws_f53"
+        todo_flow = ws / "todo_flow"
+        run_block = ws / "run_block"
+        for d in (todo_flow, run_block):
+            d.mkdir(parents=True)
+            self._run([str(SCRIPT), "init"], cwd=str(d), check=True)
+        (todo_flow / ".todo_projects").write_text("run_block\n", encoding="utf-8")
+
+        base_env = {k: v for k, v in os.environ.items() if k not in ("NO_COLOR", "FORCE_COLOR", "TODO_MD_PROJECTS")}
+        wide_env = {**base_env, "COLUMNS": "220"}
+        wrap_env = {**base_env, "COLUMNS": "82"}
+        color_wrap_env = {**base_env, "FORCE_COLOR": "1", "COLUMNS": "82"}
+
+        # External DONE prerequisite in todo_flow: D1
+        self._run(
+            [str(SCRIPT), "add", "D", "Completed external architecture foundation spec"],
+            cwd=str(todo_flow),
+            check=True,
+        )
+        self._run([str(SCRIPT), "done", "D1", "-m", "done"], cwd=str(todo_flow), check=True)
+
+        # External open milestone in todo_flow: F1 (depends on D1 and local F2)
+        self._run(
+            [
+                str(SCRIPT),
+                "add",
+                "F",
+                "External parser prerequisite with a comprehensive multi-line wrapped description for sub-chain testing",
+                "--next",
+                "--depends",
+                "D1",
+            ],
+            cwd=str(todo_flow),
+            check=True,
+        )
+        self._run(
+            [
+                str(SCRIPT),
+                "add",
+                "F",
+                "External milestone aggregator combining completed foundation and open parser prerequisite",
+                "--role",
+                "work",
+                "--depends",
+                "F1",
+            ],
+            cwd=str(todo_flow),
+            check=True,
+        )
+
+        # In run_block:
+        # - F1: leaf prerequisite (ready)
+        # - F2: intermediate milestone depending on todo_flow:F2 and local F1
+        # - F3: parallel sibling prerequisite feeding directly into root F4
+        # - F4: closing root task depending on F2 and F3
+        self._run(
+            [
+                str(SCRIPT),
+                "add",
+                "F",
+                "Local engine prerequisite with detailed description verifying wrapped tree continuation bars",
+                "--next",
+            ],
+            cwd=str(run_block),
+            check=True,
+        )
+        self._run(
+            [
+                str(SCRIPT),
+                "add",
+                "F",
+                "Local intermediate milestone integrating external aggregator and local engine prerequisite",
+                "--role",
+                "work",
+                "--depends",
+                "todo_flow:F2, F1",
+            ],
+            cwd=str(run_block),
+            check=True,
+        )
+        self._run(
+            [
+                str(SCRIPT),
+                "add",
+                "F",
+                "Parallel sibling verification suite feeding directly into the closing release goal",
+                "--role",
+                "work",
+            ],
+            cwd=str(run_block),
+            check=True,
+        )
+        self._run(
+            [
+                str(SCRIPT),
+                "add",
+                "F",
+                "Closing root questline goal delivering nested milestone sub-chains and wrapped tree rows",
+                "--role",
+                "work",
+                "--depends",
+                "F2, F3",
+            ],
+            cwd=str(run_block),
+            check=True,
+        )
+
+        # 3. Default `todo_md chain` (without --all) renders nested Sub-chain headers, ├─ / │   / └─► connectors
+        r_wide = self._run([str(SCRIPT), "chain"], cwd=str(run_block), env=wide_env, check=True)
+        out_wide = r_wide.stdout
+        self.assertIn(
+            "Chain 1 -> F4: Closing root questline goal delivering nested milestone sub-chains and wrapped tree rows "
+            "(7 tasks, 14% | 1 done, 6 open):",
+            out_wide,
+        )
+        # Outer Sub-chain -> F2 (1 done + 4 open = 5 tasks -> 20% | 1 done, 4 open)
+        self.assertIn(
+            "  ├─ Sub-chain -> F2: Local intermediate milestone integrating external aggregator and local engine prerequisite "
+            "(20% | 1 done, 4 open):",
+            out_wide,
+        )
+        # Inner Sub-chain -> todo_flow:F2 (1 done + 2 open = 3 tasks -> 33% | 1 done, 2 open)
+        self.assertIn(
+            "  │   ├─ Sub-chain -> todo_flow:F2: External milestone aggregator combining completed foundation and open parser prerequisite "
+            "(33% | 1 done, 2 open):",
+            out_wide,
+        )
+        # Verify tree connectors:
+        # - todo_flow:F1 inside inner Sub-chain has `│   │   ├─ 1. todo_flow:F1`
+        # - todo_flow:F2 closes inner Sub-chain with `│   │   └─► 2. todo_flow:F2`
+        # - F1 inside outer Sub-chain has `│   ├─ 3. F1`
+        # - F2 closes outer Sub-chain with `│   └─► 4. F2`
+        # - F3 at top chain level has `├─ 5. F3`
+        # - F4 closes Chain 1 with `└─► 6. F4`
+        self.assertIn("  │   │   ├─ 1. todo_flow:F1", out_wide)
+        self.assertIn("  │   │   └─► 2. todo_flow:F2", out_wide)
+        self.assertIn("  │   ├─ 3. F1", out_wide)
+        self.assertIn("  │   └─► 4. F2", out_wide)
+        self.assertIn("  ├─ 5. F3", out_wide)
+        self.assertIn("  └─► 6. F4", out_wide)
+        self.assertNotIn("todo_flow:D1", out_wide)
+
+        # 4. With `--all`, DONE prerequisite todo_flow:D1 becomes visible inside the inner Sub-chain,
+        # and turning todo_flow:F1 into a DONE-backed sub-chain (50% | 1 done, 1 open)!
+        r_all_wide = self._run([str(SCRIPT), "chain", "--all"], cwd=str(run_block), env=wide_env, check=True)
+        out_all_wide = r_all_wide.stdout
+        self.assertIn(
+            "  │   │   ├─ Sub-chain -> todo_flow:F1: External parser prerequisite with a comprehensive multi-line wrapped description for sub-chain testing "
+            "(50% | 1 done, 1 open):",
+            out_all_wide,
+        )
+        self.assertIn("  │   │   │   ├─ 1. todo_flow:D1", out_all_wide)
+        self.assertIn("  │   │   │   └─► 2. todo_flow:F1", out_all_wide)
+        self.assertIn("  │   │   └─► 3. todo_flow:F2", out_all_wide)
+        self.assertIn("  │   ├─ 4. F1", out_all_wide)
+        self.assertIn("  │   └─► 5. F2", out_all_wide)
+        self.assertIn("  ├─ 6. F3", out_all_wide)
+        self.assertIn("  └─► 7. F4", out_all_wide)
+
+        # 5. Multi-line wrapping at COLUMNS=82 preserves active vertical bars (`│   `) on wrapped continuation lines
+        # without `...` truncation, and composes cleanly with ANSI styling (`_style_task_row()`)
+        r_wrap_plain = self._run(
+            [str(SCRIPT), "chain", "--all", "F2", "todo_flow:D1"],
+            cwd=str(run_block),
+            env=wrap_env,
+            check=True,
+        )
+        r_wrap_color = self._run(
+            [str(SCRIPT), "chain", "--all", "F2", "todo_flow:D1"],
+            cwd=str(run_block),
+            env=color_wrap_env,
+            check=True,
+        )
+        plain_lines = r_wrap_plain.stdout.splitlines()
+        color_lines = r_wrap_color.stdout.splitlines()
+        self.assertEqual(mod._strip_ansi(r_wrap_color.stdout), r_wrap_plain.stdout)
+        self.assertNotIn("...", r_wrap_plain.stdout)
+
+        # Wrapped continuation lines inside nested sub-chains keep vertical bars `│   `
+        self.assertTrue(
+            any(ln.startswith("  │   │   │   │   ") and "Completed external architecture" not in ln for ln in plain_lines),
+            msg=r_wrap_plain.stdout,
+        )
+        self.assertTrue(
+            any(ln.startswith("  │   │   ") and "Local engine prerequisite" not in ln for ln in plain_lines),
+            msg=r_wrap_plain.stdout,
+        )
+        for ln in plain_lines:
+            if ln.startswith("  "):
+                self.assertLessEqual(mod._display_width(ln), 82, msg=f"overflowed 82 cols: {ln!r}")
+
+        # Verify composable ANSI styling across wrapped lines and tree connectors:
+        # - Highlighted external DONE task `todo_flow:D1` -> \033[1;3;93m on both first line and wrapped continuation line
+        d1_idx = next(i for i, ln in enumerate(color_lines) if "1. todo_flow:D1" in ln)
+        self.assertTrue(color_lines[d1_idx].startswith("\033[1;3;93m  │   │   │   ├─ 1. todo_flow:D1"), msg=color_lines[d1_idx])
+        self.assertTrue(color_lines[d1_idx + 1].startswith("\033[1;3;93m  │   │   │   │   "), msg=color_lines[d1_idx + 1])
+
+        # - Unhighlighted external open task `todo_flow:F2` -> \033[2;3m on both first line and wrapped continuation line
+        ext_f2_idx = next(i for i, ln in enumerate(color_lines) if "3. todo_flow:F2" in ln)
+        self.assertTrue(color_lines[ext_f2_idx].startswith("\033[2;3m  │   │   └─► 3. todo_flow:F2"), msg=color_lines[ext_f2_idx])
+        self.assertTrue(color_lines[ext_f2_idx + 1].startswith("\033[2;3m  │   "), msg=color_lines[ext_f2_idx + 1])
+
+        # - Highlighted local milestone `F2` -> \033[1;93m on both Sub-chain header and closing milestone row + continuation
+        sub_f2_idx = next(i for i, ln in enumerate(color_lines) if "Sub-chain -> F2:" in ln)
+        self.assertTrue(color_lines[sub_f2_idx].startswith("\033[1;93m  ├─ Sub-chain -> F2:"), msg=color_lines[sub_f2_idx])
+        row_f2_idx = next(i for i, ln in enumerate(color_lines) if "5. F2 " in ln)
+        self.assertTrue(color_lines[row_f2_idx].startswith("\033[1;93m  │   └─► 5. F2"), msg=color_lines[row_f2_idx])
+        self.assertTrue(color_lines[row_f2_idx + 1].startswith("\033[1;93m  │   "), msg=color_lines[row_f2_idx + 1])
+
 
 if __name__ == "__main__":
     unittest.main()
