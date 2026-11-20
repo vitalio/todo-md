@@ -5,11 +5,18 @@
 - Preserve configured path aliases for external projects outside `ws_root` (such as `~/chrome/canary` -> `chrome/canary` and `canary`) in `resolve_project_dir()`, `resolve_workspace_chain_projects()`, and `build_execution_chain_dag()` (`_resolve_ref()` and `_format_ref()`) so cross-project references (`chrome/canary:<ID>`) and `-C chrome/canary` resolve cleanly and format as `chrome/canary:<ID>` in `chain` / `Sub-chain` views.
 - Add unit tests in `tests/test_todo_md.py` covering a 3-tier orchestrator hierarchy (`meta_orch` -> `todo_flow` -> leaf repos + external `~/chrome/canary`), update `src/rules/todo_md.md` and `README.md`, rebuild `./todo_md` via `build.py`, and bump `VERSION` for a MINOR release.
 
-# 🎯 [NEXT] F49: Include diagnostic stdout/stderr msg context across all returncode assertions in tests/test_todo_md.py
+# 🎯 [NEXT] F49: Split monolithic test_todo_md.py into modular tests/test_*.py with tests/helpers.py and full returncode diagnostics
 
 - Role: work
-- In `tests/test_todo_md.py` (`TestTodoMd`), update the remaining `self.assertEqual(r.returncode, 0)` assertions that lack a `msg=` argument to either pass `check=True` to `self._run(...)` (which invokes `self._assert_ok()` with full `stdout` and `stderr` diagnostics) or include `msg=r.stderr` / `self._assert_ok()`.
-- Verify `python3 -m unittest discover -s tests` passes with zero warnings and full diagnostic coverage per `stack/python-cli`.
+- Create `tests/helpers.py` with `ROOT`, `SCRIPT`, `INSTALL_SH`, and a shared base class `TodoMdTestCase(unittest.TestCase)` that caches the loaded `./todo_md` module once at import/class setup and provides `setUp()`, `tearDown()`, `_table_rows()`, `_assert_ok()`, `_run_subprocess()`, `_run_in_process()`, and `_run()`.
+- Update the remaining `self.assertEqual(r.returncode, 0)` assertions that lack a `msg=` argument to either pass `check=True` to `self._run(...)` or include `msg=r.stderr` / `self._assert_ok()`.
+- Programmatically slice all 33 `test_*` methods from `tests/test_todo_md.py` via `ast.parse()` (`node.lineno`..`node.end_lineno`) without re-emitting test bodies in chat into focused test modules:
+  - `tests/test_cli.py` (`test_help_version_and_agents`, `test_lazy_urllib_import_and_offline_update`, `test_global_project_selector_and_precedence`, `test_install_sh`)
+  - `tests/test_parser.py` (`test_init_summary_priority_smart_truncation_and_check`, `test_summary_expands_first_task_when_only_new_or_hold`, `test_single_task_headers_role_and_workdir`, `test_files_budget_options`, `test_check_detects_stale_completion_date_note_on_active_tasks`, `test_tabular_column_wrapping_and_emoji_alignment`, `test_composable_task_styling_in_chain_and_list`)
+  - `tests/test_commands.py` (`test_add_edit_append_cli`, `test_status_ordering_and_archive_prepend`, `test_git_default_no_commit_and_opt_in_commit`, `test_next_id_files_and_pipe_output`, `test_last_last_id_and_list_options`, `test_body_dash_stdin_and_tty_error`, `test_forbid_implicit_reopen_and_reopen_command`, `test_list_role_display_and_filter`, `test_list_rejects_retired_tree_flag`)
+  - `tests/test_deps.py` (`test_workspace_discovery_addressing_and_depends`, `test_dependency_sequencing_queue_next_id_and_cycles`, `test_list_topo_order_blocked_next_badges_and_ready_filter`, `test_done_prints_newly_unblocked_local_and_orchestrator_tasks`)
+  - `tests/test_chain.py` (`test_chain_command_local_workspace_hold_and_diagnostics`, `test_chain_critical_path_ranking_ready_filter_and_standalone_grouping`, `test_chain_role_badges_and_role_filter`, `test_chain_by_role_queues_and_composition`, `test_chain_ready_downstream_targets`, `test_chain_finales_section_ranking_and_after_tags`, `test_chain_rpg_progress_transitive_done_bug_and_role_ranking`, `test_chain_todo_projects_orchestrator_dag_child_scoping_cwd_refs_and_ansi_dimming`, `test_root_anchored_chains_quest_momentum_also_in_and_all_done_tasks`)
+- Remove monolithic `tests/test_todo_md.py`, document the modular `tests/` layout in `AGENTS.md`, and verify `python3 -m unittest discover -s tests` runs all 33 tests with zero warnings.
 
 # 🎯 [NEXT] F44: Sync with git upstream (git pull --ff-only) before mutating backlog commands
 
