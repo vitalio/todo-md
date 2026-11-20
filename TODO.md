@@ -1,10 +1,3 @@
-# 🎯 [NEXT] F56: Format and align -h/--help output with structured Usage/Commands/Options sections and <=100-col lines
-
-- In `src/header.py`, split the top-level `Usage:` block into a concise `Usage:` summary and a dedicated `Commands:` section followed by `Global options:`, `Quest-Log options:`, `Files:`, and `Environment variables:`.
-- Align all description columns and continuation lines against the rendered binary name (`todo_md`, accounting for `{prog}` length replacement) so continuation lines (`Opts: ...`, multi-line descriptions) start at the exact same column as primary descriptions.
-- Wrap all `--help` lines to at most 100 columns (and prose paragraphs to ~80 columns) and omit the redundant `queue` alias from `--help` (keeping `queue` accepted in `src/cli.py` for backward compatibility).
-- Add a unit test in `tests/test_cli.py` verifying that `todo_md --help` has aligned description columns and no lines exceeding 100 characters, update `README.md` if needed, rebuild `./todo_md` via `build.py`, and bump `VERSION` for a PATCH release.
-
 # 🎯 [NEXT] F55: Unify -s/--search, -f/--filter, -H/--highlight focus toggle, and --all across .todo_projects
 
 - In `src/cli.py` (`_parse_quest_log_args()`, `_quest_log()`, `QUEST_LOG_USAGE`) and `src/header.py`:
@@ -51,6 +44,7 @@
 
 # 🎯 [NEXT] D2: Design standalone task file mode (-F / --file) for shortlists and ad-hoc task files
 
+- Depends on: F55
 - Role: design
 - Explore and specify `-F <path>` / `--file <path>` support across `todo_md` subcommands (`overview`, `list`, `show`, `next-id`, `queue`, `files`, `check`, `add`, `edit`, `append`, `status`, `next`) so `todo_md` can inspect and manipulate any Markdown task file (such as a temporary shortlist generated during planning or dispatch) outside a repository's `TODO.md` (keeping `-f` reserved for `--filter`).
 - Define behavior when `TODO_ARCHIVE.md` is absent beside the target file: allow read/check and in-file status mutations without requiring an archive file, and specify explicit error or `--archive <path>` handling for `done` / `cancel` / `archive`.
@@ -59,15 +53,19 @@
 
 - Shortlist/chain export workflow: evaluate supporting an exported or agent-generated shortlist Markdown file (e.g. a custom prioritized sequence or `chain` snapshot) that users can inspect, filter, and step through with `todo_md -F <path>` while resolving `<project>:<ID>` references against `TODO_MD_WORKSPACE`.
 
+# 🎯 [NEXT] F56: Format and align -h/--help output with structured Usage/Commands/Options sections and <=100-col lines
+
+- Depends on: F17, F44, F55
+- In `src/header.py`, split the top-level `Usage:` block into a concise `Usage:` summary and a dedicated `Commands:` section followed by `Global options:`, `Quest-Log options:`, `Files:`, and `Environment variables:`.
+- Align all description columns and continuation lines against the rendered binary name (`todo_md`, accounting for `{prog}` length replacement) so continuation lines (`Opts: ...`, multi-line descriptions) start at the exact same column as primary descriptions.
+- Wrap all `--help` lines to at most 100 columns (and prose paragraphs to ~80 columns) and omit the redundant `queue` alias from `--help` (keeping `queue` accepted in `src/cli.py` for backward compatibility).
+- Add a unit test in `tests/test_cli.py` verifying that `todo_md --help` has aligned description columns and no lines exceeding 100 characters, update `README.md` if needed, rebuild `./todo_md` via `build.py`, and bump `VERSION` for a PATCH release.
+
 # ⚪ [NEW] P1: JSON output mode (`--json`)
 
+- Depends on: F54, F55
 - Role: plan
 Allow exporting parsed tasks as JSON for scripting.
-
-# ⚪ [NEW] F3: Clarify repository scope rule in .bundle to target the owning repository
-
-- Update the repository scope instruction in `src/bundles/todo_md.bundle` (extending what is already in `src/rules/todo_md.md`) to remind agents that each task belongs in its owning repository's `TODO.md` (via `-C`/`<project>` or `<project>:<ID>`), never an unrelated backlog.
-- Document task dependencies using `Depends on: <ID>` (same project) or `Depends on: <project>:<ID>` (cross-project orchestrator references, e.g. `agents_bundle:F5`) cleanly in `src/bundles/todo_md.bundle` / `README.md`.
 
 # ⚪ [NEW] F6: Move exported rules and bundles from src/ to agents/
 

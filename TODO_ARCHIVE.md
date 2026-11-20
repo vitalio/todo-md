@@ -1,3 +1,8 @@
+# ❌ [CANCELED] F3: Clarify repository scope rule in .bundle to target the owning repository — *Already covered by src/rules/todo_md.md and agents-rules:collab/multi-repo; todo_md.bundle is slated for removal in D6*
+
+- Update the repository scope instruction in `src/bundles/todo_md.bundle` (extending what is already in `src/rules/todo_md.md`) to remind agents that each task belongs in its owning repository's `TODO.md` (via `-C`/`<project>` or `<project>:<ID>`), never an unrelated backlog.
+- Document task dependencies using `Depends on: <ID>` (same project) or `Depends on: <project>:<ID>` (cross-project orchestrator references, e.g. `agents_bundle:F5`) cleanly in `src/bundles/todo_md.bundle` / `README.md`.
+
 # ✅ [DONE] F50: Unify Quest-Log as default todo_md view with flat chains by default, --tree 4-char connectors, --numbered, multi-ID show, --search, and filters — *2026-11-20*
 
 - Role: work
