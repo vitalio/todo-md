@@ -1,3 +1,9 @@
+# 🎯 [NEXT] F49: Include diagnostic stdout/stderr msg context across all returncode assertions in tests/test_todo_md.py
+
+- Role: work
+- In `tests/test_todo_md.py` (`TestTodoMd`), update the remaining `self.assertEqual(r.returncode, 0)` assertions that lack a `msg=` argument to either pass `check=True` to `self._run(...)` (which invokes `self._assert_ok()` with full `stdout` and `stderr` diagnostics) or include `msg=r.stderr` / `self._assert_ok()`.
+- Verify `python3 -m unittest discover -s tests` passes with zero warnings and full diagnostic coverage per `stack/python-cli`.
+
 # 🎯 [NEXT] F44: Sync with git upstream (git pull --ff-only) before mutating backlog commands
 
 - Role: work
