@@ -39,7 +39,7 @@
     and `Workdir:` headers before `# TODO*.md:<line>`),
     `{cmd:todo_md} last [<STATUS|archive>]` (default: `NEW`),
     `{cmd:todo_md} last-id [<STATUS|archive>]` (default: `NEW`),
-    `{cmd:todo_md} list [active|archive|all|<STATUS>] [<ID>...] [--role <role>] [--ready] [--limit N] [--full]`
+    `{cmd:todo_md} list [active|archive|all|<STATUS>] [<ID>...] [--role <role>] [-r|--ready] [--limit N] [--full]`
     (orders each status bucket with ready tasks first and prerequisites before dependents;
     renders blocked `WIP`/`NEXT` items as `⏳ [WIP]` / `⏳ [NEXT]` and multi-step chains as full
     ordered paths `[blocked: A (<STATUS>) -> B (<STATUS>)]`; highlights any target `<ID>...`
@@ -74,8 +74,9 @@
     transitive deps, `Queue 2 (plan)` with `work`/`plan` transitive deps,
     `Queue 3 (design)`, and `Queue 4 (deferred work)` for `work` blocked by
     `plan`/`design` [omitted with `--ready`]; `--role <role>` filters displayed
-    tasks while preserving DAG validation and unblock context; `--ready` filters
-    to highest-leverage ready tasks; excludes `HOLD` and tasks transitively
+    tasks while preserving DAG validation and unblock context; `--ready` / `-r` filters
+    to ready tasks ranked by role ease, Quest Momentum continuation, multi-chain count, and immediate ready unlocks,
+    shown as `[ready | N chain(s) | +M ready | unblocks K -> targets]`; excludes `HOLD` and tasks transitively
     blocked by `HOLD` into `Held branches:` unless `--include-hold` is passed;
     reports diagnostics on cycles, syntax errors, or `MISSING` / `CANCELED`
     blockers; `--filter` / `-f <ID>...` (and positional `<ID>...` under `chain`) filters by task IDs
@@ -110,6 +111,12 @@
     combined with AND; do not introduce a separate `- Order:` field;
     cross-project orchestrator dependencies (`<project>:<ID>`) preserve one-way
     repo boundaries without modifying child repos
+  - Chain integration (both directions): whenever adding or refining a task,
+    check existing open chains upstream (`--depends` on the new task) and
+    downstream (`{cmd:todo_md} edit <ID> --depends ...` on existing open tasks,
+    doc/help alignment tasks, or orchestrator waves that touch the same files
+    or build on the new capability) so new tasks are wired into chains rather
+    than left as unintended standalone tasks
   - Transition: `{cmd:todo_md} status <ID> <WIP|NEXT|NEW|HOLD|QUESTION> [-m "<note>"] [--reopen] [-c|--commit]`,
     `{cmd:todo_md} next <ID> [-m "<note>"] [--reopen] [-c|--commit]` (promote to `🎯 [NEXT]` and strip `- Role: plan`),
     `{cmd:todo_md} reopen <ID> [--status <STATUS>] [-m "<note>"] [-c|--commit]` (reopen archived task to `TODO.md`, default `NEW`; transitions from `TODO_ARCHIVE.md` without `--reopen` or `reopen` are rejected)

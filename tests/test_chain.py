@@ -189,16 +189,74 @@ class TestChain(TodoMdTestCase):
         ready_rows = self._table_rows(r_out)
         self.assertEqual(sorted(ready_rows), ["1.", "2.", "3.", "4."], msg=r_out)
         self.assertIn("F5", ready_rows["1."])
-        self.assertIn("[ready | unblocks 2 -> F6]", ready_rows["1."])
+        self.assertIn("[ready | 1 chain | +1 ready | unblocks 2 -> F6]", ready_rows["1."])
         self.assertNotIn("F7", r_out)
         self.assertIn("F3", ready_rows["2."])
-        self.assertIn("[ready | unblocks 1 -> F4]", ready_rows["2."])
+        self.assertIn("[ready | 1 chain | +1 ready | unblocks 1 -> F4]", ready_rows["2."])
         self.assertIn("F1", ready_rows["3."])
         self.assertIn("[ready]", ready_rows["3."])
         self.assertNotIn("unblocks", ready_rows["3."])
         self.assertIn("F2", ready_rows["4."])
         self.assertIn("[ready]", ready_rows["4."])
         self.assertNotIn("unblocks", ready_rows["4."])
+
+    def test_ready_short_flag_multi_chain_role_ease_and_stat_counters(self):
+        proj = self.tmp / "ready_multi"
+        proj.mkdir()
+        self._run([str(SCRIPT), "init"], cwd=str(proj), check=True)
+        env = {**os.environ, "COLUMNS": "160"}
+        # F1 feeds two chains (F2, F3); F4 -> F5 -> F6 -> F7 is one deeper chain (F4 unblocks more tasks in total)
+        self._run([str(SCRIPT), "add", "Shared root", "--role", "work"], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "add", "Branch a", "--role", "work", "--depends", "F1"], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "add", "Branch b", "--role", "work", "--depends", "F1"], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "add", "Solo root", "--role", "work"], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "add", "Solo mid", "--role", "work", "--depends", "F4"], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "add", "Solo deep", "--role", "work", "--depends", "F5"], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "add", "Solo leaf", "--role", "work", "--depends", "F6"], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "add", "D", "Design root"], cwd=str(proj), check=True)
+
+        r_long = self._run([str(SCRIPT), "chain", "--numbered=right", "--ready"], cwd=str(proj), env=env, check=True)
+        r_short = self._run([str(SCRIPT), "chain", "-r", "--numbered=right"], cwd=str(proj), env=env, check=True)
+        r_default = self._run([str(SCRIPT), "-r", "--numbered=right"], cwd=str(proj), env=env, check=True)
+        self.assertEqual(r_long.stdout, r_short.stdout)
+        self.assertEqual(r_long.stdout, r_default.stdout)
+        rows = {k: v for k, v in self._table_rows(r_long.stdout).items() if k.endswith(".")}
+        self.assertEqual(sorted(rows), ["1.", "2.", "3."], msg=r_long.stdout)
+        # Multi-chain leverage beats a larger single-chain cone: F1 (2 chains) ahead of F4 (1 chain, unblocks 3)
+        self.assertIn("F1", rows["1."])
+        self.assertIn("[ready | 2 chains | +2 ready | unblocks 2 -> F2, F3]", rows["1."])
+        self.assertIn("F4", rows["2."])
+        self.assertIn("[ready | 1 chain | +1 ready | unblocks 3 -> F5]", rows["2."])
+        # Role ease: work tasks rank ahead of the design root within the same status tier
+        self.assertIn("D1", rows["3."])
+        self.assertIn("[design]", rows["3."])
+
+        r_list = self._run([str(SCRIPT), "list", "-r"], cwd=str(proj), check=True)
+        self.assertIn("F1", r_list.stdout)
+        self.assertIn("F4", r_list.stdout)
+        self.assertNotIn("F2", r_list.stdout)
+
+    def test_ready_quest_momentum_continues_after_done(self):
+        proj = self.tmp / "ready_momentum"
+        proj.mkdir()
+        self._run([str(SCRIPT), "init"], cwd=str(proj), check=True)
+        env = {**os.environ, "COLUMNS": "160"}
+        self._run([str(SCRIPT), "add", "Finished root", "--role", "work"], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "add", "Continuation", "--role", "work", "--depends", "F1"], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "add", "Wide root", "--role", "work"], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "add", "Wide a", "--role", "work", "--depends", "F3"], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "add", "Wide b", "--role", "work", "--depends", "F3"], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "add", "After continuation", "--role", "work", "--depends", "F2"], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "done", "F1"], cwd=str(proj), check=True)
+
+        r_ready = self._run([str(SCRIPT), "chain", "-r", "--numbered=right"], cwd=str(proj), env=env, check=True)
+        rows = {k: v for k, v in self._table_rows(r_ready.stdout).items() if k.endswith(".")}
+        self.assertEqual(sorted(rows), ["1.", "2."], msg=r_ready.stdout)
+        # F2 continues the branch of the task that was just completed, ahead of the wider F3 chain set
+        self.assertIn("F2", rows["1."])
+        self.assertIn("[ready | 1 chain | +1 ready | unblocks 1 -> F6]", rows["1."])
+        self.assertIn("F3", rows["2."])
+        self.assertIn("[ready | 2 chains | +2 ready | unblocks 2 -> F4, F5]", rows["2."])
 
     def test_chain_role_badges_and_role_filter(self):
         ws = self.tmp / "ws_chain_role"
@@ -248,8 +306,9 @@ class TestChain(TodoMdTestCase):
 
         r_ready_all = self._run([str(SCRIPT), "chain", "--numbered=right", "--ready"], cwd=str(proj_a), check=True)
         ready_rows = self._table_rows(r_ready_all.stdout)
-        self.assertIn("[design]", ready_rows["1."])
-        self.assertIn("[work]", ready_rows["2."])
+        # work ranks ahead of design (role execution ease) within the same status tier
+        self.assertIn("[work]", ready_rows["1."])
+        self.assertIn("[design]", ready_rows["2."])
 
         # 2. --role work filters Chain <N>, Standalone tasks:, and preserves unblock/blocker context & Held branches
         r_work = self._run([str(SCRIPT), "chain", "--numbered=right", "--role", "WORK"], cwd=str(proj_a), check=True)
@@ -553,12 +612,15 @@ class TestChain(TodoMdTestCase):
         rows = {k: v for k, v in self._table_rows(r_local.stdout).items() if k.endswith(".")}
         self.assertEqual(sorted(rows), ["1.", "2."], msg=r_local.stdout)
         # D1 has 5 active downstream tasks (F3, F2, F1, F4, F5) and 4 immediate dependents -> top 3 + ...
-        self.assertIn("D1", rows["1."])
-        self.assertIn("[ready | unblocks 5 -> F3, F2, F1, ...]", rows["1."])
-        # B1's only local dependent is HOLD, so without --include-hold it shows plain [ready]
-        self.assertIn("B1", rows["2."])
-        self.assertIn("[ready]", rows["2."])
-        self.assertNotIn("unblocks", rows["2."])
+        # B1 (work) ranks ahead of D1 (design); its only local dependent is HOLD,
+        # so without --include-hold it shows plain [ready]
+        self.assertIn("B1", rows["1."])
+        self.assertIn("[ready]", rows["1."])
+        self.assertNotIn("unblocks", rows["1."])
+        # D1 has 5 active downstream tasks (F3, F2, F1, F4, F5), 4 immediate ready dependents,
+        # and sits in 4 root chains (F1, F3, F4, F5) -> top 3 targets + ...
+        self.assertIn("D1", rows["2."])
+        self.assertIn("[ready | 4 chains | +4 ready | unblocks 5 -> F3, F2, F1, ...]", rows["2."])
 
         # --role design --ready keeps downstream targets of mixed roles visible on D1
         r_role = self._run(
@@ -569,7 +631,7 @@ class TestChain(TodoMdTestCase):
         )
         role_rows = {k: v for k, v in self._table_rows(r_role.stdout).items() if k.endswith(".")}
         self.assertEqual(sorted(role_rows), ["1."], msg=r_role.stdout)
-        self.assertIn("[ready | unblocks 5 -> F3, F2, F1, ...]", role_rows["1."])
+        self.assertIn("[ready | 4 chains | +4 ready | unblocks 5 -> F3, F2, F1, ...]", role_rows["1."])
 
         # --include-hold includes the held dependent in --ready downstream targets
         r_hold = self._run(
@@ -579,8 +641,8 @@ class TestChain(TodoMdTestCase):
             check=True,
         )
         hold_rows = {k: v for k, v in self._table_rows(r_hold.stdout).items() if k.endswith(".")}
-        self.assertIn("B1", hold_rows["2."])
-        self.assertIn("[ready | unblocks 1 -> F6]", hold_rows["2."])
+        self.assertIn("B1", hold_rows["1."])
+        self.assertIn("[ready | 1 chain | +1 ready | unblocks 1 -> F6]", hold_rows["1."])
 
         # Workspace -w --ready renders cross-project downstream target refs
         r_ws = self._run(
@@ -590,10 +652,10 @@ class TestChain(TodoMdTestCase):
             check=True,
         )
         ws_rows = {k: v for k, v in self._table_rows(r_ws.stdout).items() if k.endswith(".")}
-        self.assertIn("proj_a:D1", ws_rows["1."])
-        self.assertIn("[ready | unblocks 5 -> proj_a:F3, proj_a:F2, proj_a:F1, ...]", ws_rows["1."])
-        self.assertIn("proj_a:B1", ws_rows["2."])
-        self.assertIn("[ready | unblocks 1 -> proj_b:F1]", ws_rows["2."])
+        self.assertIn("proj_a:B1", ws_rows["1."])
+        self.assertIn("[ready | 1 chain | +1 ready | unblocks 1 -> proj_b:F1]", ws_rows["1."])
+        self.assertIn("proj_a:D1", ws_rows["2."])
+        self.assertIn("[ready | 4 chains | +4 ready | unblocks 5 -> proj_a:F3, proj_a:F2, proj_a:F1, ...]", ws_rows["2."])
 
     def test_chain_finales_section_ranking_and_after_tags(self):
         ws = self.tmp / "ws_finales"
@@ -707,12 +769,12 @@ class TestChain(TodoMdTestCase):
         self.assertIn("F6", ready_rows["1."])
         self.assertIn("[ready | after: D1, F1, F2, ...]", ready_rows["1."])
         self.assertIn("F4", ready_rows["2."])
-        self.assertIn("[ready | unblocks 1 -> F5]", ready_rows["2."])
+        self.assertIn("[ready | 1 chain | +1 ready | unblocks 1 -> F5]", ready_rows["2."])
         self.assertIn("B1", ready_rows["3."])
         self.assertIn("F10", ready_rows["4."])
         self.assertIn("F11", ready_rows["5."])
         self.assertIn("F8", ready_rows["6."])
-        self.assertIn("[ready | unblocks 1 -> F9]", ready_rows["6."])
+        self.assertIn("[ready | 1 chain | +1 ready | unblocks 1 -> F9]", ready_rows["6."])
         self.assertIn("F7", ready_rows["7."])
         self.assertIn("[ready | after: D1]", ready_rows["7."])
 

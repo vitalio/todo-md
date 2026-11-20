@@ -113,7 +113,7 @@ STATUS_FILTER_KEYWORDS = (
     "ALL",
 )
 QUEST_LOG_USAGE = (
-    "[--tree] [--numbered[=left|right]] [--status STATUS] [--all] [--ready] [--by-role] "
+    "[--tree] [--numbered[=left|right]] [--status STATUS] [--all] [-r|--ready] [--by-role] "
     "[--role ROLE] [-l N|--limit N] [--include-hold] [-f|--filter <ID>...] [-H|--highlight [<ID>...]] "
     "[-s|--search QUERY]"
 )
@@ -262,7 +262,7 @@ def _parse_quest_log_args(prog: str, argv: list[str], cmd: str, positional_focus
         elif a == "--all":
             o["include_done"] = True
             i += 1
-        elif a == "--ready":
+        elif a in ("--ready", "-r"):
             o["ready"] = True
             i += 1
         elif a == "--by-role":
@@ -688,7 +688,7 @@ def main(argv: list[str] | None = None) -> int:
             elif a.startswith("--role="):
                 role_filter = _validate_role_filter(prog, a.split("=", 1)[1])
                 i += 1
-            elif a == "--ready":
+            elif a in ("--ready", "-r"):
                 ready = True
                 i += 1
             elif a == "--all":
@@ -706,7 +706,7 @@ def main(argv: list[str] | None = None) -> int:
                     i += 1
                 else:
                     raise SystemExit(
-                        f"{prog}: usage: {prog} list [filter] [<ID>...] [--role ROLE] [--ready] [--limit N] [--full]"
+                        f"{prog}: usage: {prog} list [filter] [<ID>...] [--role ROLE] [-r|--ready] [--limit N] [--full]"
                     )
         target_refs: list[tuple[Path, str]] = [
             resolve_filter_task_ref(base_dir, ref, explicit_dir=explicit_dir)

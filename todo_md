@@ -10,7 +10,7 @@
                                              with Task/Title/Role/Workdir headers; last [<STATUS|archive>] shows the last task in a status
   {prog} last [<STATUS|archive>]           Show full section for last task in status/archive (default: NEW)
   {prog} last-id [<STATUS|archive>]        Print ID of last task in status/archive (default: NEW)
-  {prog} list [filter] [<ID>...] [opts]      List tasks (active | archive | all | <STATUS>; highlight <ID>...; opts: --role ROLE, --ready, --limit N, --full)
+  {prog} list [filter] [<ID>...] [opts]      List tasks (active | archive | all | <STATUS>; highlight <ID>...; opts: --role ROLE, -r/--ready, --limit N, --full)
   {prog} archive [<ID>] [-m NOTE]            Print TODO_ARCHIVE.md, or archive task <ID>
   {prog} add [<PROJ>] [<PREFIX>] <TITLE>     Add a new task with auto-assigned ID (reads body from -b TEXT|- or stdin)
                                              Opts: -p PREFIX (default: F), --next, --status STATUS, -m NOTE, -b BODY|-, --role ROLE, --depends SPEC
@@ -48,7 +48,8 @@ Quest-Log options ({prog} [opts], {prog} chain [<ID>...] [opts], {prog} queue <I
   --numbered[=left|right]       Add period-free row numbers padded to the widest number (default: no numbers; side default: left)
   -l N, --limit N, -n N         Limit displayed rows to N (-n is a backward-compatible alias)
   --all                         Include archived DONE/CANCELED tasks from TODO_ARCHIVE.md (same as the ALL status keyword)
-  --ready                       Show only ready tasks with their next unblocked targets
+  -r, --ready                   Show only ready tasks ranked by role ease, Quest Momentum, chain count, and ready unlocks
+                                (rows show [ready | N chain(s) | +M ready | unblocks K -> targets]; also accepted by list)
   --by-role                     Partition active tasks into role queues
   --role ROLE                   Show only tasks matching ROLE
   --include-hold                Include HOLD tasks and branches blocked by HOLD
@@ -96,7 +97,7 @@ import unicodedata
 from datetime import date
 from pathlib import Path
 
-VERSION = "0.34.0"
+VERSION = "0.35.0"
 REPO_MARKER = "todo_md-repo: vitalio/todo_md"
 DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/vitalio/todo_md/main/todo_md"
 FENCE = chr(96) * 3
@@ -2845,16 +2846,72 @@ def _prepare_active_plan(
         and _resolve_node_role(nodes, u) == "work"
     }
 
+    latest_done_task: tuple[Path, str] | None = dag.get("latest_done_task")  # type: ignore[assignment]
+    direct_done_deps: dict[tuple[Path, str], list[tuple[Path, str]]] = dag.get("direct_done_deps", {})  # type: ignore[assignment]
+
+    def _is_done_node(n: tuple[Path, str]) -> bool:
+        return str(nodes[n]["status"]) == "DONE"
+
+    root_nodes = [
+        u
+        for u in active_list
+        if u not in finale_set
+        and not any(v in active_set for v in dependents.get(u, []))
+        and (
+            any(p in active_set for p in prereqs.get(u, []))
+            or bool(done_prereqs.get(u) or done_nodes.get(u))
+        )
+    ]
+    chain_counts: dict[tuple[Path, str], int] = {u: 0 for u in active_list}
+    for root in root_nodes:
+        cone = {root}
+        cone_stack = [root]
+        while cone_stack:
+            cur = cone_stack.pop()
+            for pre in prereqs.get(cur, []):
+                if pre in active_set and pre not in cone:
+                    cone.add(pre)
+                    cone_stack.append(pre)
+        for member in cone:
+            chain_counts[member] += 1
+
+    immediate_ready_targets: dict[tuple[Path, str], list[tuple[Path, str]]] = {}
+    for u in active_list:
+        immediate_ready_targets[u] = [
+            v
+            for v in dependents.get(u, [])
+            if v in active_set and [pre for pre in prereqs.get(v, []) if not _is_done_node(pre)] == [u]
+        ]
+    ready_unblocks: dict[tuple[Path, str], int] = {
+        u: len(targets) for u, targets in immediate_ready_targets.items()
+    }
+    is_momentum_next: dict[tuple[Path, str], int] = {
+        u: (
+            0
+            if latest_done_task is not None
+            and (
+                latest_done_task in done_nodes.get(u, set())
+                or latest_done_task in direct_done_deps.get(u, [])
+            )
+            else 1
+        )
+        for u in active_list
+    }
+
     def _node_rank(
         u: tuple[Path, str],
         ready_step: int = 0,
-    ) -> tuple[int, int, int, int, int, tuple[str, str, str], tuple[Path, str]]:
+    ) -> tuple[int, int, int, int, int, int, int, int, int, tuple[str, str, str], tuple[Path, str]]:
         st = str(nodes[u]["status"])
         prio = ACTIVE_STATUS_ORDER.get(st, 99)
         is_fin = 0 if u in finale_set else 1
         return (
             prio,
             is_fin,
+            _resolve_node_role_ease(nodes, u),
+            is_momentum_next.get(u, 1),
+            -chain_counts.get(u, 0),
+            -ready_unblocks.get(u, 0),
             -active_unblocks.get(u, 0),
             -ready_step,
             order_idx.get(u, 0),
@@ -2889,6 +2946,9 @@ def _prepare_active_plan(
         "active_unblocks": active_unblocks,
         "excluded_hold": excluded_hold,
         "finale_set": finale_set,
+        "chain_counts": chain_counts,
+        "ready_unblocks": ready_unblocks,
+        "immediate_ready_targets": immediate_ready_targets,
         "node_rank": _node_rank,
     }
 
@@ -3152,6 +3212,9 @@ def plan_execution_chains(
     active_unblocks: dict[tuple[Path, str], int] = prep["active_unblocks"]  # type: ignore[assignment]
     excluded_hold: set[tuple[Path, str]] = prep["excluded_hold"]  # type: ignore[assignment]
     finale_set: set[tuple[Path, str]] = prep["finale_set"]  # type: ignore[assignment]
+    chain_counts: dict[tuple[Path, str], int] = prep["chain_counts"]  # type: ignore[assignment]
+    ready_unblocks: dict[tuple[Path, str], int] = prep["ready_unblocks"]  # type: ignore[assignment]
+    immediate_ready_targets: dict[tuple[Path, str], list[tuple[Path, str]]] = prep["immediate_ready_targets"]  # type: ignore[assignment]
     _node_rank = prep["node_rank"]  # type: ignore[assignment]
 
     if ready_only:
@@ -3168,6 +3231,9 @@ def plan_execution_chains(
             "active_unblocks": active_unblocks,
             "excluded_hold": excluded_hold,
             "finale_set": finale_set,
+            "chain_counts": chain_counts,
+            "ready_unblocks": ready_unblocks,
+            "immediate_ready_targets": immediate_ready_targets,
             "finales": [],
             "chains": [],
             "chain_stats": [],
@@ -3452,6 +3518,9 @@ def plan_execution_chains(
         "active_unblocks": active_unblocks,
         "excluded_hold": excluded_hold,
         "finale_set": finale_set,
+        "chain_counts": chain_counts,
+        "ready_unblocks": ready_unblocks,
+        "immediate_ready_targets": immediate_ready_targets,
         "finales": finales,
         "chains": chains,
         "chain_stats": chain_entries,
@@ -4842,6 +4911,8 @@ def cmd_chain(
     active_unblocks: dict[tuple[Path, str], int] = plan["active_unblocks"]  # type: ignore[assignment]
     excluded_hold: set[tuple[Path, str]] = plan["excluded_hold"]  # type: ignore[assignment]
     finale_set: set[tuple[Path, str]] = plan.get("finale_set", set())  # type: ignore[assignment]
+    chain_counts: dict[tuple[Path, str], int] = plan.get("chain_counts", {})  # type: ignore[assignment]
+    immediate_ready_targets: dict[tuple[Path, str], list[tuple[Path, str]]] = plan.get("immediate_ready_targets", {})  # type: ignore[assignment]
 
     active_set = set(active_nodes)
     relevant_active_set: set[tuple[Path, str]] = set(active_set)
@@ -4959,17 +5030,20 @@ def cmd_chain(
                     shown_done.append("...")
                 status_tag = f"[ready | after: {', '.join(shown_done)}]"
             elif show_downstream and impact > 0:
+                imm_targets = set(immediate_ready_targets.get(u, []))
                 next_nodes = sorted(
                     [v for v in dependents.get(u, []) if v in active_set],
-                    key=lambda v: rank_pos.get(v, len(active_nodes)),
+                    key=lambda v: (0 if v in imm_targets else 1, rank_pos.get(v, len(active_nodes))),
                 )
+                n_chains = chain_counts.get(u, 0)
+                stats = f"{n_chains} chain{'' if n_chains == 1 else 's'} | +{len(imm_targets)} ready | unblocks {impact}"
                 if next_nodes:
                     shown_refs = [str(nodes[v]["ref"]) for v in next_nodes[:3]]
                     if len(next_nodes) > 3:
                         shown_refs.append("...")
-                    status_tag = f"[ready | unblocks {impact} -> {', '.join(shown_refs)}]"
+                    status_tag = f"[ready | {stats} -> {', '.join(shown_refs)}]"
                 else:
-                    status_tag = f"[ready | unblocks {impact}]"
+                    status_tag = f"[ready | {stats}]"
             else:
                 status_tag = "[ready]" + (f" [unblocks {impact}]" if impact > 0 else "")
         if also_in_refs:
@@ -5557,7 +5631,7 @@ STATUS_FILTER_KEYWORDS = (
     "ALL",
 )
 QUEST_LOG_USAGE = (
-    "[--tree] [--numbered[=left|right]] [--status STATUS] [--all] [--ready] [--by-role] "
+    "[--tree] [--numbered[=left|right]] [--status STATUS] [--all] [-r|--ready] [--by-role] "
     "[--role ROLE] [-l N|--limit N] [--include-hold] [-f|--filter <ID>...] [-H|--highlight [<ID>...]] "
     "[-s|--search QUERY]"
 )
@@ -5706,7 +5780,7 @@ def _parse_quest_log_args(prog: str, argv: list[str], cmd: str, positional_focus
         elif a == "--all":
             o["include_done"] = True
             i += 1
-        elif a == "--ready":
+        elif a in ("--ready", "-r"):
             o["ready"] = True
             i += 1
         elif a == "--by-role":
@@ -6132,7 +6206,7 @@ def main(argv: list[str] | None = None) -> int:
             elif a.startswith("--role="):
                 role_filter = _validate_role_filter(prog, a.split("=", 1)[1])
                 i += 1
-            elif a == "--ready":
+            elif a in ("--ready", "-r"):
                 ready = True
                 i += 1
             elif a == "--all":
@@ -6150,7 +6224,7 @@ def main(argv: list[str] | None = None) -> int:
                     i += 1
                 else:
                     raise SystemExit(
-                        f"{prog}: usage: {prog} list [filter] [<ID>...] [--role ROLE] [--ready] [--limit N] [--full]"
+                        f"{prog}: usage: {prog} list [filter] [<ID>...] [--role ROLE] [-r|--ready] [--limit N] [--full]"
                     )
         target_refs: list[tuple[Path, str]] = [
             resolve_filter_task_ref(base_dir, ref, explicit_dir=explicit_dir)

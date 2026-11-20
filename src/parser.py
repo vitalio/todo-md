@@ -2664,16 +2664,72 @@ def _prepare_active_plan(
         and _resolve_node_role(nodes, u) == "work"
     }
 
+    latest_done_task: tuple[Path, str] | None = dag.get("latest_done_task")  # type: ignore[assignment]
+    direct_done_deps: dict[tuple[Path, str], list[tuple[Path, str]]] = dag.get("direct_done_deps", {})  # type: ignore[assignment]
+
+    def _is_done_node(n: tuple[Path, str]) -> bool:
+        return str(nodes[n]["status"]) == "DONE"
+
+    root_nodes = [
+        u
+        for u in active_list
+        if u not in finale_set
+        and not any(v in active_set for v in dependents.get(u, []))
+        and (
+            any(p in active_set for p in prereqs.get(u, []))
+            or bool(done_prereqs.get(u) or done_nodes.get(u))
+        )
+    ]
+    chain_counts: dict[tuple[Path, str], int] = {u: 0 for u in active_list}
+    for root in root_nodes:
+        cone = {root}
+        cone_stack = [root]
+        while cone_stack:
+            cur = cone_stack.pop()
+            for pre in prereqs.get(cur, []):
+                if pre in active_set and pre not in cone:
+                    cone.add(pre)
+                    cone_stack.append(pre)
+        for member in cone:
+            chain_counts[member] += 1
+
+    immediate_ready_targets: dict[tuple[Path, str], list[tuple[Path, str]]] = {}
+    for u in active_list:
+        immediate_ready_targets[u] = [
+            v
+            for v in dependents.get(u, [])
+            if v in active_set and [pre for pre in prereqs.get(v, []) if not _is_done_node(pre)] == [u]
+        ]
+    ready_unblocks: dict[tuple[Path, str], int] = {
+        u: len(targets) for u, targets in immediate_ready_targets.items()
+    }
+    is_momentum_next: dict[tuple[Path, str], int] = {
+        u: (
+            0
+            if latest_done_task is not None
+            and (
+                latest_done_task in done_nodes.get(u, set())
+                or latest_done_task in direct_done_deps.get(u, [])
+            )
+            else 1
+        )
+        for u in active_list
+    }
+
     def _node_rank(
         u: tuple[Path, str],
         ready_step: int = 0,
-    ) -> tuple[int, int, int, int, int, tuple[str, str, str], tuple[Path, str]]:
+    ) -> tuple[int, int, int, int, int, int, int, int, int, tuple[str, str, str], tuple[Path, str]]:
         st = str(nodes[u]["status"])
         prio = ACTIVE_STATUS_ORDER.get(st, 99)
         is_fin = 0 if u in finale_set else 1
         return (
             prio,
             is_fin,
+            _resolve_node_role_ease(nodes, u),
+            is_momentum_next.get(u, 1),
+            -chain_counts.get(u, 0),
+            -ready_unblocks.get(u, 0),
             -active_unblocks.get(u, 0),
             -ready_step,
             order_idx.get(u, 0),
@@ -2708,6 +2764,9 @@ def _prepare_active_plan(
         "active_unblocks": active_unblocks,
         "excluded_hold": excluded_hold,
         "finale_set": finale_set,
+        "chain_counts": chain_counts,
+        "ready_unblocks": ready_unblocks,
+        "immediate_ready_targets": immediate_ready_targets,
         "node_rank": _node_rank,
     }
 
@@ -2971,6 +3030,9 @@ def plan_execution_chains(
     active_unblocks: dict[tuple[Path, str], int] = prep["active_unblocks"]  # type: ignore[assignment]
     excluded_hold: set[tuple[Path, str]] = prep["excluded_hold"]  # type: ignore[assignment]
     finale_set: set[tuple[Path, str]] = prep["finale_set"]  # type: ignore[assignment]
+    chain_counts: dict[tuple[Path, str], int] = prep["chain_counts"]  # type: ignore[assignment]
+    ready_unblocks: dict[tuple[Path, str], int] = prep["ready_unblocks"]  # type: ignore[assignment]
+    immediate_ready_targets: dict[tuple[Path, str], list[tuple[Path, str]]] = prep["immediate_ready_targets"]  # type: ignore[assignment]
     _node_rank = prep["node_rank"]  # type: ignore[assignment]
 
     if ready_only:
@@ -2987,6 +3049,9 @@ def plan_execution_chains(
             "active_unblocks": active_unblocks,
             "excluded_hold": excluded_hold,
             "finale_set": finale_set,
+            "chain_counts": chain_counts,
+            "ready_unblocks": ready_unblocks,
+            "immediate_ready_targets": immediate_ready_targets,
             "finales": [],
             "chains": [],
             "chain_stats": [],
@@ -3271,6 +3336,9 @@ def plan_execution_chains(
         "active_unblocks": active_unblocks,
         "excluded_hold": excluded_hold,
         "finale_set": finale_set,
+        "chain_counts": chain_counts,
+        "ready_unblocks": ready_unblocks,
+        "immediate_ready_targets": immediate_ready_targets,
         "finales": finales,
         "chains": chains,
         "chain_stats": chain_entries,

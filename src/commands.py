@@ -1174,6 +1174,8 @@ def cmd_chain(
     active_unblocks: dict[tuple[Path, str], int] = plan["active_unblocks"]  # type: ignore[assignment]
     excluded_hold: set[tuple[Path, str]] = plan["excluded_hold"]  # type: ignore[assignment]
     finale_set: set[tuple[Path, str]] = plan.get("finale_set", set())  # type: ignore[assignment]
+    chain_counts: dict[tuple[Path, str], int] = plan.get("chain_counts", {})  # type: ignore[assignment]
+    immediate_ready_targets: dict[tuple[Path, str], list[tuple[Path, str]]] = plan.get("immediate_ready_targets", {})  # type: ignore[assignment]
 
     active_set = set(active_nodes)
     relevant_active_set: set[tuple[Path, str]] = set(active_set)
@@ -1291,17 +1293,20 @@ def cmd_chain(
                     shown_done.append("...")
                 status_tag = f"[ready | after: {', '.join(shown_done)}]"
             elif show_downstream and impact > 0:
+                imm_targets = set(immediate_ready_targets.get(u, []))
                 next_nodes = sorted(
                     [v for v in dependents.get(u, []) if v in active_set],
-                    key=lambda v: rank_pos.get(v, len(active_nodes)),
+                    key=lambda v: (0 if v in imm_targets else 1, rank_pos.get(v, len(active_nodes))),
                 )
+                n_chains = chain_counts.get(u, 0)
+                stats = f"{n_chains} chain{'' if n_chains == 1 else 's'} | +{len(imm_targets)} ready | unblocks {impact}"
                 if next_nodes:
                     shown_refs = [str(nodes[v]["ref"]) for v in next_nodes[:3]]
                     if len(next_nodes) > 3:
                         shown_refs.append("...")
-                    status_tag = f"[ready | unblocks {impact} -> {', '.join(shown_refs)}]"
+                    status_tag = f"[ready | {stats} -> {', '.join(shown_refs)}]"
                 else:
-                    status_tag = f"[ready | unblocks {impact}]"
+                    status_tag = f"[ready | {stats}]"
             else:
                 status_tag = "[ready]" + (f" [unblocks {impact}]" if impact > 0 else "")
         if also_in_refs:
