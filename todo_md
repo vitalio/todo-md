@@ -20,7 +20,7 @@
   {prog} cancel <ID> [-m REASON]             Mark task <ID> as CANCELED and move it to TODO_ARCHIVE.md
   {prog} ids                                 Print highest task IDs in use and next available ID per prefix
   {prog} queue <ID> [--all]                  Show topologically sorted execution queue for <ID> (use --all to include DONE)
-  {prog} chain [<ID>...] [--by-role] [--role ROLE] [--ready] [--limit N] [--include-hold]  Show chain finales, numbered RPG progress chains, role queues (--by-role), & ready tasks (highlight <ID>...)
+  {prog} chain [<ID>...] [--all] [--by-role] [--role ROLE] [--ready] [--limit N] [--include-hold]  Show chain finales, root-anchored RPG progress chains (--all to include DONE), role queues (--by-role), & ready tasks (highlight <ID>...)
   {prog} next-id [<ID>] [--role ROLE] | --top  Print top ready WIP/NEXT ID, or first ready ID in <ID>'s queue
   {prog} files [<ID>] | --files [<ID>]       List existing repository file paths referenced in backticks in task <ID>
                                              Opts: --max-lines N, --max-total-lines N, --max-bytes N, --max-total-bytes N
@@ -74,7 +74,7 @@ import unicodedata
 from datetime import date
 from pathlib import Path
 
-VERSION = "0.30.0"
+VERSION = "0.31.0"
 REPO_MARKER = "todo_md-repo: vitalio/todo_md"
 DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/vitalio/todo_md/main/todo_md"
 FENCE = chr(96) * 3
@@ -2175,6 +2175,7 @@ def build_execution_chain_dag(
     base_dir: Path,
     workspace: bool = False,
     explicit_dir: str | None = None,
+    include_done: bool = False,
 ) -> dict[str, object]:
     b_res = base_dir.resolve()
     ws_root = resolve_workspace_root(b_res, explicit_dir=explicit_dir)
@@ -2271,20 +2272,32 @@ def build_execution_chain_dag(
             seeds.append((p_res, str(t["id"]).upper()))
 
     nodes: dict[tuple[Path, str], dict[str, object]] = {}
+    open_nodes: list[tuple[Path, str]] = []
+    open_node_set: set[tuple[Path, str]] = set()
+    done_visited: set[tuple[Path, str]] = set()
     prereqs: dict[tuple[Path, str], list[tuple[Path, str]]] = {}
     prereq_sets: dict[tuple[Path, str], set[tuple[Path, str]]] = {}
+    done_graph_prereqs: dict[tuple[Path, str], list[tuple[Path, str]]] = {}
+    done_graph_prereq_sets: dict[tuple[Path, str], set[tuple[Path, str]]] = {}
+    direct_done_deps: dict[tuple[Path, str], list[tuple[Path, str]]] = {}
+    direct_done_dep_sets: dict[tuple[Path, str], set[tuple[Path, str]]] = {}
     done_prereqs: dict[tuple[Path, str], list[str]] = {}
     done_prereq_sets: dict[tuple[Path, str], set[str]] = {}
     done_nodes: dict[tuple[Path, str], set[tuple[Path, str]]] = {}
-    done_closure_cache: dict[tuple[Path, str], set[tuple[Path, str]]] = {}
-    done_visiting: set[tuple[Path, str]] = set()
     order_idx: dict[tuple[Path, str], int] = {}
+    done_order_idx: dict[tuple[Path, str], int] = {}
     syntax_errors: list[str] = []
 
     def _ensure_node_slot(k: tuple[Path, str]) -> None:
         if k not in prereqs:
             prereqs[k] = []
             prereq_sets[k] = set()
+        if k not in done_graph_prereqs:
+            done_graph_prereqs[k] = []
+            done_graph_prereq_sets[k] = set()
+        if k not in direct_done_deps:
+            direct_done_deps[k] = []
+            direct_done_dep_sets[k] = set()
         if k not in done_prereqs:
             done_prereqs[k] = []
             done_prereq_sets[k] = set()
@@ -2302,39 +2315,58 @@ def build_execution_chain_dag(
         tdict = _task_map(node_key[0]).get(node_key[1])
         return tdict is not None and str(tdict["status"]) == "DONE"
 
-    def _collect_done_closure(done_key: tuple[Path, str]) -> set[tuple[Path, str]]:
-        if not _is_done(done_key):
-            return set()
-        if done_key in done_closure_cache:
-            return done_closure_cache[done_key]
-        if done_key in done_visiting:
-            return {done_key}
-        done_visiting.add(done_key)
-        closure: set[tuple[Path, str]] = {done_key}
+    def _add_done_graph_edge(node: tuple[Path, str], dep: tuple[Path, str]) -> None:
+        if node == dep:
+            return
+        _ensure_node_slot(node)
+        _ensure_node_slot(dep)
+        if dep not in done_graph_prereq_sets[node]:
+            done_graph_prereq_sets[node].add(dep)
+            done_graph_prereqs[node].append(dep)
+
+    def _visit_done(done_key: tuple[Path, str]) -> None:
+        if not _is_done(done_key) or done_key in done_visited:
+            return
+        done_visited.add(done_key)
+        _ensure_node_slot(done_key)
         ddir, dtid = done_key
         tdict = _task_map(ddir).get(dtid)
         if tdict is not None:
+            nodes[done_key] = {
+                **tdict,
+                "exists": True,
+                "ref": _format_ref(done_key),
+            }
             clauses, _ = parse_dependency_clauses(str(tdict.get("section", "")))
+            to_visit_done: list[tuple[Path, str]] = []
             for clause in clauses:
-                for stage in clause:
-                    for raw_ref in stage:
-                        dep_k = _resolve_ref(ddir, raw_ref)
-                        if _is_done(dep_k):
-                            closure |= _collect_done_closure(dep_k)
-        done_visiting.remove(done_key)
-        done_closure_cache[done_key] = closure
-        return closure
+                resolved_stages = [[_resolve_ref(ddir, r) for r in stage] for stage in clause]
+                for i, stage_keys in enumerate(resolved_stages):
+                    for k in stage_keys:
+                        if _is_done(k):
+                            _add_done_graph_edge(done_key, k)
+                            to_visit_done.append(k)
+                            if i > 0:
+                                for prev_k in resolved_stages[i - 1]:
+                                    if _is_done(prev_k):
+                                        _add_done_graph_edge(k, prev_k)
+            for k in to_visit_done:
+                _visit_done(k)
+        done_order_idx[done_key] = len(done_order_idx)
 
     def _add_done_prereq(node: tuple[Path, str], dep: tuple[Path, str]) -> None:
         _ensure_node_slot(node)
+        _visit_done(dep)
         dep_ref = _format_ref(dep)
         if dep_ref not in done_prereq_sets[node]:
             done_prereq_sets[node].add(dep_ref)
             done_prereqs[node].append(dep_ref)
-        done_nodes[node] |= _collect_done_closure(dep)
+        if dep not in direct_done_dep_sets[node]:
+            direct_done_dep_sets[node].add(dep)
+            direct_done_deps[node].append(dep)
 
     def _visit(node_key: tuple[Path, str]) -> None:
-        if node_key in nodes:
+        if node_key in open_node_set:
             return
         ndir, ntid = node_key
         tdict = _task_map(ndir).get(ntid)
@@ -2349,6 +2381,8 @@ def build_execution_chain_dag(
                 "exists": False,
                 "ref": _format_ref(node_key),
             }
+            open_node_set.add(node_key)
+            open_nodes.append(node_key)
             order_idx[node_key] = len(order_idx)
             return
 
@@ -2362,6 +2396,8 @@ def build_execution_chain_dag(
             "exists": True,
             "ref": _format_ref(node_key),
         }
+        open_node_set.add(node_key)
+        open_nodes.append(node_key)
         clauses, errs = parse_dependency_clauses(str(tdict["section"]))
         for err in errs:
             syntax_errors.append(f"{_format_ref(node_key)}: {err}")
@@ -2373,6 +2409,10 @@ def build_execution_chain_dag(
                 for k in stage_keys:
                     if _is_done(k):
                         _add_done_prereq(node_key, k)
+                        if i > 0:
+                            for prev_k in resolved_stages[i - 1]:
+                                if _is_done(prev_k):
+                                    _add_done_graph_edge(k, prev_k)
                         continue
                     _add_prereq(node_key, k)
                     to_visit.append(k)
@@ -2389,23 +2429,62 @@ def build_execution_chain_dag(
     for seed in seeds:
         _visit(seed)
 
-    in_degree: dict[tuple[Path, str], int] = {u: len(prereqs[u]) for u in nodes}
-    dependents: dict[tuple[Path, str], list[tuple[Path, str]]] = {u: [] for u in nodes}
-    for u in nodes:
-        for p in prereqs[u]:
-            dependents[p].append(u)
-
-    unblocks = compute_unblock_counts(nodes, dependents)
-
     def _canon_ref_key(u: tuple[Path, str]) -> tuple[str, str, str]:
         return (str(nodes[u]["ref"]), u[0].as_posix(), u[1])
+
+    done_in_deg: dict[tuple[Path, str], int] = {
+        d: len(done_graph_prereqs.get(d, [])) for d in done_visited
+    }
+    done_dependents: dict[tuple[Path, str], list[tuple[Path, str]]] = {
+        d: [] for d in done_visited
+    }
+    for d in done_visited:
+        for p in done_graph_prereqs.get(d, []):
+            if p in done_dependents:
+                done_dependents[p].append(d)
+    done_avail = [
+        (done_order_idx.get(d, 0), _canon_ref_key(d), d)
+        for d in done_visited
+        if done_in_deg[d] == 0
+    ]
+    heapq.heapify(done_avail)
+    done_topo_order: list[tuple[Path, str]] = []
+    while done_avail:
+        _, _, d = heapq.heappop(done_avail)
+        done_topo_order.append(d)
+        for v in done_dependents.get(d, []):
+            done_in_deg[v] -= 1
+            if done_in_deg[v] == 0:
+                heapq.heappush(done_avail, (done_order_idx.get(v, 0), _canon_ref_key(v), v))
+    if len(done_topo_order) < len(done_visited):
+        seen_done_topo = set(done_topo_order)
+        rest_done = sorted(
+            [d for d in done_visited if d not in seen_done_topo],
+            key=lambda d: (done_order_idx.get(d, 0), _canon_ref_key(d)),
+        )
+        done_topo_order.extend(rest_done)
+
+    for d in done_topo_order:
+        _ensure_node_slot(d)
+        done_nodes[d].add(d)
+        for p in done_graph_prereqs.get(d, []):
+            done_nodes[d] |= done_nodes.get(p, {p})
+
+    in_degree: dict[tuple[Path, str], int] = {u: len(prereqs[u]) for u in open_nodes}
+    dependents: dict[tuple[Path, str], list[tuple[Path, str]]] = {u: [] for u in open_nodes}
+    for u in open_nodes:
+        for p in prereqs[u]:
+            if p in dependents:
+                dependents[p].append(u)
+
+    unblocks = compute_unblock_counts(nodes, dependents, allowed=open_node_set)
 
     def _sort_key(u: tuple[Path, str]) -> tuple[int, int, int, tuple[str, str, str], tuple[Path, str]]:
         st = str(nodes[u]["status"])
         prio = ACTIVE_STATUS_ORDER.get(st, 99)
         return (prio, -unblocks.get(u, 0), order_idx.get(u, 0), _canon_ref_key(u), u)
 
-    avail = [_sort_key(u) for u in nodes if in_degree[u] == 0]
+    avail = [_sort_key(u) for u in open_nodes if in_degree[u] == 0]
     heapq.heapify(avail)
     topo_order: list[tuple[Path, str]] = []
     while avail:
@@ -2418,11 +2497,13 @@ def build_execution_chain_dag(
 
     for u in topo_order:
         _ensure_node_slot(u)
+        for d in direct_done_deps.get(u, []):
+            done_nodes[u] |= done_nodes.get(d, {d})
         for p in prereqs.get(u, []):
             done_nodes[u] |= done_nodes.get(p, set())
 
     cycle: list[str] = []
-    if len(topo_order) < len(nodes):
+    if len(topo_order) < len(open_nodes):
         cyclic_nodes = {u for u, deg in in_degree.items() if deg > 0}
         state: dict[tuple[Path, str], int] = {}
         stack: list[tuple[Path, str]] = []
@@ -2453,11 +2534,35 @@ def build_execution_chain_dag(
                     cycle = [str(nodes[k]["ref"]) for k in found_cyc]
                     break
 
+    target_project = None if (workspace or is_orch) else b_res
+    scope_dirs = [target_project] if target_project is not None else list(seed_dirs)
+    top_done_candidates: list[tuple[int, int, tuple[Path, str]]] = []
+    for s_idx, p_res in enumerate(scope_dirs):
+        if p_res is None:
+            continue
+        arch_path = p_res / "TODO_ARCHIVE.md"
+        if not arch_path.is_file():
+            continue
+        try:
+            mtime_ns = arch_path.stat().st_mtime_ns
+        except OSError:
+            mtime_ns = 0
+        for t in parse_tasks_in_text(read_if_exists(arch_path), "TODO_ARCHIVE.md"):
+            if str(t["status"]) == "DONE":
+                top_done_candidates.append((mtime_ns, -s_idx, (p_res.resolve(), str(t["id"]).upper())))
+                break
+    latest_done_task: tuple[Path, str] | None = (
+        max(top_done_candidates)[2] if top_done_candidates else None
+    )
+
     return {
         "nodes": nodes,
         "prereqs": prereqs,
         "done_prereqs": done_prereqs,
+        "done_graph_prereqs": done_graph_prereqs,
+        "direct_done_deps": direct_done_deps,
         "done_nodes": done_nodes,
+        "done_topo_order": done_topo_order,
         "dependents": dependents,
         "unblocks": unblocks,
         "order_idx": order_idx,
@@ -2465,7 +2570,9 @@ def build_execution_chain_dag(
         "cycle": cycle,
         "syntax_errors": syntax_errors,
         "is_orchestrator": is_orch,
-        "target_project": None if (workspace or is_orch) else b_res,
+        "target_project": target_project,
+        "latest_done_task": latest_done_task,
+        "include_done": include_done,
     }
 
 
@@ -2666,11 +2773,16 @@ def plan_execution_chains(
     include_hold: bool = False,
     ready_only: bool = False,
     limit: int | None = None,
+    include_done: bool = False,
 ) -> dict[str, object]:
     nodes: dict[tuple[Path, str], dict[str, object]] = dag["nodes"]  # type: ignore[assignment]
     prereqs: dict[tuple[Path, str], list[tuple[Path, str]]] = dag["prereqs"]  # type: ignore[assignment]
+    dependents: dict[tuple[Path, str], list[tuple[Path, str]]] = dag["dependents"]  # type: ignore[assignment]
+    done_prereqs: dict[tuple[Path, str], list[str]] = dag.get("done_prereqs", {})  # type: ignore[assignment]
     done_nodes: dict[tuple[Path, str], set[tuple[Path, str]]] = dag.get("done_nodes", {})  # type: ignore[assignment]
+    done_topo_order: list[tuple[Path, str]] = dag.get("done_topo_order", [])  # type: ignore[assignment]
     order_idx: dict[tuple[Path, str], int] = dag.get("order_idx", {})  # type: ignore[assignment]
+    show_done = include_done or bool(dag.get("include_done", False))
     prep = _prepare_active_plan(dag, include_hold=include_hold)
     active_list: list[tuple[Path, str]] = prep["active_list"]  # type: ignore[assignment]
     active_set: set[tuple[Path, str]] = prep["active_set"]  # type: ignore[assignment]
@@ -2701,44 +2813,69 @@ def plan_execution_chains(
             "ready_tasks": ready_nodes,
         }
 
-    undirected_sets: dict[tuple[Path, str], set[tuple[Path, str]]] = {u: set() for u in active_list}
-    for u in active_list:
-        for p in prereqs.get(u, []):
-            if p in active_set:
-                undirected_sets[u].add(p)
-                undirected_sets[p].add(u)
-    undirected: dict[tuple[Path, str], list[tuple[Path, str]]] = {
-        u: sorted(undirected_sets[u], key=lambda k: _canonical_task_ref_key(nodes, k))
+    latest_done_task: tuple[Path, str] | None = dag.get("latest_done_task")  # type: ignore[assignment]
+    if latest_done_task is None and "latest_done_task" not in dag:
+        proj_dirs: list[Path] = []
+        seen_pdirs: set[Path] = set()
+        for p_dir, _ in active_list:
+            p_res = p_dir.resolve()
+            if p_res not in seen_pdirs:
+                seen_pdirs.add(p_res)
+                proj_dirs.append(p_res)
+        top_cands: list[tuple[int, int, tuple[Path, str]]] = []
+        for s_idx, p_res in enumerate(proj_dirs):
+            arch_path = p_res / "TODO_ARCHIVE.md"
+            if not arch_path.is_file():
+                continue
+            try:
+                mtime_ns = arch_path.stat().st_mtime_ns
+            except OSError:
+                mtime_ns = 0
+            for t in parse_tasks_in_text(read_if_exists(arch_path), "TODO_ARCHIVE.md"):
+                if str(t["status"]) == "DONE":
+                    top_cands.append((mtime_ns, -s_idx, (p_res, str(t["id"]).upper())))
+                    break
+        if top_cands:
+            latest_done_task = max(top_cands)[2]
+
+    act_prereqs: dict[tuple[Path, str], list[tuple[Path, str]]] = {
+        u: [p for p in prereqs.get(u, []) if p in active_set]
+        for u in active_list
+    }
+    act_dependents: dict[tuple[Path, str], list[tuple[Path, str]]] = {
+        u: [v for v in dependents.get(u, []) if v in active_set]
         for u in active_list
     }
 
     rank_pos = {u: idx for idx, u in enumerate(ranked_active)}
-    visited_comp: set[tuple[Path, str]] = set()
     finales: list[tuple[Path, str]] = []
-    raw_chains: list[list[tuple[Path, str]]] = []
+    root_cones: list[tuple[tuple[Path, str], list[tuple[Path, str]]]] = []
     standalone: list[tuple[Path, str]] = []
+
     for u in ranked_active:
-        if u in visited_comp:
+        out_deg = len(act_dependents.get(u, []))
+        in_deg = len(act_prereqs.get(u, []))
+        has_done = bool(done_nodes.get(u) or done_prereqs.get(u))
+        if out_deg > 0:
             continue
-        comp: list[tuple[Path, str]] = []
-        stack = [u]
-        visited_comp.add(u)
-        while stack:
-            cur = stack.pop()
-            comp.append(cur)
-            for nb in undirected[cur]:
-                if nb not in visited_comp:
-                    visited_comp.add(nb)
-                    stack.append(nb)
-        comp.sort(key=lambda k: (rank_pos[k], _canonical_task_ref_key(nodes, k)))
-        if len(comp) >= 2:
-            raw_chains.append(comp)
-        elif comp[0] in finale_set:
-            finales.append(comp[0])
-        elif bool(done_nodes.get(comp[0]) or dag.get("done_prereqs", {}).get(comp[0])):  # type: ignore[union-attr]
-            raw_chains.append(comp)
+        if u in finale_set:
+            finales.append(u)
+        elif in_deg > 0 or has_done:
+            cone_set: set[tuple[Path, str]] = {u}
+            stack = [u]
+            while stack:
+                cur = stack.pop()
+                for p in act_prereqs.get(cur, []):
+                    if p not in cone_set:
+                        cone_set.add(p)
+                        stack.append(p)
+            comp_open = sorted(
+                cone_set,
+                key=lambda k: (rank_pos[k], _canonical_task_ref_key(nodes, k)),
+            )
+            root_cones.append((u, comp_open))
         else:
-            standalone.append(comp[0])
+            standalone.append(u)
 
     def _finale_sort_key(
         u: tuple[Path, str],
@@ -2762,55 +2899,91 @@ def plan_execution_chains(
             _canonical_task_ref_key(nodes, u),
         )
 
-    def _build_chain_entry(comp: list[tuple[Path, str]]) -> dict[str, object]:
+    done_topo_pos = {d: idx for idx, d in enumerate(done_topo_order)}
+
+    def _build_chain_entry(
+        root: tuple[Path, str],
+        comp_open: list[tuple[Path, str]],
+    ) -> dict[str, object]:
         comp_done: set[tuple[Path, str]] = set()
-        for u in comp:
+        for u in comp_open:
             comp_done |= done_nodes.get(u, set())
-        open_count = len(comp)
+        open_count = len(comp_open)
         done_count = len(comp_done)
         total_tasks = done_count + open_count
         progress_pct = round(100 * done_count / total_tasks) if total_tasks > 0 else 0
 
+        if show_done and comp_done:
+            ordered_done = sorted(
+                comp_done,
+                key=lambda d: (done_topo_pos.get(d, len(done_topo_pos)), _canonical_task_ref_key(nodes, d)),
+            )
+            display_nodes = [*ordered_done, *comp_open]
+        else:
+            display_nodes = list(comp_open)
+
         ready_in_comp = [
             u
-            for u in comp
+            for u in comp_open
             if _is_ready_in_dag(nodes, prereqs, u, include_hold=include_hold)
         ]
         ready_set = set(ready_in_comp)
         ready_bugs = sum(1 for u in ready_in_comp if _is_bug_task_node(nodes, u))
-        open_bugs = sum(1 for u in comp if _is_bug_task_node(nodes, u))
+        open_bugs = sum(1 for u in comp_open if _is_bug_task_node(nodes, u))
         done_bugs = sum(1 for d in comp_done if _is_bug_node_key(d))
         total_bugs = open_bugs + done_bugs
 
         dist: dict[tuple[Path, str], int] = {}
-        for u in comp:
+        for u in comp_open:
             if u in ready_set:
                 dist[u] = 0
             else:
                 parent_dists = [dist[p] for p in prereqs.get(u, []) if p in dist]
                 dist[u] = (min(parent_dists) + 1) if parent_dists else 0
-        open_bug_dists = [dist[u] for u in comp if _is_bug_task_node(nodes, u)]
-        min_bug_dist = min(open_bug_dists) if open_bug_dists else None
+        open_bug_dists = [dist[u] for u in comp_open if _is_bug_task_node(nodes, u)]
+        if open_bug_dists:
+            min_bug_dist: int | None = min(open_bug_dists)
+        elif done_bugs > 0:
+            min_bug_dist = 0
+        else:
+            min_bug_dist = None
         bug_dist_rank = min_bug_dist if min_bug_dist is not None else 10**9
 
-        open_eases = [_resolve_node_role_ease(nodes, u) for u in comp]
+        open_eases = [_resolve_node_role_ease(nodes, u) for u in comp_open]
         ready_eases = [_resolve_node_role_ease(nodes, u) for u in ready_in_comp] or open_eases
-        rem_eases = [_resolve_node_role_ease(nodes, u) for u in comp if u not in ready_set] or open_eases
+        rem_eases = [_resolve_node_role_ease(nodes, u) for u in comp_open if u not in ready_set] or open_eases
         ready_role_ease = min(ready_eases) if ready_eases else len(ROLE_EASE_ORDER)
         min_rem_ease = min(rem_eases) if rem_eases else len(ROLE_EASE_ORDER)
         max_rem_ease = max(rem_eases) if rem_eases else len(ROLE_EASE_ORDER)
         max_open_ease = max(open_eases) if open_eases else len(ROLE_EASE_ORDER)
         role_ease_key = (ready_role_ease, min_rem_ease, max_rem_ease, max_open_ease)
 
-        remaining_effort = sum(_resolve_node_role_weight(nodes, u) for u in comp)
+        remaining_effort = sum(_resolve_node_role_weight(nodes, u) for u in comp_open)
         weighted_denom = done_count + remaining_effort
         weighted_velocity = (done_count / weighted_denom) if weighted_denom > 0 else 0.0
 
-        best_status = min(ACTIVE_STATUS_ORDER.get(str(nodes[u]["status"]), 99) for u in comp)
-        canon_ref = _canonical_task_ref_key(nodes, comp[0])
+        raw_best_status = min(
+            (ACTIVE_STATUS_ORDER.get(str(nodes[u]["status"]), 99) for u in comp_open),
+            default=99,
+        )
+        has_wip = any(str(nodes[u]["status"]) == "WIP" for u in comp_open)
+        is_active_quest = has_wip or (
+            latest_done_task is not None and latest_done_task in comp_done
+        )
+        if is_active_quest:
+            best_status = ACTIVE_STATUS_ORDER["WIP"]
+        elif done_count > 0:
+            best_status = min(raw_best_status, ACTIVE_STATUS_ORDER["NEXT"])
+        else:
+            best_status = raw_best_status
+
+        canon_ref = _canonical_task_ref_key(nodes, root)
+        root_nd = nodes[root]
+        root_ref = str(root_nd["ref"])
+        root_title = str(root_nd["title"])
 
         rank_key = (
-            -ready_bugs,
+            -(ready_bugs + done_bugs),
             -total_bugs,
             bug_dist_rank,
             role_ease_key,
@@ -2822,7 +2995,13 @@ def plan_execution_chains(
             canon_ref,
         )
         return {
-            "nodes": comp,
+            "root": root,
+            "root_ref": root_ref,
+            "root_title": root_title,
+            "also_in": {},
+            "is_active_quest": is_active_quest,
+            "nodes": display_nodes,
+            "open_nodes": comp_open,
             "done_nodes": comp_done,
             "open_count": open_count,
             "done_count": done_count,
@@ -2841,8 +3020,28 @@ def plan_execution_chains(
         }
 
     finales.sort(key=_finale_sort_key)
-    chain_entries = [_build_chain_entry(comp) for comp in raw_chains]
+    chain_entries = [_build_chain_entry(root, comp_open) for root, comp_open in root_cones]
     chain_entries.sort(key=lambda entry: entry["rank_key"])  # type: ignore[arg-type, return-value]
+
+    node_chain_refs: dict[tuple[Path, str], list[str]] = {}
+    for entry in chain_entries:
+        r_ref = str(entry["root_ref"])
+        cone_members = set(entry["open_nodes"]) | set(entry["done_nodes"])  # type: ignore[arg-type]
+        for u in cone_members:
+            refs_for_u = node_chain_refs.setdefault(u, [])
+            if r_ref not in refs_for_u:
+                refs_for_u.append(r_ref)
+
+    for entry in chain_entries:
+        r_ref = str(entry["root_ref"])
+        cone_members = set(entry["open_nodes"]) | set(entry["done_nodes"])  # type: ignore[arg-type]
+        also_in_map: dict[tuple[Path, str], list[str]] = {}
+        for u in cone_members:
+            others = [ref for ref in node_chain_refs.get(u, []) if ref != r_ref]
+            if others:
+                also_in_map[u] = others
+        entry["also_in"] = also_in_map
+
     chains: list[list[tuple[Path, str]]] = [entry["nodes"] for entry in chain_entries]  # type: ignore[misc]
     standalone.sort(key=_standalone_sort_key)
 
@@ -4234,6 +4433,7 @@ def cmd_chain(
     base_dir: Path,
     limit: int | None = None,
     include_hold: bool = False,
+    include_done: bool = False,
     ready: bool = False,
     role: str | None = None,
     by_role: bool = False,
@@ -4260,6 +4460,7 @@ def cmd_chain(
         base_dir,
         workspace=workspace,
         explicit_dir=explicit_dir,
+        include_done=include_done,
     )
     syntax_errors: list[str] = dag["syntax_errors"]  # type: ignore[assignment]
     if syntax_errors:
@@ -4300,6 +4501,7 @@ def cmd_chain(
             include_hold=include_hold,
             ready_only=ready,
             limit=(None if (role is not None or target_project is not None) else limit),
+            include_done=include_done,
         )
     active_nodes: list[tuple[Path, str]] = plan["active_nodes"]  # type: ignore[assignment]
     active_unblocks: dict[tuple[Path, str], int] = plan["active_unblocks"]  # type: ignore[assignment]
@@ -4362,6 +4564,7 @@ def cmd_chain(
         idx: int,
         u: tuple[Path, str],
         show_downstream: bool = False,
+        also_in_refs: list[str] | None = None,
     ) -> str:
         nd = nodes[u]
         st = str(nd["status"])
@@ -4406,6 +4609,9 @@ def cmd_chain(
                     status_tag = f"[ready | unblocks {impact}]"
             else:
                 status_tag = "[ready]" + (f" [unblocks {impact}]" if impact > 0 else "")
+        if also_in_refs:
+            also_tag = f"[also in: {', '.join(also_in_refs)}]"
+            status_tag = f"{status_tag} {also_tag}" if status_tag else also_tag
         prefix = (
             f"  {idx:>2}. {_pad_display(ref, 20)}  "
             f"{_pad_display(badge, 14)}  "
@@ -4533,12 +4739,24 @@ def cmd_chain(
                 for comp in chains
             ]
         standalone: list[tuple[Path, str]] = plan["standalone"]  # type: ignore[assignment]
+
+        def _chain_has_target_node(
+            comp_nodes: list[tuple[Path, str]],
+            st_info: dict[str, object],
+        ) -> bool:
+            open_list = st_info.get("open_nodes")
+            if isinstance(open_list, list) and open_list:
+                return any(_is_target_node(u) for u in open_list)
+            non_done = [u for u in comp_nodes if str(nodes[u]["status"]) != "DONE"]
+            check_list = non_done if non_done else comp_nodes
+            return any(_is_target_node(u) for u in check_list)
+
         if target_project is not None:
             finales = [u for u in finales if _is_target_node(u)]
             chains_with_stats = [
                 (comp, st_info)
                 for comp, st_info in chains_with_stats
-                if any(_is_target_node(u) for u in comp)
+                if _chain_has_target_node(comp, st_info)
             ]
             standalone = [u for u in standalone if _is_target_node(u)]
         if wanted_role is not None:
@@ -4580,14 +4798,39 @@ def cmd_chain(
                 pct = int(st_info.get("progress_pct", 0))
                 done_c = int(st_info.get("done_count", 0))
                 open_c = int(st_info.get("open_count", len(comp)))
+                root_key = st_info.get("root")
+                if isinstance(root_key, tuple) and root_key in nodes:
+                    root_ref = str(st_info.get("root_ref") or nodes[root_key]["ref"])
+                    root_title = str(st_info.get("root_title") or nodes[root_key]["title"])
+                else:
+                    fallback_root = comp[-1] if comp else None
+                    root_ref = str(
+                        st_info.get("root_ref")
+                        or (
+                            nodes[fallback_root]["ref"]
+                            if fallback_root is not None and fallback_root in nodes
+                            else ""
+                        )
+                    )
+                    root_title = str(
+                        st_info.get("root_title")
+                        or (
+                            nodes[fallback_root]["title"]
+                            if fallback_root is not None and fallback_root in nodes
+                            else ""
+                        )
+                    )
+                also_in_map: dict[tuple[Path, str], list[str]] = st_info.get("also_in", {})  # type: ignore[assignment]
                 chain_nodes = (
                     set(comp)
                     | set(st_info.get("nodes", []))  # type: ignore[arg-type]
+                    | set(st_info.get("open_nodes", []))  # type: ignore[arg-type]
                     | set(st_info.get("done_nodes", set()))  # type: ignore[arg-type]
                 )
                 chain_highlighted = any(_is_highlighted_node(u) for u in chain_nodes)
                 header_line = (
-                    f"Chain {chain_idx} ({total_t} tasks, {pct}% | {done_c} done, {open_c} open):\n"
+                    f"Chain {chain_idx} -> {root_ref}: {root_title} "
+                    f"({total_t} tasks, {pct}% | {done_c} done, {open_c} open):\n"
                 )
                 sys.stdout.write(
                     _style_task_row(
@@ -4597,7 +4840,7 @@ def cmd_chain(
                     )
                 )
                 for u in comp:
-                    sys.stdout.write(_format_row(row_idx, u))
+                    sys.stdout.write(_format_row(row_idx, u, also_in_refs=also_in_map.get(u)))
                     row_idx += 1
                 wrote_section = True
             if standalone:
@@ -4880,6 +5123,7 @@ def main(argv: list[str] | None = None) -> int:
     if args[0] in ("chain", "--chain"):
         limit: int | None = None
         include_hold = False
+        include_done = False
         ready = False
         by_role = False
         role_filter: str | None = None
@@ -4912,6 +5156,9 @@ def main(argv: list[str] | None = None) -> int:
             elif a == "--include-hold":
                 include_hold = True
                 i += 1
+            elif a == "--all":
+                include_done = True
+                i += 1
             elif a == "--ready":
                 ready = True
                 i += 1
@@ -4924,7 +5171,7 @@ def main(argv: list[str] | None = None) -> int:
                 ref_parts = _split_task_ref_arg(a)
                 if ref_parts is None:
                     raise SystemExit(
-                        f"{prog}: usage: {prog} chain [<ID>...] [--by-role] [--role ROLE] [--ready] [--limit N] [--include-hold]"
+                        f"{prog}: usage: {prog} chain [<ID>...] [--all] [--by-role] [--role ROLE] [--ready] [--limit N] [--include-hold]"
                     )
                 raw_target_refs.extend(ref_parts)
                 i += 1
@@ -4941,6 +5188,7 @@ def main(argv: list[str] | None = None) -> int:
             base_dir,
             limit=limit,
             include_hold=include_hold,
+            include_done=include_done,
             ready=ready,
             role=role_filter,
             by_role=by_role,

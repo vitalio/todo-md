@@ -1,3 +1,17 @@
+# ✅ [DONE] F52: Build root-anchored chains with monotonic Quest Momentum ranking, [also in: ...] annotations, and --all dimmed DONE tasks — *2026-11-20*
+
+- Role: work
+- Depends on: F38
+- In `plan_execution_chains()` (`src/parser.py`), replace undirected weakly-connected component grouping with root-anchored chains: build one chain per terminal closing root task (sink node in the active dependency DAG with `in_degree > 0` or resolved `DONE` prerequisites outside `finale_set` and no outgoing active dependents) from its transitive prerequisite cone.
+- Enforce monotonic Quest Momentum and non-decreasing chain ranking in `plan_execution_chains()` (`src/parser.py`) so completing a step via `todo_md done` never demotes the active chain:
+  1. Active quest momentum (`is_active_quest`): treat a chain as actively in-flight (`tier 0`) when it contains any `🔵 [WIP]` task OR contains the most recently completed `✅ [DONE]` task from the top of `TODO_ARCHIVE.md` across the target scope (so right after `todo_md done <ID>`, the chain retains its top in-flight focus before the next step is switched to `WIP`).
+  2. Started-chain status floor: once a chain has any completed prerequisite (`done_count > 0`) or any `WIP`/`NEXT` task, its status tier stays at least `NEXT` (never dropping to `NEW` when a `WIP`/`NEXT` prerequisite finishes and exposes a `⚪ [NEW]` dependent).
+  3. Whole-cone invariant metrics and root tie-breaker: compute bug priority (`total_bugs = open_bugs + done_bugs`), role-weighted progress (`weighted_velocity`), and total size (`total_tasks = done_count + open_count`) across the full cone (`open ∪ done`), and tie-break by the immutable closing root key `_canonical_task_ref_key(nodes, root)` instead of `comp[0]`.
+- Add `--all` (`include_done: bool = False`) support to `todo_md chain` (`src/cli.py`, `build_execution_chain_dag()`, `plan_execution_chains()`, and `cmd_chain()`): when `--all` is passed, include resolved `✅ [DONE]` prerequisite tasks inside each chain's prerequisite cone in topological order and render them in dimmed `is_done=True` style via `_style_task_row()` (composing cleanly with `is_external` and `is_highlighted` from `F38`).
+- Record `root` (`tuple[Path, str]`), `root_ref`, `root_title`, and `also_in` (`dict[tuple[Path, str], list[str]]` mapping shared prerequisite nodes to other root chain refs in chain rank order) in each chain entry returned by `plan_execution_chains()`.
+- Update `cmd_chain()` in `src/commands.py` to render root-anchored chain headers as `Chain <N> -> <root_ref>: <root_title> (<total> tasks, <pct>% | <done> done, <open> open):` and append `[also in: <other_root_ref>, ...]` to prerequisite rows shared across multiple root chains instead of merging independent goal chains.
+- Update `src/header.py`, `src/rules/todo_md.md`, `README.md`, and `tests/test_todo_md.py`, rebuild `./todo_md` via `build.py`, and bump `VERSION` for a MINOR release.
+
 # ✅ [DONE] F38: Unify composable task styling (external project, DONE, and multi-ID target highlight) in todo_md chain and list — *2026-11-20, Unify composable task styling in chain and list*
 
 - Depends on: F51

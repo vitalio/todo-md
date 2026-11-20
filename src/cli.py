@@ -242,6 +242,7 @@ def main(argv: list[str] | None = None) -> int:
     if args[0] in ("chain", "--chain"):
         limit: int | None = None
         include_hold = False
+        include_done = False
         ready = False
         by_role = False
         role_filter: str | None = None
@@ -274,6 +275,9 @@ def main(argv: list[str] | None = None) -> int:
             elif a == "--include-hold":
                 include_hold = True
                 i += 1
+            elif a == "--all":
+                include_done = True
+                i += 1
             elif a == "--ready":
                 ready = True
                 i += 1
@@ -286,7 +290,7 @@ def main(argv: list[str] | None = None) -> int:
                 ref_parts = _split_task_ref_arg(a)
                 if ref_parts is None:
                     raise SystemExit(
-                        f"{prog}: usage: {prog} chain [<ID>...] [--by-role] [--role ROLE] [--ready] [--limit N] [--include-hold]"
+                        f"{prog}: usage: {prog} chain [<ID>...] [--all] [--by-role] [--role ROLE] [--ready] [--limit N] [--include-hold]"
                     )
                 raw_target_refs.extend(ref_parts)
                 i += 1
@@ -303,6 +307,7 @@ def main(argv: list[str] | None = None) -> int:
             base_dir,
             limit=limit,
             include_hold=include_hold,
+            include_done=include_done,
             ready=ready,
             role=role_filter,
             by_role=by_role,

@@ -47,18 +47,22 @@
     `{cmd:todo_md} queue <ID> [--all]` (topologically sorted execution queue;
     hides `DONE` unless `--all` is passed; prints `[ready]` / `[blocked by: ...]`
     and `Next actionable: <ref>`),
-    `{cmd:todo_md} chain [<ID>...] [--by-role] [--role <role>] [--ready] [--limit N] [--include-hold]`
+    `{cmd:todo_md} chain [<ID>...] [--all] [--by-role] [--role <role>] [--ready] [--limit N] [--include-hold]`
     (local, `.todo_projects` orchestrator, or `-w` workspace work-only chain
     finales `[ready | after: ...]` with all prerequisites resolved shown first
-    before numbered RPG progress chains
-    `Chain <N> (<total> tasks, <pct>% | <done> done, <open> open):` and
-    standalone tasks, merging `.todo_projects` orchestrator dependency edges into
-    child project views, formatting IDs relative to `cwd`, applying composable TTY
-    styling for external-project tasks, `DONE` tasks, and target `<ID>...`
-    highlights, showing padded `[role]` badges and
-    `[unblocks N]`, and ranking by bug priority `B*`, role execution ease,
-    status, role-weighted velocity `work=1, plan=2, design=5`, and total chain
-    value; `--by-role`
+    before root-anchored RPG progress chains
+    `Chain <N> -> <root_ref>: <root_title> (<total> tasks, <pct>% | <done> done, <open> open):`
+    and standalone tasks, appending `[also in: <other_root_ref>, ...]` to
+    prerequisite rows shared across multiple root chains, including resolved
+    `DONE` prerequisites in topological order when `--all` is passed, merging
+    `.todo_projects` orchestrator dependency edges into child project views,
+    formatting IDs relative to `cwd`, applying composable TTY styling for
+    external-project tasks, `DONE` tasks, and target `<ID>...` highlights,
+    showing padded `[role]` badges and `[unblocks N]`, and enforcing monotonic
+    Quest Momentum ranking by bug priority `B*`, role execution ease, active
+    quest momentum / started-chain status floor, role-weighted velocity
+    `work=1, plan=2, design=5`, whole-cone size, and closing root tie-breaker;
+    `--by-role`
     partitions active
     tasks into
     topologically sorted role queues: `Queue 1 (work)` with only `work`

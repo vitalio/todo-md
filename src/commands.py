@@ -1148,6 +1148,7 @@ def cmd_chain(
     base_dir: Path,
     limit: int | None = None,
     include_hold: bool = False,
+    include_done: bool = False,
     ready: bool = False,
     role: str | None = None,
     by_role: bool = False,
@@ -1174,6 +1175,7 @@ def cmd_chain(
         base_dir,
         workspace=workspace,
         explicit_dir=explicit_dir,
+        include_done=include_done,
     )
     syntax_errors: list[str] = dag["syntax_errors"]  # type: ignore[assignment]
     if syntax_errors:
@@ -1214,6 +1216,7 @@ def cmd_chain(
             include_hold=include_hold,
             ready_only=ready,
             limit=(None if (role is not None or target_project is not None) else limit),
+            include_done=include_done,
         )
     active_nodes: list[tuple[Path, str]] = plan["active_nodes"]  # type: ignore[assignment]
     active_unblocks: dict[tuple[Path, str], int] = plan["active_unblocks"]  # type: ignore[assignment]
@@ -1276,6 +1279,7 @@ def cmd_chain(
         idx: int,
         u: tuple[Path, str],
         show_downstream: bool = False,
+        also_in_refs: list[str] | None = None,
     ) -> str:
         nd = nodes[u]
         st = str(nd["status"])
@@ -1320,6 +1324,9 @@ def cmd_chain(
                     status_tag = f"[ready | unblocks {impact}]"
             else:
                 status_tag = "[ready]" + (f" [unblocks {impact}]" if impact > 0 else "")
+        if also_in_refs:
+            also_tag = f"[also in: {', '.join(also_in_refs)}]"
+            status_tag = f"{status_tag} {also_tag}" if status_tag else also_tag
         prefix = (
             f"  {idx:>2}. {_pad_display(ref, 20)}  "
             f"{_pad_display(badge, 14)}  "
@@ -1447,12 +1454,24 @@ def cmd_chain(
                 for comp in chains
             ]
         standalone: list[tuple[Path, str]] = plan["standalone"]  # type: ignore[assignment]
+
+        def _chain_has_target_node(
+            comp_nodes: list[tuple[Path, str]],
+            st_info: dict[str, object],
+        ) -> bool:
+            open_list = st_info.get("open_nodes")
+            if isinstance(open_list, list) and open_list:
+                return any(_is_target_node(u) for u in open_list)
+            non_done = [u for u in comp_nodes if str(nodes[u]["status"]) != "DONE"]
+            check_list = non_done if non_done else comp_nodes
+            return any(_is_target_node(u) for u in check_list)
+
         if target_project is not None:
             finales = [u for u in finales if _is_target_node(u)]
             chains_with_stats = [
                 (comp, st_info)
                 for comp, st_info in chains_with_stats
-                if any(_is_target_node(u) for u in comp)
+                if _chain_has_target_node(comp, st_info)
             ]
             standalone = [u for u in standalone if _is_target_node(u)]
         if wanted_role is not None:
@@ -1494,14 +1513,39 @@ def cmd_chain(
                 pct = int(st_info.get("progress_pct", 0))
                 done_c = int(st_info.get("done_count", 0))
                 open_c = int(st_info.get("open_count", len(comp)))
+                root_key = st_info.get("root")
+                if isinstance(root_key, tuple) and root_key in nodes:
+                    root_ref = str(st_info.get("root_ref") or nodes[root_key]["ref"])
+                    root_title = str(st_info.get("root_title") or nodes[root_key]["title"])
+                else:
+                    fallback_root = comp[-1] if comp else None
+                    root_ref = str(
+                        st_info.get("root_ref")
+                        or (
+                            nodes[fallback_root]["ref"]
+                            if fallback_root is not None and fallback_root in nodes
+                            else ""
+                        )
+                    )
+                    root_title = str(
+                        st_info.get("root_title")
+                        or (
+                            nodes[fallback_root]["title"]
+                            if fallback_root is not None and fallback_root in nodes
+                            else ""
+                        )
+                    )
+                also_in_map: dict[tuple[Path, str], list[str]] = st_info.get("also_in", {})  # type: ignore[assignment]
                 chain_nodes = (
                     set(comp)
                     | set(st_info.get("nodes", []))  # type: ignore[arg-type]
+                    | set(st_info.get("open_nodes", []))  # type: ignore[arg-type]
                     | set(st_info.get("done_nodes", set()))  # type: ignore[arg-type]
                 )
                 chain_highlighted = any(_is_highlighted_node(u) for u in chain_nodes)
                 header_line = (
-                    f"Chain {chain_idx} ({total_t} tasks, {pct}% | {done_c} done, {open_c} open):\n"
+                    f"Chain {chain_idx} -> {root_ref}: {root_title} "
+                    f"({total_t} tasks, {pct}% | {done_c} done, {open_c} open):\n"
                 )
                 sys.stdout.write(
                     _style_task_row(
@@ -1511,7 +1555,7 @@ def cmd_chain(
                     )
                 )
                 for u in comp:
-                    sys.stdout.write(_format_row(row_idx, u))
+                    sys.stdout.write(_format_row(row_idx, u, also_in_refs=also_in_map.get(u)))
                     row_idx += 1
                 wrote_section = True
             if standalone:
