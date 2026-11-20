@@ -60,7 +60,7 @@
     `[also in: <other_root_ref>, ...]` to
     prerequisite rows shared across multiple root chains, including resolved
     `DONE` prerequisites in topological order when `--all` is passed, merging
-    `.todo_projects` orchestrator dependency edges into child project views,
+    `.todo_projects` orchestrator dependency edges (expanding nested orchestrators transitively and keeping path aliases such as `~/chrome/canary` -> `chrome/canary:<ID>` for external projects) into child project views,
     formatting IDs relative to `cwd`, applying composable TTY styling for
     external-project tasks, `DONE` tasks, and target `<ID>...` highlights,
     showing padded `[role]` badges and `[unblocks N]`, and enforcing monotonic

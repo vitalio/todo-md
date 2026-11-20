@@ -423,6 +423,39 @@ class TestDeps(TodoMdTestCase):
         r_done_b = self._run([str(SCRIPT), "done", "F1", "-m", "db1"], cwd=str(repo_b), check=True)
         self.assertIn("Unblocked: .todo_projects:F1", r_done_b.stdout)
 
+    def test_nested_orchestrators_external_alias_and_cycle_safety(self):
+        import os
+        from unittest import mock
+
+        mod = self.todo_md_mod
+        ws = (self.tmp / "ws_tiers").resolve()
+        home = (self.tmp / "home_tiers").resolve()
+        canary = home / "chrome" / "canary"
+        meta_orch = ws / "meta_orch"
+        todo_flow = ws / "todo_flow"
+        todo_md_p = ws / "todo_md"
+        run_block = ws / "run_block"
+        for d in (meta_orch, todo_flow, todo_md_p, run_block, canary):
+            d.mkdir(parents=True)
+            self._run([str(SCRIPT), "init"], cwd=str(d), check=True)
+        (todo_flow / ".todo_projects").write_text("todo_md\nrun_block\nmeta_orch\n", encoding="utf-8")
+        (meta_orch / ".todo_projects").write_text("todo_flow\n~/chrome/canary\n", encoding="utf-8")
+        with mock.patch.dict(os.environ, {"HOME": str(home)}):
+            for key in ("TODO_MD_PROJECTS", "TODO_MD_WORKSPACE", "TODO_MD_CWD"):
+                os.environ.pop(key, None)
+            cfg = mod.read_configured_todo_projects(meta_orch, ws, include_env=False)
+            self.assertEqual(
+                {p.name for p in cfg},
+                {"meta_orch", "todo_flow", "todo_md", "run_block", "canary"},
+            )
+            orchs, union = mod.discover_orchestrators_for_project(todo_md_p, ws)
+            self.assertTrue({"todo_flow", "meta_orch"} <= {p.name for p in orchs})
+            self.assertIn(canary.resolve(), union)
+            self.assertEqual(mod.resolve_project_dir(todo_md_p, "chrome/canary"), canary.resolve())
+            self.assertEqual(mod.resolve_project_dir(todo_md_p, "canary"), canary.resolve())
+            self.assertEqual(mod.project_label(canary.resolve(), ws), "chrome/canary")
+            self.assertEqual(mod.project_label(todo_md_p, ws), "todo_md")
+
 
 if __name__ == "__main__":
     unittest.main()

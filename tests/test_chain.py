@@ -1966,6 +1966,47 @@ class TestChain(TodoMdTestCase):
         self.assertIn("todo_md:F2", r_arch_hl.stdout)
         self.assertIn("run_block:F2", r_arch_hl.stdout)
 
+    def test_chain_nested_orchestrators_and_external_path_alias(self):
+        import os
+
+        ws = self.tmp / "ws_nested"
+        home = self.tmp / "home_nested"
+        canary = home / "chrome" / "canary"
+        meta_orch = ws / "meta_orch"
+        todo_flow = ws / "todo_flow"
+        todo_md_p = ws / "todo_md"
+        run_block = ws / "run_block"
+        for d in (meta_orch, todo_flow, todo_md_p, run_block, canary):
+            d.mkdir(parents=True)
+            self._run([str(SCRIPT), "init"], cwd=str(d), check=True)
+        (todo_flow / ".todo_projects").write_text("todo_md\nrun_block\n", encoding="utf-8")
+        (meta_orch / ".todo_projects").write_text("todo_flow\n~/chrome/canary\n", encoding="utf-8")
+        env = {
+            k: v
+            for k, v in os.environ.items()
+            if k not in ("TODO_MD_PROJECTS", "TODO_MD_WORKSPACE", "TODO_MD_CWD")
+        }
+        env["HOME"] = str(home)
+        self._run(
+            [str(SCRIPT), "add", "F", "Canary base", "--role", "work"],
+            cwd=str(canary), env=env, check=True,
+        )
+        self._run(
+            [str(SCRIPT), "add", "F", "Leaf consumer", "--role", "work", "--depends", "chrome/canary:F1"],
+            cwd=str(todo_md_p), env=env, check=True,
+        )
+        for cwd in (todo_md_p, todo_flow, meta_orch):
+            with self.subTest(cwd=cwd.name):
+                r = self._run([str(SCRIPT), "chain"], cwd=str(cwd), env=env, check=True)
+                flat = self._flat_text(r.stdout)
+                self.assertIn("chrome/canary:F1", flat, msg=r.stdout)
+                self.assertIn("Canary base", flat, msg=r.stdout)
+        r_c = self._run(
+            [str(SCRIPT), "-C", "chrome/canary", "show", "F1"],
+            cwd=str(todo_md_p), env=env, check=True,
+        )
+        self.assertIn("Canary base", r_c.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
