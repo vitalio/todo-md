@@ -198,10 +198,13 @@ class TestTodoMd(unittest.TestCase):
         self.assertIn("[if task=DONE] var task=$(todo_md last-id DONE)", bundle_txt)
         self.assertIn("[if role=work]", bundle_txt)
         self.assertIn("[if role=review]", bundle_txt)
+        self.assertEqual(bundle_txt.count("[if piped!=1] $ todo_md {task:}"), 4)
         self.assertNotIn("role=execute", bundle_txt)
         self.assertNotIn("role=audit", bundle_txt)
         self.assertIn("role=work", rule_txt)
         self.assertIn("role=review", rule_txt)
+        self.assertIn("strips an existing `- Role: plan` line", rule_txt)
+        self.assertIn("agents_bundle | run_block", rule_txt)
         self.assertNotIn("role=execute", rule_txt)
         self.assertNotIn("role=audit", rule_txt)
 
@@ -772,7 +775,7 @@ class TestTodoMd(unittest.TestCase):
         proj_a.mkdir()
         self._run([str(SCRIPT), str(proj_a), "init"], check=True)
 
-        # Prefix defaults: D -> design, F/B -> work, P -> omitted when unset; heading note stripped from Title:
+        # Status-aware role fallback: D* -> design in any status; non-D (F, B, P, etc.) -> plan in NEW/QUESTION/HOLD and work in WIP/NEXT
         self._run([str(SCRIPT), "add", "D", "Explore architecture", "-m", "rfc draft", "-b", "Design body"], cwd=str(proj_a), check=True)
         self._run([str(SCRIPT), "add", "F", "Implement feature", "-b", "Feature body"], cwd=str(proj_a), check=True)
         self._run([str(SCRIPT), "add", "B", "Fix bug", "-b", "Bug body"], cwd=str(proj_a), check=True)
@@ -781,46 +784,68 @@ class TestTodoMd(unittest.TestCase):
         resolved_proj_a = str(proj_a.resolve())
         cases = [
             ("D1", "Explore architecture", "design"),
-            ("F1", "Implement feature", "work"),
-            ("B1", "Fix bug", "work"),
-            ("P1", "Idea without role", None),
+            ("F1", "Implement feature", "plan"),
+            ("B1", "Fix bug", "plan"),
+            ("P1", "Idea without role", "plan"),
         ]
         for tid, expected_title, expected_role in cases:
             for cmd in ([str(SCRIPT), tid], [str(SCRIPT), "show", tid]):
                 with self.subTest(tid=tid, cmd=cmd):
                     proc = self._run(cmd, cwd=str(proj_a), check=True)
                     lines = proc.stdout.splitlines()
-                    if expected_role is not None:
-                        self.assertEqual(
-                            lines[:5],
-                            [f"Task: {tid}", f"Title: {expected_title}", f"Role: {expected_role}", f"Workdir: {resolved_proj_a}", ""],
-                        )
-                        self.assertTrue(lines[5].startswith("# TODO.md:"), msg=proc.stdout)
-                    else:
-                        self.assertEqual(
-                            lines[:4],
-                            [f"Task: {tid}", f"Title: {expected_title}", f"Workdir: {resolved_proj_a}", ""],
-                        )
-                        self.assertNotIn("Role:", proc.stdout)
-                        self.assertTrue(lines[4].startswith("# TODO.md:"), msg=proc.stdout)
+                    self.assertEqual(
+                        lines[:5],
+                        [f"Task: {tid}", f"Title: {expected_title}", f"Role: {expected_role}", f"Workdir: {resolved_proj_a}", ""],
+                    )
+                    self.assertTrue(lines[5].startswith("# TODO.md:"), msg=proc.stdout)
         r_d1_note = self._run([str(SCRIPT), "D1"], cwd=str(proj_a), check=True)
         self.assertIn("# ⚪ [NEW] D1: Explore architecture — *rfc draft*", r_d1_note.stdout)
 
-        # Explicit --role overrides prefix fallback and works on unmapped prefixes
-        self._run([str(SCRIPT), "add", "F", "Audit task", "--role", "review", "--depends", "D1", "-b", "Review body"], cwd=str(proj_a), check=True)
+        # Status transitions on non-D tasks without explicit - Role: update fallback role across QUESTION/HOLD (plan) and NEXT/WIP (work)
+        for st, expected_role in (("QUESTION", "plan"), ("HOLD", "plan"), ("NEXT", "work"), ("WIP", "work"), ("NEW", "plan")):
+            self._run([str(SCRIPT), "status", "P1", st], cwd=str(proj_a), check=True)
+            r_p1_st = self._run([str(SCRIPT), "P1"], cwd=str(proj_a), check=True)
+            self.assertEqual(
+                r_p1_st.stdout.splitlines()[:3],
+                ["Task: P1", "Title: Idea without role", f"Role: {expected_role}"],
+                msg=f"status={st}",
+            )
+
+        # Explicit --role overrides status/prefix fallback and normalizes uppercase input to lowercase
+        self._run([str(SCRIPT), "add", "F", "Audit task", "--role", "Review", "--depends", "D1", "-b", "Review body"], cwd=str(proj_a), check=True)
         r_f2 = self._run([str(SCRIPT), "proj_a:F2"], cwd=str(ws), check=True)
         self.assertEqual(
             r_f2.stdout.splitlines()[:5],
             ["Task: F2", "Title: Audit task", "Role: review", f"Workdir: {resolved_proj_a}", ""],
         )
+        self.assertIn("- Role: review", r_f2.stdout)
         self.assertIn("- Depends on: D1", r_f2.stdout)
 
         # edit --role updates or clears - Role: without dropping - Depends on:
-        self._run([str(SCRIPT), "edit", "proj_a:F2", "--role", "plan"], cwd=str(ws), check=True)
+        self._run([str(SCRIPT), "edit", "proj_a:F2", "--role", "PLAN"], cwd=str(ws), check=True)
         r_f2_plan = self._run([str(SCRIPT), "show", "proj_a:F2"], cwd=str(ws), check=True)
         self.assertEqual(r_f2_plan.stdout.splitlines()[:3], ["Task: F2", "Title: Audit task", "Role: plan"])
+        self.assertIn("- Role: plan", r_f2_plan.stdout)
         self.assertIn("- Depends on: D1", r_f2_plan.stdout)
 
+        # Promoting a task with explicit - Role: plan to NEXT via `next` or `status <ID> NEXT` strips `- Role: plan` so it resolves to `work`
+        self._run([str(SCRIPT), "next", "F2"], cwd=str(proj_a), check=True)
+        r_f2_next = self._run([str(SCRIPT), "F2"], cwd=str(proj_a), check=True)
+        self.assertEqual(r_f2_next.stdout.splitlines()[:3], ["Task: F2", "Title: Audit task", "Role: work"])
+        self.assertNotIn("- Role: plan", r_f2_next.stdout)
+        self.assertIn("- Depends on: D1", r_f2_next.stdout)
+
+        # Also test `status <ID> NEXT` stripping `- Role: plan` in place
+        self._run([str(SCRIPT), "status", "F2", "NEW"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "edit", "F2", "--role=plan"], cwd=str(proj_a), check=True)
+        self.assertIn("- Role: plan", (proj_a / "TODO.md").read_text(encoding="utf-8"))
+        self._run([str(SCRIPT), "status", "F2", "NEXT"], cwd=str(proj_a), check=True)
+        r_f2_status_next = self._run([str(SCRIPT), "F2"], cwd=str(proj_a), check=True)
+        self.assertEqual(r_f2_status_next.stdout.splitlines()[:3], ["Task: F2", "Title: Audit task", "Role: work"])
+        self.assertNotIn("- Role: plan", r_f2_status_next.stdout)
+
+        # Clearing an explicit role on a NEXT task keeps fallback `work`; on a NEW task keeps fallback `plan`
+        self._run([str(SCRIPT), "edit", "F2", "--role", "review"], cwd=str(proj_a), check=True)
         self._run([str(SCRIPT), "edit", "F2", "--role", ""], cwd=str(proj_a), check=True)
         r_f2_cleared = self._run([str(SCRIPT), "F2"], cwd=str(proj_a), check=True)
         self.assertEqual(r_f2_cleared.stdout.splitlines()[:3], ["Task: F2", "Title: Audit task", "Role: work"])
@@ -833,17 +858,17 @@ class TestTodoMd(unittest.TestCase):
             ["Task: P1", "Title: Idea without role", "Role: design", f"Workdir: {resolved_proj_a}", ""],
         )
 
-        # Fenced - Role: inside code block does not override prefix role
+        # Fenced - Role: inside code block does not override status-aware fallback role
         fenced_body = "`" * 3 + "markdown\n- Role: custom\n" + "`" * 3 + "\nDetails."
         self._run([str(SCRIPT), "add", "F", "Fenced role test", "-b", fenced_body], cwd=str(proj_a), check=True)
         r_f3 = self._run([str(SCRIPT), "F3"], cwd=str(proj_a), check=True)
-        self.assertEqual(r_f3.stdout.splitlines()[:3], ["Task: F3", "Title: Fenced role test", "Role: work"])
+        self.assertEqual(r_f3.stdout.splitlines()[:3], ["Task: F3", "Title: Fenced role test", "Role: plan"])
 
         # last / show last emit headers too
         r_last = self._run([str(SCRIPT), "show", "last"], cwd=str(proj_a), check=True)
         self.assertEqual(
             r_last.stdout.splitlines()[:5],
-            ["Task: F3", "Title: Fenced role test", "Role: work", f"Workdir: {resolved_proj_a}", ""],
+            ["Task: F3", "Title: Fenced role test", "Role: plan", f"Workdir: {resolved_proj_a}", ""],
         )
 
         # Overview and list commands remain unchanged (no Task:/Title:/Role:/Workdir: headers)
@@ -861,10 +886,56 @@ class TestTodoMd(unittest.TestCase):
         self.assertNotIn("Task:", r_ws.stdout)
         self.assertNotIn("Title:", r_ws.stdout)
 
-        # Invalid multi-line --role fails explicitly
+        # Invalid multi-line, malformed, or retired --role values fail explicitly on CLI
         r_bad_role = self._run([str(SCRIPT), "add", "Bad role", "--role", "a\nb"], cwd=str(proj_a))
-        self.assertNotEqual(r_bad_role.returncode, 0)
+        self.assertNotEqual(r_bad_role.returncode, 0, msg=r_bad_role.stdout)
         self.assertIn("single line", r_bad_role.stderr)
+
+        for retired_arg, expected_hint in (("execute", "work"), ("EXECUTE", "work"), ("audit", "review"), ("Audit", "review")):
+            with self.subTest(retired_arg=retired_arg):
+                r_ret = self._run([str(SCRIPT), "add", "F", "Retired role", "--role", retired_arg], cwd=str(proj_a))
+                self.assertNotEqual(r_ret.returncode, 0, msg=r_ret.stdout)
+                self.assertIn("retired --role value", r_ret.stderr)
+                self.assertIn(expected_hint, r_ret.stderr)
+
+        for bad_role_val in ("", "123", "bad role", "-work", "role!"):
+            with self.subTest(bad_role_val=bad_role_val):
+                r_inv = self._run([str(SCRIPT), "add", "F", "Invalid role", "--role", bad_role_val], cwd=str(proj_a))
+                self.assertNotEqual(r_inv.returncode, 0, msg=r_inv.stdout)
+
+        # Active backlog validation (`todo_md check`) rejects multiple - Role: lines, non-lowercase/invalid roles,
+        # and retired roles in TODO.md, while exempting historical TODO_ARCHIVE.md
+        chk_dir = ws / "role_check_proj"
+        chk_dir.mkdir()
+        self._run([str(SCRIPT), "init"], cwd=str(chk_dir), check=True)
+        (chk_dir / "TODO.md").write_text(
+            "# ⚪ [NEW] F1: Multiple roles\n\n- Role: plan\n- Role: work\n\n"
+            "# ⚪ [NEW] F2: Retired execute\n\n- Role: execute\n\n"
+            "# ⚪ [NEW] F3: Retired audit\n\n- Role: audit\n\n"
+            "# ⚪ [NEW] F4: Uppercase role in file\n\n- Role: Work\n\n"
+            "# ⚪ [NEW] F5: Empty role line\n\n- Role:\n",
+            encoding="utf-8",
+        )
+        (chk_dir / "TODO_ARCHIVE.md").write_text(
+            "# ✅ [DONE] U20: Historical archived task — *2026-01-01*\n\n"
+            "- Role: execute\n- Role: UpperCase!\n",
+            encoding="utf-8",
+        )
+        r_chk_fail = self._run([str(SCRIPT), "check"], cwd=str(chk_dir))
+        self.assertNotEqual(r_chk_fail.returncode, 0, msg=r_chk_fail.stdout)
+        self.assertIn("task F1 has multiple Role: lines", r_chk_fail.stderr)
+        self.assertIn("task F2 uses retired role 'execute' (use 'work' instead)", r_chk_fail.stderr)
+        self.assertIn("task F3 uses retired role 'audit' (use 'review' instead)", r_chk_fail.stderr)
+        self.assertIn("task F4 has invalid Role: value 'Work'", r_chk_fail.stderr)
+        self.assertIn("task F5 has invalid Role: value ''", r_chk_fail.stderr)
+        self.assertNotIn("U20", r_chk_fail.stderr)
+
+        (chk_dir / "TODO.md").write_text(
+            "# 🎯 [NEXT] O4: Subsystem task\n\n- Role: work\n",
+            encoding="utf-8",
+        )
+        r_chk_ok = self._run([str(SCRIPT), "check"], cwd=str(chk_dir), check=True)
+        self.assertIn("OK", r_chk_ok.stdout)
 
     def test_forbid_implicit_reopen_and_reopen_command(self):
         ws = self.tmp / "ws"
@@ -1011,8 +1082,8 @@ class TestTodoMd(unittest.TestCase):
         self._run([str(SCRIPT), "init"], cwd=str(proj_b), check=True)
 
         self._run([str(SCRIPT), "add", "D", "Design API", "-b", "Design body"], cwd=str(proj_a), check=True)
-        self._run([str(SCRIPT), "add", "F", "Build CLI", "-b", "Work body"], cwd=str(proj_a), check=True)
-        self._run([str(SCRIPT), "add", "B", "Fix crash", "-b", "Bug body"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Build CLI", "--next", "-b", "Work body"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "B", "Fix crash", "--next", "-b", "Bug body"], cwd=str(proj_a), check=True)
         self._run([str(SCRIPT), "add", "P", "Unassigned role", "-b", "Proposal body"], cwd=str(proj_a), check=True)
         self._run(
             [str(SCRIPT), "add", "F", "Audit diff", "--role", "review", "-b", "Review body"],
@@ -1022,7 +1093,7 @@ class TestTodoMd(unittest.TestCase):
         self._run([str(SCRIPT), "add", "D", "Done design", "-b", "Done body"], cwd=str(proj_a), check=True)
         self._run([str(SCRIPT), "done", "D2", "-m", "done"], cwd=str(proj_a), check=True)
 
-        self._run([str(SCRIPT), "add", "F", "Other work", "-b", "B body"], cwd=str(proj_b), check=True)
+        self._run([str(SCRIPT), "add", "F", "Other work", "--next", "-b", "B body"], cwd=str(proj_b), check=True)
         self._run(
             [str(SCRIPT), "add", "P", "Other review", "--role", "Review", "-b", "B review"],
             cwd=str(proj_b),
@@ -1039,9 +1110,7 @@ class TestTodoMd(unittest.TestCase):
         self.assertIn("[work]", rows["F1"])
         self.assertIn("[work]", rows["B1"])
         self.assertIn("[review]", rows["F2"])
-        self.assertNotIn("[design]", rows["P1"])
-        self.assertNotIn("[work]", rows["P1"])
-        self.assertNotIn("[review]", rows["P1"])
+        self.assertIn("[plan]", rows["P1"])
 
         r_design = self._run([str(SCRIPT), "list", "--role", "design"], cwd=str(proj_a), check=True)
         self.assertIn("D1", r_design.stdout)
@@ -1082,7 +1151,8 @@ class TestTodoMd(unittest.TestCase):
         self.assertIn("[review]", ws_rows["proj_a:F2"])
         self.assertNotIn("[work]", ws_rows["proj_a:P1"])
         self.assertIn("[work]", ws_rows["proj_b:F1"])
-        self.assertIn("[Review]", ws_rows["proj_b:P1"])
+        self.assertIn("[plan]", ws_rows["proj_a:P1"])
+        self.assertIn("[review]", ws_rows["proj_b:P1"])
 
         r_ws_rev = self._run([str(SCRIPT), "-w", "list", "--role=review"], cwd=str(proj_a), check=True)
         self.assertIn("proj_a:F2", r_ws_rev.stdout)
@@ -1765,24 +1835,24 @@ class TestTodoMd(unittest.TestCase):
         self._run([str(SCRIPT), "init"], cwd=str(proj_a), check=True)
         self._run([str(SCRIPT), "init"], cwd=str(proj_b), check=True)
 
-        # Chain in proj_a: D1 (design) -> F1 (work) -> F2 (plan, explicit)
-        # Standalone in proj_a: P1 (no role), B1 (work)
-        # Held branch in proj_a: D2 (HOLD, design) -> F3 (NEW, work)
+        # Chain in proj_a: D1 (design) -> F1 (work) -> F2 (NEW defaults to plan)
+        # Standalone in proj_a: P1 (custom role 'ops'), B1 (NEXT defaults to work)
+        # Held branch in proj_a: D2 (HOLD, design) -> F3 (NEW, explicit work)
         self._run([str(SCRIPT), "add", "D", "Design schema", "--next"], cwd=str(proj_a), check=True)
-        self._run([str(SCRIPT), "add", "F", "Build backend", "--depends", "D1"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Build backend", "--role", "work", "--depends", "D1"], cwd=str(proj_a), check=True)
         self._run(
-            [str(SCRIPT), "add", "F", "Plan rollout", "--role", "plan", "--depends", "F1"],
+            [str(SCRIPT), "add", "F", "Plan rollout", "--depends", "F1"],
             cwd=str(proj_a),
             check=True,
         )
-        self._run([str(SCRIPT), "add", "P", "Unassigned idea"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "P", "Unassigned idea", "--role", "ops"], cwd=str(proj_a), check=True)
         self._run([str(SCRIPT), "add", "B", "Ready bugfix", "--next"], cwd=str(proj_a), check=True)
         self._run([str(SCRIPT), "add", "D", "Paused design", "--status", "HOLD"], cwd=str(proj_a), check=True)
-        self._run([str(SCRIPT), "add", "F", "Waiting work", "--depends", "D2"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Waiting work", "--role", "work", "--depends", "D2"], cwd=str(proj_a), check=True)
 
         # Cross-project task in proj_b: F1 (work, depends on proj_a:F1)
         self._run(
-            [str(SCRIPT), "add", "F", "Cross repo work", "--depends", "proj_a:F1"],
+            [str(SCRIPT), "add", "F", "Cross repo work", "--role", "work", "--depends", "proj_a:F1"],
             cwd=str(proj_b),
             check=True,
         )
@@ -1794,9 +1864,7 @@ class TestTodoMd(unittest.TestCase):
         self.assertIn("[work]", rows["2."])
         self.assertIn("[plan]", rows["3."])
         self.assertIn("[work]", rows["4."])
-        self.assertNotIn("[design]", rows["5."])
-        self.assertNotIn("[work]", rows["5."])
-        self.assertNotIn("[plan]", rows["5."])
+        self.assertIn("[ops]", rows["5."])
         role_cols = {
             line.index("[design]" if "[design]" in line else ("[work]" if "[work]" in line else "[plan]"))
             for k, line in rows.items()
@@ -1873,7 +1941,7 @@ class TestTodoMd(unittest.TestCase):
         miss_dir = ws / "miss_role"
         miss_dir.mkdir()
         self._run([str(SCRIPT), "init"], cwd=str(miss_dir), check=True)
-        (miss_dir / "TODO.md").write_text("# ⚪ [NEW] F1: Orphan\n\n- Depends on: F99\n", encoding="utf-8")
+        (miss_dir / "TODO.md").write_text("# 🎯 [NEXT] F1: Orphan\n\n- Depends on: F99\n", encoding="utf-8")
         r_miss = self._run([str(SCRIPT), "chain"], cwd=str(miss_dir))
         self.assertNotEqual(r_miss.returncode, 0)
         self.assertIn("[MISSING]", r_miss.stdout)
@@ -2407,12 +2475,12 @@ class TestTodoMd(unittest.TestCase):
 
         # Queue 1 (work): ready work (F1), work blocked only by work/DONE (F2), standalone work (B1)
         self._run([str(SCRIPT), "add", "F", "Ready work root", "--next", "--depends", "D1"], cwd=str(proj_a), check=True)
-        self._run([str(SCRIPT), "add", "F", "Work after work", "--depends", "F1"], cwd=str(proj_a), check=True)
-        self._run([str(SCRIPT), "add", "B", "Standalone bugfix"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Work after work", "--role", "work", "--depends", "F1"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "B", "Standalone bugfix", "--role", "work"], cwd=str(proj_a), check=True)
 
-        # Queue 2 (plan): ready plan (F3), plan depending on work (F4), plan depending on plan (F5)
-        self._run([str(SCRIPT), "add", "F", "Ready plan", "--role", "plan", "--depends", "D1"], cwd=str(proj_a), check=True)
-        self._run([str(SCRIPT), "add", "F", "Plan after work", "--role", "plan", "--depends", "F2"], cwd=str(proj_a), check=True)
+        # Queue 2 (plan): ready plan (F3, NEW fallback), plan depending on work (F4, NEW fallback), plan depending on plan (F5)
+        self._run([str(SCRIPT), "add", "F", "Ready plan", "--depends", "D1"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Plan after work", "--depends", "F2"], cwd=str(proj_a), check=True)
         self._run([str(SCRIPT), "add", "F", "Plan after plan", "--role", "plan", "--depends", "F4"], cwd=str(proj_a), check=True)
 
         # Queue 3 (design): ready design (D2), design depending on design (D3)
@@ -2421,13 +2489,13 @@ class TestTodoMd(unittest.TestCase):
 
         # Queue 4 (deferred work): work blocked by plan (F6), work blocked by design (F7),
         # and work blocked transitively by design through work (F8 -> F7 -> D2)
-        self._run([str(SCRIPT), "add", "F", "Work after plan", "--depends", "F4"], cwd=str(proj_a), check=True)
-        self._run([str(SCRIPT), "add", "F", "Work after design", "--depends", "D2"], cwd=str(proj_a), check=True)
-        self._run([str(SCRIPT), "add", "F", "Work transitively after design", "--depends", "F7"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Work after plan", "--role", "work", "--depends", "F4"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Work after design", "--role", "work", "--depends", "D2"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Work transitively after design", "--role", "work", "--depends", "F7"], cwd=str(proj_a), check=True)
 
         # Held branch: D4 (HOLD, design) -> F9 (NEW, work)
         self._run([str(SCRIPT), "add", "D", "Paused design", "--status", "HOLD"], cwd=str(proj_a), check=True)
-        self._run([str(SCRIPT), "add", "F", "Waiting on held design", "--depends", "D4"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Waiting on held design", "--role", "work", "--depends", "D4"], cwd=str(proj_a), check=True)
 
         # 1. Default --by-role renders all 4 queues in topological order + Held branches
         r_by_role = self._run(
@@ -2535,12 +2603,12 @@ class TestTodoMd(unittest.TestCase):
 
         # 5. Workspace -w --by-role with cross-project design -> work dependency
         self._run(
-            [str(SCRIPT), "add", "F", "Cross-project deferred work", "--depends", "proj_a:D2"],
+            [str(SCRIPT), "add", "F", "Cross-project deferred work", "--role", "work", "--depends", "proj_a:D2"],
             cwd=str(proj_b),
             check=True,
         )
         self._run(
-            [str(SCRIPT), "add", "F", "Cross-project ready work"],
+            [str(SCRIPT), "add", "F", "Cross-project ready work", "--role", "work"],
             cwd=str(proj_b),
             check=True,
         )
@@ -2551,13 +2619,13 @@ class TestTodoMd(unittest.TestCase):
         self.assertIn("proj_b:F1", ws_q4)
         self.assertIn("[blocked by: proj_a:D2]", ws_q4)
 
-        # 6. Plan blocked by design and unassigned/custom role tasks go to Other tasks without failing
+        # 6. Plan blocked by design and custom role tasks go to Other tasks without failing
         other_dir = ws / "other_roles"
         other_dir.mkdir()
         self._run([str(SCRIPT), "init"], cwd=str(other_dir), check=True)
         self._run([str(SCRIPT), "add", "D", "Design first"], cwd=str(other_dir), check=True)
-        self._run([str(SCRIPT), "add", "F", "Plan after design", "--role", "plan", "--depends", "D1"], cwd=str(other_dir), check=True)
-        self._run([str(SCRIPT), "add", "P", "Unassigned idea"], cwd=str(other_dir), check=True)
+        self._run([str(SCRIPT), "add", "F", "Plan after design", "--depends", "D1"], cwd=str(other_dir), check=True)
+        self._run([str(SCRIPT), "add", "P", "Unassigned idea", "--role", "ops"], cwd=str(other_dir), check=True)
         self._run([str(SCRIPT), "add", "F", "Review diff", "--role", "review"], cwd=str(other_dir), check=True)
         r_other = self._run([str(SCRIPT), "chain", "--by-role"], cwd=str(other_dir), check=True)
         self.assertIn("Queue 3 (design):", r_other.stdout)
@@ -2662,9 +2730,9 @@ class TestTodoMd(unittest.TestCase):
         for tid in ("D1", "F1", "F2", "F3"):
             self._run([str(SCRIPT), "done", tid, "-m", "done"], cwd=str(proj_a), check=True)
 
-        # Active multi-node chain in NEXT tier: F4 (NEXT, unblocks 1) -> F5 (NEW)
+        # Active multi-node chain in NEXT tier: F4 (NEXT, unblocks 1) -> F5 (NEW, work)
         self._run([str(SCRIPT), "add", "F", "Chain root", "--next"], cwd=str(proj_a), check=True)
-        self._run([str(SCRIPT), "add", "F", "Chain leaf", "--depends", "F4"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Chain leaf", "--role", "work", "--depends", "F4"], cwd=str(proj_a), check=True)
 
         # Standalone task in NEXT tier (no deps ever): B1
         self._run([str(SCRIPT), "add", "B", "Standalone next", "--next"], cwd=str(proj_a), check=True)
@@ -2676,34 +2744,34 @@ class TestTodoMd(unittest.TestCase):
             check=True,
         )
 
-        # Non-work leaf with DONE prerequisite (plan role): F7 (depends on D1)
+        # Non-work leaf with DONE prerequisite (NEW defaults to plan role): F7 (depends on D1)
         # Must NOT appear in Chain finales:; placed in numbered Chain 1..N while keeping [ready | after: D1]
         self._run(
-            [str(SCRIPT), "add", "F", "Plan after done", "--role", "plan", "--depends", "D1"],
+            [str(SCRIPT), "add", "F", "Plan after done", "--depends", "D1"],
             cwd=str(proj_a),
             check=True,
         )
 
         # Active chain in NEW tier (work): F8 (unblocks 1) -> F9
-        self._run([str(SCRIPT), "add", "F", "New chain root"], cwd=str(proj_a), check=True)
-        self._run([str(SCRIPT), "add", "F", "New chain leaf", "--depends", "F8"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "New chain root", "--role", "work"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "New chain leaf", "--role", "work", "--depends", "F8"], cwd=str(proj_a), check=True)
 
         # Two work finales in NEW tier to verify done_count ranking (longer completed chain ranks above 2-task chain):
         # F10 depends on D1 (1 done), F11 depends on D1, F1, F2 (3 done) -> F11 ranks before F10 in Chain finales:
         self._run(
-            [str(SCRIPT), "add", "F", "Short work finale", "--depends", "D1"],
+            [str(SCRIPT), "add", "F", "Short work finale", "--role", "work", "--depends", "D1"],
             cwd=str(proj_a),
             check=True,
         )
         self._run(
-            [str(SCRIPT), "add", "F", "Long work finale", "--depends", "D1, F1, F2"],
+            [str(SCRIPT), "add", "F", "Long work finale", "--role", "work", "--depends", "D1, F1, F2"],
             cwd=str(proj_a),
             check=True,
         )
 
         # Cross-project finale in proj_b depending on proj_a:F3
         self._run(
-            [str(SCRIPT), "add", "F", "Cross finale", "--depends", "proj_a:F3"],
+            [str(SCRIPT), "add", "F", "Cross finale", "--role", "work", "--depends", "proj_a:F3"],
             cwd=str(proj_b),
             check=True,
         )
@@ -2857,41 +2925,41 @@ class TestTodoMd(unittest.TestCase):
         # Chain A (non-bug work chain linked to 3 transitive DONE tasks: F2 -> F3)
         # 3 done + 2 open = 5 tasks, 60% | 3 done, 2 open
         self._run(
-            [str(SCRIPT), "add", "F", "Progress chain open 1", "--depends", "F1"],
+            [str(SCRIPT), "add", "F", "Progress chain open 1", "--role", "work", "--depends", "F1"],
             cwd=str(proj_a),
             check=True,
         )
         self._run(
-            [str(SCRIPT), "add", "F", "Progress chain open 2", "--depends", "F2"],
+            [str(SCRIPT), "add", "F", "Progress chain open 2", "--role", "work", "--depends", "F2"],
             cwd=str(proj_a),
             check=True,
         )
 
         # Chain B (ready bug B1 -> F4): ready_bugs=1, total_bugs=1, dist=0 -> ranks #1!
-        self._run([str(SCRIPT), "add", "B", "Ready bug root"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "B", "Ready bug root", "--role", "work"], cwd=str(proj_a), check=True)
         self._run(
-            [str(SCRIPT), "add", "F", "After ready bug", "--depends", "B1"],
+            [str(SCRIPT), "add", "F", "After ready bug", "--role", "work", "--depends", "B1"],
             cwd=str(proj_a),
             check=True,
         )
 
         # Chain C (blocked bug at distance 1: F5 -> B2): ready_bugs=0, total_bugs=1, dist=1 -> ranks #2!
-        self._run([str(SCRIPT), "add", "F", "Pre-bug step"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Pre-bug step", "--role", "work"], cwd=str(proj_a), check=True)
         self._run(
-            [str(SCRIPT), "add", "B", "Blocked bug dist 1", "--depends", "F5"],
+            [str(SCRIPT), "add", "B", "Blocked bug dist 1", "--role", "work", "--depends", "F5"],
             cwd=str(proj_a),
             check=True,
         )
 
         # Chain D (blocked bug at distance 2: F6 -> F7 -> B3): ready_bugs=0, total_bugs=1, dist=2 -> ranks #3!
-        self._run([str(SCRIPT), "add", "F", "Far bug step 1"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Far bug step 1", "--role", "work"], cwd=str(proj_a), check=True)
         self._run(
-            [str(SCRIPT), "add", "F", "Far bug step 2", "--depends", "F6"],
+            [str(SCRIPT), "add", "F", "Far bug step 2", "--role", "work", "--depends", "F6"],
             cwd=str(proj_a),
             check=True,
         )
         self._run(
-            [str(SCRIPT), "add", "B", "Blocked bug dist 2", "--depends", "F7"],
+            [str(SCRIPT), "add", "B", "Blocked bug dist 2", "--role", "work", "--depends", "F7"],
             cwd=str(proj_a),
             check=True,
         )
@@ -2903,7 +2971,7 @@ class TestTodoMd(unittest.TestCase):
             check=True,
         )
         self._run(
-            [str(SCRIPT), "add", "F", "Plan chain leaf", "--role", "plan", "--depends", "F8"],
+            [str(SCRIPT), "add", "F", "Plan chain leaf", "--depends", "F8"],
             cwd=str(proj_a),
             check=True,
         )
@@ -2927,8 +2995,8 @@ class TestTodoMd(unittest.TestCase):
             cwd=str(proj_a),
             check=True,
         )
-        self._run([str(SCRIPT), "add", "F", "Standalone work new"], cwd=str(proj_a), check=True)
-        self._run([str(SCRIPT), "add", "B", "Standalone bug new"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Standalone work new", "--role", "work"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "B", "Standalone bug new", "--role", "work"], cwd=str(proj_a), check=True)
 
         r_chain = self._run(
             [str(SCRIPT), "chain"],
@@ -2970,7 +3038,7 @@ class TestTodoMd(unittest.TestCase):
         # Add another task after B2 so Chain (F5 [DONE] -> B2 -> F12) stays a 2-open-task chain with 1 done task:
         # 3 tasks, 33% | 1 done, 2 open, and now B2 is ready!
         self._run(
-            [str(SCRIPT), "add", "F", "Followup after B2", "--depends", "B2"],
+            [str(SCRIPT), "add", "F", "Followup after B2", "--role", "work", "--depends", "B2"],
             cwd=str(proj_a),
             check=True,
         )
@@ -2990,27 +3058,27 @@ class TestTodoMd(unittest.TestCase):
         # - Long 3-open work chain (F15 -> F16 -> F17, remaining_effort = 3, velocity = 1/4)
         # Fast 2-open work chain has higher weighted velocity (1/3 > 1/4) and lower effort (2 < 3), so it ranks before the 3-open chain!
         self._run(
-            [str(SCRIPT), "add", "F", "Fast vel 1", "--depends", "proj_b:D1"],
+            [str(SCRIPT), "add", "F", "Fast vel 1", "--role", "work", "--depends", "proj_b:D1"],
             cwd=str(proj_a),
             check=True,
         )
         self._run(
-            [str(SCRIPT), "add", "F", "Fast vel 2", "--depends", "F13"],
+            [str(SCRIPT), "add", "F", "Fast vel 2", "--role", "work", "--depends", "F13"],
             cwd=str(proj_a),
             check=True,
         )
         self._run(
-            [str(SCRIPT), "add", "F", "Slow vel 1", "--depends", "proj_b:D1"],
+            [str(SCRIPT), "add", "F", "Slow vel 1", "--role", "work", "--depends", "proj_b:D1"],
             cwd=str(proj_a),
             check=True,
         )
         self._run(
-            [str(SCRIPT), "add", "F", "Slow vel 2", "--depends", "F15"],
+            [str(SCRIPT), "add", "F", "Slow vel 2", "--role", "work", "--depends", "F15"],
             cwd=str(proj_a),
             check=True,
         )
         self._run(
-            [str(SCRIPT), "add", "F", "Slow vel 3", "--depends", "F16"],
+            [str(SCRIPT), "add", "F", "Slow vel 3", "--role", "work", "--depends", "F16"],
             cwd=str(proj_a),
             check=True,
         )
@@ -3055,12 +3123,12 @@ class TestTodoMd(unittest.TestCase):
 
         # Child project run_block has F1 (which will be sequenced by todo_flow), standalone F2,
         # finale F3 (with local DONE prerequisite D1), and held branch H -> F4
-        self._run([str(SCRIPT), "add", "F", "Run block sequenced task"], cwd=str(run_block), check=True)
-        self._run([str(SCRIPT), "add", "F", "Run block standalone task"], cwd=str(run_block), check=True)
+        self._run([str(SCRIPT), "add", "F", "Run block sequenced task", "--role", "work"], cwd=str(run_block), check=True)
+        self._run([str(SCRIPT), "add", "F", "Run block standalone task", "--role", "work"], cwd=str(run_block), check=True)
         self._run([str(SCRIPT), "add", "D", "Run block done design"], cwd=str(run_block), check=True)
         self._run([str(SCRIPT), "done", "D1", "-m", "done"], cwd=str(run_block), check=True)
         self._run(
-            [str(SCRIPT), "add", "F", "Run block finale task", "--depends", "D1"],
+            [str(SCRIPT), "add", "F", "Run block finale task", "--role", "work", "--depends", "D1"],
             cwd=str(run_block),
             check=True,
         )
@@ -3070,19 +3138,19 @@ class TestTodoMd(unittest.TestCase):
             check=True,
         )
         self._run(
-            [str(SCRIPT), "add", "F", "Run block held leaf", "--depends", "D2"],
+            [str(SCRIPT), "add", "F", "Run block held leaf", "--role", "work", "--depends", "D2"],
             cwd=str(run_block),
             check=True,
         )
 
         # Child project todo_md has F1 (part of the cross-project chain), standalone F2,
         # finale F3 (after local DONE D1), and held task D2
-        self._run([str(SCRIPT), "add", "F", "Todo md downstream task"], cwd=str(todo_md_proj), check=True)
-        self._run([str(SCRIPT), "add", "F", "Todo md standalone task"], cwd=str(todo_md_proj), check=True)
+        self._run([str(SCRIPT), "add", "F", "Todo md downstream task", "--role", "work"], cwd=str(todo_md_proj), check=True)
+        self._run([str(SCRIPT), "add", "F", "Todo md standalone task", "--role", "work"], cwd=str(todo_md_proj), check=True)
         self._run([str(SCRIPT), "add", "D", "Todo md done design"], cwd=str(todo_md_proj), check=True)
         self._run([str(SCRIPT), "done", "D1", "-m", "done"], cwd=str(todo_md_proj), check=True)
         self._run(
-            [str(SCRIPT), "add", "F", "Todo md finale task", "--depends", "D1"],
+            [str(SCRIPT), "add", "F", "Todo md finale task", "--role", "work", "--depends", "D1"],
             cwd=str(todo_md_proj),
             check=True,
         )

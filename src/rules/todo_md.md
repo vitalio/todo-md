@@ -4,15 +4,24 @@
   via `cat` or manual file edits). Repository scope only: record each task in
   the `TODO.md` of the repository it belongs to, never in an unrelated
   repository's backlog.
-  - Status lifecycle & auto-ordering: `TODO.md` keeps active tasks ordered by
-    status (`🔵 [WIP]` -> `🎯 [NEXT]` -> `❓ [QUESTION]` -> `⚪ [NEW]` ->
-    `⏸️ [HOLD]`), and `TODO_ARCHIVE.md` keeps closed tasks (`✅ [DONE]`,
-    `❌ [CANCELED]`) newest-first. `NEW` is the default backlog status
-    (rendered in compact view by `{cmd:todo_md}`), `NEXT` is promoted in
+  - Status lifecycle, role fallback & pipe launch: `TODO.md` keeps active tasks
+    ordered by status (`🔵 [WIP]` -> `🎯 [NEXT]` -> `❓ [QUESTION]` ->
+    `⚪ [NEW]` -> `⏸️ [HOLD]`), and `TODO_ARCHIVE.md` keeps closed tasks
+    (`✅ [DONE]`, `❌ [CANCELED]`) newest-first. `NEW` is the default backlog
+    status (rendered in compact view by `{cmd:todo_md}`), `NEXT` is promoted in
     `role=plan` for prioritized ready tasks (expanded view), `WIP` is set
     automatically when starting `role=work task=<ID>`, and `done` is run
     before the final commit in `role=work` so backlog updates are committed
-    atomically with code changes.
+    atomically with code changes. Explicit `- Role: <role>` (normalized to
+    lowercase matching `^[a-z][a-z0-9_-]*$`) always wins; when omitted, `D*`
+    resolves to `design` and any non-`D` prefix (`F`, `B`, or custom `A-Z`)
+    resolves to `plan` in `NEW`/`QUESTION`/`HOLD` and to `work` in
+    `WIP`/`NEXT`. Promoting a task via `{cmd:todo_md} next <ID>` (or
+    `{cmd:todo_md} status <ID> NEXT`) strips an existing `- Role: plan` line so
+    promoted non-`D` tasks transition to `work` automatically, and
+    `{cmd:todo_md} <ID>` always emits `Role: <role>` in its preamble for
+    role-agnostic pipe auto-consumption
+    (`{cmd:todo_md} <ID> | agents_bundle | run_block`).
   - Target selection: pass `-C <dir|project>` or `--project <name>` before
     any `{cmd:todo_md}` subcommand (`ids`, `list`, `archive`, `last`, `last-id`,
     `next-id`, `files`, `check`, `add`, `edit`, `append`, `status`, `next`,
@@ -24,7 +33,7 @@
     overview: full `WIP`/`NEXT`/`QUESTION`, or first `NEW`/`HOLD` task when none
     exist, + compact backlog; supports `<project>:<ID>` and `<project>` addressing),
     `{cmd:todo_md} projects` (list workspace projects and open counts), `{cmd:todo_md} <ID>` /
-    `{cmd:todo_md} show <ID|last> [<STATUS|archive>]` (prints `Task:`, `Title:`, optional `Role:`,
+    `{cmd:todo_md} show <ID|last> [<STATUS|archive>]` (prints `Task:`, `Title:`, `Role:`,
     and `Workdir:` headers before `# TODO*.md:<line>`),
     `{cmd:todo_md} last [<STATUS|archive>]` (default: `NEW`),
     `{cmd:todo_md} last-id [<STATUS|archive>]` (default: `NEW`),
@@ -83,7 +92,7 @@
     cross-project orchestrator dependencies (`<project>:<ID>`) preserve one-way
     repo boundaries without modifying child repos
   - Transition: `{cmd:todo_md} status <ID> <WIP|NEXT|NEW|HOLD|QUESTION> [-m "<note>"] [--reopen] [-c|--commit]`,
-    `{cmd:todo_md} next <ID> [-m "<note>"] [--reopen] [-c|--commit]` (promote to `🎯 [NEXT]`),
+    `{cmd:todo_md} next <ID> [-m "<note>"] [--reopen] [-c|--commit]` (promote to `🎯 [NEXT]` and strip `- Role: plan`),
     `{cmd:todo_md} reopen <ID> [--status <STATUS>] [-m "<note>"] [-c|--commit]` (reopen archived task to `TODO.md`, default `NEW`; transitions from `TODO_ARCHIVE.md` without `--reopen` or `reopen` are rejected)
   - Close (prepends to `TODO_ARCHIVE.md`): `{cmd:todo_md} done <ID> [-m "<note>"] [-c|--commit]`
     (prints `Unblocked: ...` when closing `<ID>` completes all prerequisites for

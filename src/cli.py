@@ -96,12 +96,7 @@ KNOWN_SUBCOMMANDS = (
 
 
 def _validate_role_filter(prog: str, raw_val: str) -> str:
-    raw_role = raw_val.strip()
-    if not raw_role or "\n" in raw_role or "\r" in raw_role:
-        raise SystemExit(
-            f"{prog}: invalid --role value {raw_val!r}; expected a non-empty single-line role"
-        )
-    return raw_role
+    return _normalize_role_arg(raw_val)
 
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)

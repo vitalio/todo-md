@@ -335,6 +335,9 @@ def cmd_transition(
     tid = str(found["id"])
     sec_lines = list(found["lines"])  # type: ignore[arg-type]
     sec_lines[0] = _format_heading(final_status, tid, str(found["title"]), note=effective_note)
+    stripped_plan_role = False
+    if final_status == "NEXT":
+        sec_lines, stripped_plan_role = _strip_plan_role_from_section_lines(sec_lines)
 
     if require_archived or (is_archived and reopen):
         commit_msg = f"Reopen task {tid} as {final_status}: {base_title}"
@@ -351,15 +354,29 @@ def cmd_transition(
         src_path = base_dir / source_file
         orig_lines = read_if_exists(src_path).splitlines()
         in_fence = False
+        start_idx: int | None = None
+        end_idx: int | None = None
         for idx, line in enumerate(orig_lines):
             if line.lstrip().startswith(FENCE):
                 in_fence = not in_fence
             if not in_fence and line.startswith("# "):
+                if start_idx is not None:
+                    end_idx = idx
+                    break
                 m = HEADING_RE.match(line)
                 if m and m.group(3).upper() == target:
-                    orig_lines[idx] = sec_lines[0]
-                    break
-        src_path.write_text("\n".join(orig_lines) + "\n", encoding="utf-8")
+                    start_idx = idx
+                    if not stripped_plan_role:
+                        orig_lines[idx] = sec_lines[0]
+                        break
+        if stripped_plan_role and start_idx is not None:
+            if end_idx is None:
+                end_idx = len(orig_lines)
+            orig_lines = orig_lines[:start_idx] + [*sec_lines, ""] + orig_lines[end_idx:]
+            new_src_text = re.sub(r"\n{3,}", "\n\n", "\n".join(orig_lines).rstrip()) + "\n"
+            src_path.write_text(new_src_text, encoding="utf-8")
+        else:
+            src_path.write_text("\n".join(orig_lines) + "\n", encoding="utf-8")
         sys.stdout.write(f"{prog_name()}: updated {target} -> [{final_status}] in {source_file}\n")
         return _finalize_mutation(base_dir, commit_msg, commit=commit, no_commit=no_commit)
 
@@ -476,10 +493,52 @@ def _normalize_depends_clauses(raw_items: list[str]) -> list[str]:
     return clauses
 
 
-def _normalize_role_arg(raw_role: str) -> str:
-    role = raw_role.strip()
-    if "\n" in role or "\r" in role:
+def _strip_plan_role_from_section_lines(sec_lines: list[str]) -> tuple[list[str], bool]:
+    if not sec_lines:
+        return sec_lines, False
+    heading = sec_lines[0]
+    body_lines: list[str] = []
+    in_fence = False
+    removed = False
+    for line in sec_lines[1:]:
+        if line.lstrip().startswith(FENCE):
+            in_fence = not in_fence
+        if not in_fence:
+            m = ROLE_LINE_RE.match(line)
+            if m and m.group(1).strip().lower() == "plan":
+                removed = True
+                continue
+        body_lines.append(line)
+    if not removed:
+        return sec_lines, False
+    while body_lines and not body_lines[0].strip():
+        body_lines.pop(0)
+    while body_lines and not body_lines[-1].strip():
+        body_lines.pop()
+    if not body_lines:
+        return [heading], True
+    return [heading, "", *body_lines], True
+
+
+def _normalize_role_arg(raw_role: str, allow_empty: bool = False) -> str:
+    if "\n" in raw_role or "\r" in raw_role:
         raise SystemExit(f"{prog_name()}: --role value must be a single line")
+    stripped = raw_role.strip()
+    if not stripped:
+        if allow_empty:
+            return ""
+        raise SystemExit(f"{prog_name()}: --role requires a non-empty role name")
+    role = stripped.lower()
+    if role in RETIRED_ROLES:
+        replacement = RETIRED_ROLES[role]
+        raise SystemExit(
+            f"{prog_name()}: retired --role value {stripped!r}; use {replacement!r} instead"
+        )
+    if not ROLE_NAME_RE.match(role):
+        raise SystemExit(
+            f"{prog_name()}: invalid --role value {stripped!r}; "
+            "expected lowercase role identifier matching ^[a-z][a-z0-9_-]*$"
+        )
     return role
 
 
@@ -583,6 +642,9 @@ def cmd_add(
                 raise SystemExit(f"{prog}: {a} requires an argument")
             role = _normalize_role_arg(argv[i + 1])
             i += 2
+        elif a.startswith("--role="):
+            role = _normalize_role_arg(a.split("=", 1)[1])
+            i += 1
         elif a in ("--depends", "-d"):
             if i + 1 >= len(argv):
                 raise SystemExit(f"{prog}: {a} requires an argument")
@@ -697,8 +759,11 @@ def cmd_edit(
         elif a == "--role":
             if i + 1 >= len(argv):
                 raise SystemExit(f"{prog}: {a} requires an argument")
-            role = _normalize_role_arg(argv[i + 1])
+            role = _normalize_role_arg(argv[i + 1], allow_empty=True)
             i += 2
+        elif a.startswith("--role="):
+            role = _normalize_role_arg(a.split("=", 1)[1], allow_empty=True)
+            i += 1
         elif a in ("--depends", "-d"):
             if i + 1 >= len(argv):
                 raise SystemExit(f"{prog}: {a} requires an argument")

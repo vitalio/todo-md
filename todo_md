@@ -14,7 +14,7 @@
   {prog} edit <ID> [opts]                    Update task title, note, body, role, or deps (-t TITLE, -m NOTE, -b BODY|-, --role ROLE, --depends SPEC)
   {prog} append <ID> [-b TEXT|-]             Append text to task <ID> body (from -b TEXT|- or stdin)
   {prog} status <ID> <STATUS> [opts]         Update status of <ID> (WIP|NEXT|NEW|HOLD|QUESTION|DONE|CANCELED; opts: -m NOTE, --reopen)
-  {prog} next <ID> [-m NOTE] [--reopen]      Promote task <ID> to 🎯 [NEXT] priority at the top of TODO.md (--reopen if archived)
+  {prog} next <ID> [-m NOTE] [--reopen]      Promote task <ID> to 🎯 [NEXT] priority at the top of TODO.md (strips - Role: plan; --reopen if archived)
   {prog} reopen <ID> [opts]                  Move archived task <ID> back to TODO.md (opts: -s/--status STATUS [default: NEW], -m NOTE)
   {prog} done <ID> [-m SHA_OR_NOTE]          Mark task <ID> as DONE and move it to TODO_ARCHIVE.md
   {prog} cancel <ID> [-m REASON]             Mark task <ID> as CANCELED and move it to TODO_ARCHIVE.md
@@ -74,7 +74,7 @@ import unicodedata
 from datetime import date
 from pathlib import Path
 
-VERSION = "0.27.0"
+VERSION = "0.28.0"
 REPO_MARKER = "todo_md-repo: vitalio/todo_md"
 DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/vitalio/todo_md/main/todo_md"
 FENCE = chr(96) * 3
@@ -110,11 +110,14 @@ ANY_ID_RE = re.compile(
 BACKTICK_TOKEN_RE = re.compile(r"`([^`\n]+)`")
 PROJECT_TASK_RE = re.compile(r"^(.+?):([A-Za-z]\d+)$")
 DEPENDS_LINE_RE = re.compile(r"^\s*[-*]\s*Depends on:\s*(.+?)\s*$", re.IGNORECASE)
-ROLE_LINE_RE = re.compile(r"^\s*[-*]\s*Role:\s*(.+?)\s*$", re.IGNORECASE)
+ROLE_LINE_RE = re.compile(r"^\s*[-*]\s*Role:\s*(.*?)\s*$", re.IGNORECASE)
+ROLE_NAME_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
+RETIRED_ROLES: dict[str, str] = {
+    "execute": "work",
+    "audit": "review",
+}
 PREFIX_DEFAULT_ROLES: dict[str, str] = {
     "D": "design",
-    "F": "work",
-    "B": "work",
 }
 ROLE_EASE_ORDER: dict[str, int] = {
     "work": 0,
@@ -771,16 +774,32 @@ def parse_task_role(section_text: str) -> str | None:
         if m:
             role = m.group(1).strip()
             if role:
-                return role
+                return role.lower()
     return None
 
 
-def resolve_task_role(task_id: str, section_text: str) -> str | None:
+def resolve_task_role(
+    task_id: str,
+    section_text: str,
+    status: str | None = None,
+) -> str:
     explicit = parse_task_role(section_text)
     if explicit:
-        return explicit
-    prefix = task_id.strip().upper()[:1]
-    return PREFIX_DEFAULT_ROLES.get(prefix)
+        return explicit.lower()
+    prefix = task_id.strip().upper().split(":")[-1][:1]
+    if prefix in PREFIX_DEFAULT_ROLES:
+        return PREFIX_DEFAULT_ROLES[prefix]
+    norm_status = (status or "").strip().upper()
+    if not norm_status and section_text:
+        first_line = section_text.splitlines()[0].strip()
+        m = HEADING_RE.match(first_line)
+        if m:
+            norm_status = m.group(2).upper()
+    if norm_status in ("WIP", "NEXT"):
+        return "work"
+    if norm_status in ("NEW", "QUESTION", "HOLD"):
+        return "plan"
+    return "work" if norm_status in ("DONE", "CANCELED") else "plan"
 
 
 def format_dependency_summary(
@@ -1060,11 +1079,13 @@ def cmd_show(base_dir: Path, task_id: str) -> int:
             tid = str(t["id"]).upper()
             base_title, _ = _strip_heading_note(str(t["title"]))
             section = str(t["section"])
-            role = resolve_task_role(tid, section)
-            header_lines = [f"Task: {tid}", f"Title: {base_title}"]
-            if role:
-                header_lines.append(f"Role: {role}")
-            header_lines.append(f"Workdir: {workdir}")
+            role = resolve_task_role(tid, section, status=str(t.get("status", "")))
+            header_lines = [
+                f"Task: {tid}",
+                f"Title: {base_title}",
+                f"Role: {role}",
+                f"Workdir: {workdir}",
+            ]
             headers = "\n".join(header_lines)
             dep_line = format_dependency_summary(base_dir, section)
             dep_block = f"\n{dep_line}" if dep_line else ""
@@ -1183,13 +1204,21 @@ def _order_active_tasks_for_list(
 
 
 def _task_role_badge(task: dict[str, object]) -> str:
-    role = resolve_task_role(str(task["id"]), str(task["section"]))
+    role = resolve_task_role(
+        str(task["id"]),
+        str(task["section"]),
+        status=str(task.get("status", "")),
+    )
     return f"[{role}]" if role else ""
 
 
 def _task_matches_role(task: dict[str, object], wanted_role: str) -> bool:
-    role = resolve_task_role(str(task["id"]), str(task["section"]))
-    return role is not None and role.lower() == wanted_role
+    role = resolve_task_role(
+        str(task["id"]),
+        str(task["section"]),
+        status=str(task.get("status", "")),
+    )
+    return bool(role) and role.lower() == wanted_role.strip().lower()
 
 
 DEFAULT_TERMINAL_WIDTH = 100
@@ -1723,6 +1752,35 @@ def validate_all(base_dir: Path) -> tuple[list[str], int]:
             tid = str(t["id"]).upper()
             lineno = int(t["line"])
             sec = str(t["section"])
+            in_role_fence = False
+            role_entries: list[tuple[int, str]] = []
+            for offset, sline in enumerate(sec.splitlines()):
+                if sline.lstrip().startswith(FENCE):
+                    in_role_fence = not in_role_fence
+                    continue
+                if in_role_fence:
+                    continue
+                rm = ROLE_LINE_RE.match(sline)
+                if rm:
+                    role_entries.append((lineno + offset, rm.group(1).strip()))
+            if len(role_entries) > 1:
+                dup_lines = ", ".join(str(r_line) for r_line, _ in role_entries)
+                errors.append(
+                    f"TODO.md:{role_entries[1][0]}: task {tid} has multiple Role: lines (lines {dup_lines})"
+                )
+            for r_line, raw_role in role_entries:
+                low_role = raw_role.lower()
+                if low_role in RETIRED_ROLES:
+                    replacement = RETIRED_ROLES[low_role]
+                    errors.append(
+                        f"TODO.md:{r_line}: task {tid} uses retired role {raw_role!r} "
+                        f"(use {replacement!r} instead)"
+                    )
+                elif not ROLE_NAME_RE.match(raw_role):
+                    errors.append(
+                        f"TODO.md:{r_line}: task {tid} has invalid Role: value {raw_role!r} "
+                        "(expected lowercase identifier matching ^[a-z][a-z0-9_-]*$)"
+                    )
             clauses, syntax_errs = parse_dependency_clauses(sec)
             for serr in syntax_errs:
                 errors.append(f"TODO.md:{lineno}: task {tid} has dependency syntax error: {serr}")
@@ -2644,7 +2702,11 @@ def _resolve_node_role(
     raw_role = nd.get("role")
     if not raw_role:
         raw_id = str(nd.get("id") or u[1]).split(":")[-1].strip()
-        raw_role = resolve_task_role(raw_id, str(nd.get("section", "")))
+        raw_role = resolve_task_role(
+            raw_id,
+            str(nd.get("section", "")),
+            status=str(nd.get("status", "")),
+        )
     if not raw_role:
         return None
     return str(raw_role).strip().lower() or None
@@ -3011,7 +3073,11 @@ def plan_execution_chains_by_role(
         nd = nodes[u]
         if not nd.get("exists"):
             return None
-        resolved = resolve_task_role(str(nd["id"]), str(nd["section"]))
+        resolved = resolve_task_role(
+            str(nd["id"]),
+            str(nd["section"]),
+            status=str(nd.get("status", "")),
+        )
         return resolved.strip().lower() if resolved else None
 
     q_work: list[tuple[Path, str]] = []
@@ -3515,6 +3581,9 @@ def cmd_transition(
     tid = str(found["id"])
     sec_lines = list(found["lines"])  # type: ignore[arg-type]
     sec_lines[0] = _format_heading(final_status, tid, str(found["title"]), note=effective_note)
+    stripped_plan_role = False
+    if final_status == "NEXT":
+        sec_lines, stripped_plan_role = _strip_plan_role_from_section_lines(sec_lines)
 
     if require_archived or (is_archived and reopen):
         commit_msg = f"Reopen task {tid} as {final_status}: {base_title}"
@@ -3531,15 +3600,29 @@ def cmd_transition(
         src_path = base_dir / source_file
         orig_lines = read_if_exists(src_path).splitlines()
         in_fence = False
+        start_idx: int | None = None
+        end_idx: int | None = None
         for idx, line in enumerate(orig_lines):
             if line.lstrip().startswith(FENCE):
                 in_fence = not in_fence
             if not in_fence and line.startswith("# "):
+                if start_idx is not None:
+                    end_idx = idx
+                    break
                 m = HEADING_RE.match(line)
                 if m and m.group(3).upper() == target:
-                    orig_lines[idx] = sec_lines[0]
-                    break
-        src_path.write_text("\n".join(orig_lines) + "\n", encoding="utf-8")
+                    start_idx = idx
+                    if not stripped_plan_role:
+                        orig_lines[idx] = sec_lines[0]
+                        break
+        if stripped_plan_role and start_idx is not None:
+            if end_idx is None:
+                end_idx = len(orig_lines)
+            orig_lines = orig_lines[:start_idx] + [*sec_lines, ""] + orig_lines[end_idx:]
+            new_src_text = re.sub(r"\n{3,}", "\n\n", "\n".join(orig_lines).rstrip()) + "\n"
+            src_path.write_text(new_src_text, encoding="utf-8")
+        else:
+            src_path.write_text("\n".join(orig_lines) + "\n", encoding="utf-8")
         sys.stdout.write(f"{prog_name()}: updated {target} -> [{final_status}] in {source_file}\n")
         return _finalize_mutation(base_dir, commit_msg, commit=commit, no_commit=no_commit)
 
@@ -3656,10 +3739,52 @@ def _normalize_depends_clauses(raw_items: list[str]) -> list[str]:
     return clauses
 
 
-def _normalize_role_arg(raw_role: str) -> str:
-    role = raw_role.strip()
-    if "\n" in role or "\r" in role:
+def _strip_plan_role_from_section_lines(sec_lines: list[str]) -> tuple[list[str], bool]:
+    if not sec_lines:
+        return sec_lines, False
+    heading = sec_lines[0]
+    body_lines: list[str] = []
+    in_fence = False
+    removed = False
+    for line in sec_lines[1:]:
+        if line.lstrip().startswith(FENCE):
+            in_fence = not in_fence
+        if not in_fence:
+            m = ROLE_LINE_RE.match(line)
+            if m and m.group(1).strip().lower() == "plan":
+                removed = True
+                continue
+        body_lines.append(line)
+    if not removed:
+        return sec_lines, False
+    while body_lines and not body_lines[0].strip():
+        body_lines.pop(0)
+    while body_lines and not body_lines[-1].strip():
+        body_lines.pop()
+    if not body_lines:
+        return [heading], True
+    return [heading, "", *body_lines], True
+
+
+def _normalize_role_arg(raw_role: str, allow_empty: bool = False) -> str:
+    if "\n" in raw_role or "\r" in raw_role:
         raise SystemExit(f"{prog_name()}: --role value must be a single line")
+    stripped = raw_role.strip()
+    if not stripped:
+        if allow_empty:
+            return ""
+        raise SystemExit(f"{prog_name()}: --role requires a non-empty role name")
+    role = stripped.lower()
+    if role in RETIRED_ROLES:
+        replacement = RETIRED_ROLES[role]
+        raise SystemExit(
+            f"{prog_name()}: retired --role value {stripped!r}; use {replacement!r} instead"
+        )
+    if not ROLE_NAME_RE.match(role):
+        raise SystemExit(
+            f"{prog_name()}: invalid --role value {stripped!r}; "
+            "expected lowercase role identifier matching ^[a-z][a-z0-9_-]*$"
+        )
     return role
 
 
@@ -3763,6 +3888,9 @@ def cmd_add(
                 raise SystemExit(f"{prog}: {a} requires an argument")
             role = _normalize_role_arg(argv[i + 1])
             i += 2
+        elif a.startswith("--role="):
+            role = _normalize_role_arg(a.split("=", 1)[1])
+            i += 1
         elif a in ("--depends", "-d"):
             if i + 1 >= len(argv):
                 raise SystemExit(f"{prog}: {a} requires an argument")
@@ -3877,8 +4005,11 @@ def cmd_edit(
         elif a == "--role":
             if i + 1 >= len(argv):
                 raise SystemExit(f"{prog}: {a} requires an argument")
-            role = _normalize_role_arg(argv[i + 1])
+            role = _normalize_role_arg(argv[i + 1], allow_empty=True)
             i += 2
+        elif a.startswith("--role="):
+            role = _normalize_role_arg(a.split("=", 1)[1], allow_empty=True)
+            i += 1
         elif a in ("--depends", "-d"):
             if i + 1 >= len(argv):
                 raise SystemExit(f"{prog}: {a} requires an argument")
@@ -4735,12 +4866,7 @@ KNOWN_SUBCOMMANDS = (
 
 
 def _validate_role_filter(prog: str, raw_val: str) -> str:
-    raw_role = raw_val.strip()
-    if not raw_role or "\n" in raw_role or "\r" in raw_role:
-        raise SystemExit(
-            f"{prog}: invalid --role value {raw_val!r}; expected a non-empty single-line role"
-        )
-    return raw_role
+    return _normalize_role_arg(raw_val)
 
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)

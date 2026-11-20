@@ -1,13 +1,3 @@
-# 🎯 [NEXT] F43: Implement status-aware task role fallback, promotion transition, and role validation
-
-- Role: work
-- Implement the status-aware role assignment and validation contract from `todo_flow` (`docs/adr/0001-task-role-assignment-and-status-fallback.md`):
-  1. Status-aware role fallback (`src/header.py`, `src/parser.py`): set `PREFIX_DEFAULT_ROLES = {"D": "design"}` (removing `"F": "work"` and `"B": "work"`). Update `resolve_task_role(task_id, section_text, status=...)` (and callers across `show`, `list`, `chain`, `next-id`) so explicit `- Role: <role>` always wins (normalized to lowercase); when omitted, `D*` resolves to `"design"`, and any non-`D` prefix (`F`, `B`, or custom `A-Z`) resolves to `"work"` when status is `WIP` or `NEXT` and to `"plan"` when status is `NEW`, `QUESTION`, or `HOLD`. Ensure `todo_md <ID>` (`show`) always emits `Role: <role>` in its preamble.
-  2. Promotion transition & CLI role normalization (`src/commands.py`): normalize `--role` values in `_normalize_role_arg()` to lowercase and validate against `^[a-z][a-z0-9_-]*$` (rejecting retired roles `execute` and `audit` with a clear hint to use `work` or `review`). When promoting a task to `NEXT` via `todo_md next <ID>` (or `todo_md status <ID> NEXT`), remove an existing `- Role: plan` line from the task body so the promoted non-`D` task resolves to `work` automatically.
-  3. Active backlog validation (`validate_all()` in `src/parser.py`): in `TODO.md` (excluding historical `TODO_ARCHIVE.md`), report an error if a task contains multiple `- Role:` lines, a `- Role:` value not matching `^[a-z][a-z0-9_-]*$`, or a retired role name (`execute` -> `work`, `audit` -> `review`).
-  4. Pipe deduplication & rule sync (`src/bundles/todo_md.bundle`, `src/rules/todo_md.md`): guard `$ todo_md {task:}` with `[if piped!=1]` in `src/bundles/todo_md.bundle` so `todo_md <ID> | agents_bundle | run_block` does not print the task twice, and document the status-aware role fallback, `todo_md next <ID>` transition, and role-agnostic pipe auto-consumption in `src/rules/todo_md.md` and `README.md`.
-- Update `tests/test_todo_md.py`, rebuild `./todo_md` via `build.py`, and bump `VERSION` for a MINOR release.
-
 # 🎯 [NEXT] F49: Include diagnostic stdout/stderr msg context across all returncode assertions in tests/test_todo_md.py
 
 - Role: work

@@ -5,7 +5,9 @@ rule vitalio/todo_md:todo_md
         [if workspace=1] $ todo_md -w
         [if workspace!=1] $ todo_md
     [/if]
-    [if task!=] $ todo_md {task:}
+    [if task!=]
+        [if piped!=1] $ todo_md {task:}
+    [/if]
     prompt Mode: DESIGN. Explore requirements and architecture; once agreed, update AGENTS.md and .agents_bundle as needed, and record the design specification in TODO.md via todo_md (commit TODO*.md once backlog updates are finished).
 [/if]
 [if role=plan]
@@ -13,8 +15,10 @@ rule vitalio/todo_md:todo_md
         [if workspace=1] $ todo_md -w
         [if workspace!=1] $ todo_md
     [/if]
-    [if task!=] $ todo_md {task:}
-    prompt Mode: PLANNING. Decompose work into flat, self-contained tasks in TODO.md (default status NEW), record target repository file paths and key symbol names (functions/classes) in backticks in each task body rather than brittle line ranges, promote ready prioritized tasks via todo_md next <ID>, and commit TODO*.md once backlog updates are finished; once task <ID> is agreed, initialize a new session bundle via todo_md <ID> | agents_bundle role=work | run_block (or agents_bundle role=work task=<ID> | run_block).
+    [if task!=]
+        [if piped!=1] $ todo_md {task:}
+    [/if]
+    prompt Mode: PLANNING. Decompose work into flat, self-contained tasks in TODO.md (default status NEW), record target repository file paths and key symbol names (functions/classes) in backticks in each task body rather than brittle line ranges, promote ready prioritized tasks via todo_md next <ID>, and commit TODO*.md once backlog updates are finished; once task <ID> is agreed, initialize a new session bundle via todo_md <ID> | agents_bundle | run_block (or agents_bundle role=work task=<ID> | run_block).
 [/if]
 [if role=work]
     [if task=] var task=$(todo_md next-id --role work)
@@ -25,7 +29,7 @@ rule vitalio/todo_md:todo_md
     [/if]
     [if task!=]
         $ todo_md status {task:} WIP
-        $ todo_md {task:}
+        [if piped!=1] $ todo_md {task:}
         include $(todo_md files {task:} --max-lines 400 --max-total-lines 1200 --max-bytes 32768)
         prompt Mode: WORK (task={task:}). Emit your first run_block in this very first reply without restating the plan in chat: if all target files for task {task:} are already preloaded above, apply edits, run tests, and print the diff in step 1; otherwise run a single batched read step (using targeted grep/sed for large files) for any missing target files first. Deliver verified code, synced docs, and tests, mark the task done via todo_md done {task:} before the final commit, and commit atomically.
     [/if]
@@ -39,7 +43,7 @@ rule vitalio/todo_md:todo_md
         prompt Mode: REVIEW. Review the requested scope against active rules (checking TODO.md to avoid duplicates), report findings in chat, and after user agreement record remediation tasks in TODO.md via todo_md add and commit TODO*.md.
     [/if]
     [if task!=]
-        $ todo_md {task:}
+        [if piped!=1] $ todo_md {task:}
         include $(todo_md files {task:} --max-lines 400 --max-total-lines 1200 --max-bytes 32768)
         prompt Mode: REVIEW (task={task:}). Review task {task:} implementation, diff/commits, tests, and docs against the task specification and active rules (checking TODO.md to avoid duplicates), report findings in chat, and after user agreement record remediation tasks in TODO.md via todo_md add and commit TODO*.md.
     [/if]

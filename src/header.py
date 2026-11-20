@@ -14,7 +14,7 @@
   {prog} edit <ID> [opts]                    Update task title, note, body, role, or deps (-t TITLE, -m NOTE, -b BODY|-, --role ROLE, --depends SPEC)
   {prog} append <ID> [-b TEXT|-]             Append text to task <ID> body (from -b TEXT|- or stdin)
   {prog} status <ID> <STATUS> [opts]         Update status of <ID> (WIP|NEXT|NEW|HOLD|QUESTION|DONE|CANCELED; opts: -m NOTE, --reopen)
-  {prog} next <ID> [-m NOTE] [--reopen]      Promote task <ID> to 🎯 [NEXT] priority at the top of TODO.md (--reopen if archived)
+  {prog} next <ID> [-m NOTE] [--reopen]      Promote task <ID> to 🎯 [NEXT] priority at the top of TODO.md (strips - Role: plan; --reopen if archived)
   {prog} reopen <ID> [opts]                  Move archived task <ID> back to TODO.md (opts: -s/--status STATUS [default: NEW], -m NOTE)
   {prog} done <ID> [-m SHA_OR_NOTE]          Mark task <ID> as DONE and move it to TODO_ARCHIVE.md
   {prog} cancel <ID> [-m REASON]             Mark task <ID> as CANCELED and move it to TODO_ARCHIVE.md
@@ -110,11 +110,14 @@ ANY_ID_RE = re.compile(
 BACKTICK_TOKEN_RE = re.compile(r"`([^`\n]+)`")
 PROJECT_TASK_RE = re.compile(r"^(.+?):([A-Za-z]\d+)$")
 DEPENDS_LINE_RE = re.compile(r"^\s*[-*]\s*Depends on:\s*(.+?)\s*$", re.IGNORECASE)
-ROLE_LINE_RE = re.compile(r"^\s*[-*]\s*Role:\s*(.+?)\s*$", re.IGNORECASE)
+ROLE_LINE_RE = re.compile(r"^\s*[-*]\s*Role:\s*(.*?)\s*$", re.IGNORECASE)
+ROLE_NAME_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
+RETIRED_ROLES: dict[str, str] = {
+    "execute": "work",
+    "audit": "review",
+}
 PREFIX_DEFAULT_ROLES: dict[str, str] = {
     "D": "design",
-    "F": "work",
-    "B": "work",
 }
 ROLE_EASE_ORDER: dict[str, int] = {
     "work": 0,

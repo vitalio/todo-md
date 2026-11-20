@@ -615,16 +615,32 @@ def parse_task_role(section_text: str) -> str | None:
         if m:
             role = m.group(1).strip()
             if role:
-                return role
+                return role.lower()
     return None
 
 
-def resolve_task_role(task_id: str, section_text: str) -> str | None:
+def resolve_task_role(
+    task_id: str,
+    section_text: str,
+    status: str | None = None,
+) -> str:
     explicit = parse_task_role(section_text)
     if explicit:
-        return explicit
-    prefix = task_id.strip().upper()[:1]
-    return PREFIX_DEFAULT_ROLES.get(prefix)
+        return explicit.lower()
+    prefix = task_id.strip().upper().split(":")[-1][:1]
+    if prefix in PREFIX_DEFAULT_ROLES:
+        return PREFIX_DEFAULT_ROLES[prefix]
+    norm_status = (status or "").strip().upper()
+    if not norm_status and section_text:
+        first_line = section_text.splitlines()[0].strip()
+        m = HEADING_RE.match(first_line)
+        if m:
+            norm_status = m.group(2).upper()
+    if norm_status in ("WIP", "NEXT"):
+        return "work"
+    if norm_status in ("NEW", "QUESTION", "HOLD"):
+        return "plan"
+    return "work" if norm_status in ("DONE", "CANCELED") else "plan"
 
 
 def format_dependency_summary(
@@ -904,11 +920,13 @@ def cmd_show(base_dir: Path, task_id: str) -> int:
             tid = str(t["id"]).upper()
             base_title, _ = _strip_heading_note(str(t["title"]))
             section = str(t["section"])
-            role = resolve_task_role(tid, section)
-            header_lines = [f"Task: {tid}", f"Title: {base_title}"]
-            if role:
-                header_lines.append(f"Role: {role}")
-            header_lines.append(f"Workdir: {workdir}")
+            role = resolve_task_role(tid, section, status=str(t.get("status", "")))
+            header_lines = [
+                f"Task: {tid}",
+                f"Title: {base_title}",
+                f"Role: {role}",
+                f"Workdir: {workdir}",
+            ]
             headers = "\n".join(header_lines)
             dep_line = format_dependency_summary(base_dir, section)
             dep_block = f"\n{dep_line}" if dep_line else ""
@@ -1027,13 +1045,21 @@ def _order_active_tasks_for_list(
 
 
 def _task_role_badge(task: dict[str, object]) -> str:
-    role = resolve_task_role(str(task["id"]), str(task["section"]))
+    role = resolve_task_role(
+        str(task["id"]),
+        str(task["section"]),
+        status=str(task.get("status", "")),
+    )
     return f"[{role}]" if role else ""
 
 
 def _task_matches_role(task: dict[str, object], wanted_role: str) -> bool:
-    role = resolve_task_role(str(task["id"]), str(task["section"]))
-    return role is not None and role.lower() == wanted_role
+    role = resolve_task_role(
+        str(task["id"]),
+        str(task["section"]),
+        status=str(task.get("status", "")),
+    )
+    return bool(role) and role.lower() == wanted_role.strip().lower()
 
 
 DEFAULT_TERMINAL_WIDTH = 100
@@ -1567,6 +1593,35 @@ def validate_all(base_dir: Path) -> tuple[list[str], int]:
             tid = str(t["id"]).upper()
             lineno = int(t["line"])
             sec = str(t["section"])
+            in_role_fence = False
+            role_entries: list[tuple[int, str]] = []
+            for offset, sline in enumerate(sec.splitlines()):
+                if sline.lstrip().startswith(FENCE):
+                    in_role_fence = not in_role_fence
+                    continue
+                if in_role_fence:
+                    continue
+                rm = ROLE_LINE_RE.match(sline)
+                if rm:
+                    role_entries.append((lineno + offset, rm.group(1).strip()))
+            if len(role_entries) > 1:
+                dup_lines = ", ".join(str(r_line) for r_line, _ in role_entries)
+                errors.append(
+                    f"TODO.md:{role_entries[1][0]}: task {tid} has multiple Role: lines (lines {dup_lines})"
+                )
+            for r_line, raw_role in role_entries:
+                low_role = raw_role.lower()
+                if low_role in RETIRED_ROLES:
+                    replacement = RETIRED_ROLES[low_role]
+                    errors.append(
+                        f"TODO.md:{r_line}: task {tid} uses retired role {raw_role!r} "
+                        f"(use {replacement!r} instead)"
+                    )
+                elif not ROLE_NAME_RE.match(raw_role):
+                    errors.append(
+                        f"TODO.md:{r_line}: task {tid} has invalid Role: value {raw_role!r} "
+                        "(expected lowercase identifier matching ^[a-z][a-z0-9_-]*$)"
+                    )
             clauses, syntax_errs = parse_dependency_clauses(sec)
             for serr in syntax_errs:
                 errors.append(f"TODO.md:{lineno}: task {tid} has dependency syntax error: {serr}")
@@ -2488,7 +2543,11 @@ def _resolve_node_role(
     raw_role = nd.get("role")
     if not raw_role:
         raw_id = str(nd.get("id") or u[1]).split(":")[-1].strip()
-        raw_role = resolve_task_role(raw_id, str(nd.get("section", "")))
+        raw_role = resolve_task_role(
+            raw_id,
+            str(nd.get("section", "")),
+            status=str(nd.get("status", "")),
+        )
     if not raw_role:
         return None
     return str(raw_role).strip().lower() or None
@@ -2855,7 +2914,11 @@ def plan_execution_chains_by_role(
         nd = nodes[u]
         if not nd.get("exists"):
             return None
-        resolved = resolve_task_role(str(nd["id"]), str(nd["section"]))
+        resolved = resolve_task_role(
+            str(nd["id"]),
+            str(nd["section"]),
+            status=str(nd.get("status", "")),
+        )
         return resolved.strip().lower() if resolved else None
 
     q_work: list[tuple[Path, str]] = []
