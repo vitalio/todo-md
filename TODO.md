@@ -105,7 +105,7 @@ Allow exporting parsed tasks as JSON for scripting.
 - Preserve composable row styling (`_style_task_row()` for external-project, `DONE` under `--all`, and target highlighted tasks) across all wrapped lines and tree connectors.
 - Update `src/header.py`, `src/rules/todo_md.md`, `README.md`, and `tests/test_todo_md.py`, rebuild `./todo_md` via `build.py`, and bump `VERSION` for a MINOR release.
 
-# ⚪ [NEW] F50: Unify todo_md queue <ID> into todo_md chain [<ID>...] [--all] with target root/leaf scoping and Next actionable footer
+# ⚪ [NEW] F50: Unify Quest-Log graph view in todo_md chain [<ID>...] [--all] with target root/leaf scoping, queue alias, and Quest-Log docs
 
 - Role: work
 - Depends on: F53
@@ -113,11 +113,5 @@ Allow exporting parsed tasks as JSON for scripting.
   - When a single `<ID>` is passed and `<ID>` is a root or intermediate milestone task (a task with open or `DONE` prerequisites), render the hierarchical chain/sub-chain rooted at `<ID>` (hiding `DONE` tasks by default and rendering them dimmed when `--all` is passed), highlight `<ID>`, and print `Next actionable: <ref>` at the end.
   - When a single leaf task `<ID>` (no prerequisites of its own) or multiple target IDs `<ID>...` are passed, filter `todo_md chain` to the chain(s) or sections containing the target `<ID>...`, highlight all matched target IDs via `_style_task_row()` (composing with external-project and `--all` `DONE` dimming), and print `Next actionable: <ref>` when a single `<ID>` is targeted.
 - Route `todo_md queue <ID> [--all]` in `src/cli.py` / `src/commands.py` as a CLI alias to `todo_md chain <ID> [--all]` (preserving error handling and exit codes for missing tasks, dependency syntax errors, and cycles).
-- Keep `src/header.py` (`--help`), `src/rules/todo_md.md`, `README.md`, and `tests/test_todo_md.py` in sync, rebuild `./todo_md` via `build.py`, and bump `VERSION` for a MINOR release.
-
-# ⚪ [NEW] F37: Document Quest-Log chain, side-quest, and priority concepts in AGENTS.md and README.md
-
-- Role: work
-- Depends on: F50
-- Expand `## Product Philosophy & Quest-Log UX` in `AGENTS.md` to define `Chain finales` (ready `work` finale quests whose prerequisite chain is already `DONE`, surfaced first for maximum completion payoff), root-anchored `Chain <N> -> <root_ref>: <root_title>` questlines with nested `Sub-chain` milestones and RPG progress stats (`<total> tasks, <pct>% | <done> done, <open> open`), `Standalone tasks` (side quests ordered by bugs `B*` first, role execution ease `work` -> `plan` -> `design`, then status), `Held branches` (locked branches waiting on `HOLD` conditions), and monotonic Quest Momentum ranking (in-flight `WIP` or most-recently-completed `DONE` affinity, started-chain status floor, whole-cone bug/effort metrics, and immutable root tie-breaker in `plan_execution_chains()`).
-- Add a concise Quest-Log summary in `README.md` explaining `chain`, `queue`, and `done` progression for users (keeping `src/rules/todo_md.md` lean without narrative metaphors).
+- Expand `## Product Philosophy & Quest-Log UX` in `AGENTS.md` and add a concise Quest-Log summary in `README.md` (folding in `F37`) covering `Chain finales`, root-anchored `Chain <N> -> <root_ref>` questlines, nested `Sub-chain` milestones, `Standalone tasks`, `Held branches`, composable visual modes (external project, `--all` `DONE`, target highlight), and monotonic Quest Momentum ranking.
+- Keep `src/header.py` (`--help`), `src/rules/todo_md.md`, `README.md`, `AGENTS.md`, and `tests/test_todo_md.py` in sync, rebuild `./todo_md` via `build.py`, and bump `VERSION` for a MINOR release.
