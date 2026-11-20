@@ -3034,5 +3034,267 @@ class TestTodoMd(unittest.TestCase):
         self.assertLess(ws_solo.index("proj_a:B4"), ws_solo.index("proj_b:F3"), msg=ws_solo)
         self.assertLess(ws_solo.index("proj_b:F3"), ws_solo.index("proj_a:F11"), msg=ws_solo)
 
+    def test_chain_todo_projects_orchestrator_dag_child_scoping_cwd_refs_and_ansi_dimming(self):
+        ws = self.tmp / "ws_orch"
+        todo_flow = ws / "todo_flow"
+        run_block = ws / "run_block"
+        todo_md_proj = ws / "todo_md"
+        unlisted_proj = ws / "unlisted_proj"
+        for d in (todo_flow, run_block, todo_md_proj, unlisted_proj):
+            d.mkdir(parents=True)
+            self._run([str(SCRIPT), "init"], cwd=str(d), check=True)
+
+        # Configure .todo_projects in todo_flow listing run_block and todo_md (unlisted_proj is excluded)
+        (todo_flow / ".todo_projects").write_text(
+            "# Workspace projects managed by todo_flow\nrun_block\ntodo_md  # inline comment\n",
+            encoding="utf-8",
+        )
+
+        # Unlisted project has an open task that should be excluded when .todo_projects is present
+        self._run([str(SCRIPT), "add", "F", "Unlisted project task"], cwd=str(unlisted_proj), check=True)
+
+        # Child project run_block has F1 (which will be sequenced by todo_flow), standalone F2,
+        # finale F3 (with local DONE prerequisite D1), and held branch H -> F4
+        self._run([str(SCRIPT), "add", "F", "Run block sequenced task"], cwd=str(run_block), check=True)
+        self._run([str(SCRIPT), "add", "F", "Run block standalone task"], cwd=str(run_block), check=True)
+        self._run([str(SCRIPT), "add", "D", "Run block done design"], cwd=str(run_block), check=True)
+        self._run([str(SCRIPT), "done", "D1", "-m", "done"], cwd=str(run_block), check=True)
+        self._run(
+            [str(SCRIPT), "add", "F", "Run block finale task", "--depends", "D1"],
+            cwd=str(run_block),
+            check=True,
+        )
+        self._run(
+            [str(SCRIPT), "add", "D", "Run block held root", "--status", "HOLD"],
+            cwd=str(run_block),
+            check=True,
+        )
+        self._run(
+            [str(SCRIPT), "add", "F", "Run block held leaf", "--depends", "D2"],
+            cwd=str(run_block),
+            check=True,
+        )
+
+        # Child project todo_md has F1 (part of the cross-project chain), standalone F2,
+        # finale F3 (after local DONE D1), and held task D2
+        self._run([str(SCRIPT), "add", "F", "Todo md downstream task"], cwd=str(todo_md_proj), check=True)
+        self._run([str(SCRIPT), "add", "F", "Todo md standalone task"], cwd=str(todo_md_proj), check=True)
+        self._run([str(SCRIPT), "add", "D", "Todo md done design"], cwd=str(todo_md_proj), check=True)
+        self._run([str(SCRIPT), "done", "D1", "-m", "done"], cwd=str(todo_md_proj), check=True)
+        self._run(
+            [str(SCRIPT), "add", "F", "Todo md finale task", "--depends", "D1"],
+            cwd=str(todo_md_proj),
+            check=True,
+        )
+        self._run(
+            [str(SCRIPT), "add", "D", "Todo md held task", "--status", "HOLD"],
+            cwd=str(todo_md_proj),
+            check=True,
+        )
+
+        # Orchestrator todo_flow has D1 (design), F1 (work), and F2 sequencing:
+        # D1, F1 -> run_block:F1 -> todo_md:F1
+        # Plus an unrelated chain in todo_flow (F3 -> F4) and standalone F5
+        self._run([str(SCRIPT), "add", "D", "Flow design prereq", "--next"], cwd=str(todo_flow), check=True)
+        self._run([str(SCRIPT), "add", "F", "Flow work prereq", "--next"], cwd=str(todo_flow), check=True)
+        self._run(
+            [
+                str(SCRIPT),
+                "add",
+                "F",
+                "Flow release milestone",
+                "--depends",
+                "D1, F1 -> run_block:F1 -> todo_md:F1",
+            ],
+            cwd=str(todo_flow),
+            check=True,
+        )
+        self._run([str(SCRIPT), "add", "F", "Flow internal step 1"], cwd=str(todo_flow), check=True)
+        self._run(
+            [str(SCRIPT), "add", "F", "Flow internal step 2", "--depends", "F3"],
+            cwd=str(todo_flow),
+            check=True,
+        )
+        self._run([str(SCRIPT), "add", "F", "Flow standalone task"], cwd=str(todo_flow), check=True)
+
+        base_env = {k: v for k, v in os.environ.items() if k not in ("NO_COLOR", "FORCE_COLOR", "TODO_MD_PROJECTS")}
+        base_env["COLUMNS"] = "160"
+
+        # 1. Running `todo_md chain` inside orchestrator todo_flow automatically builds chains across
+        # todo_flow, run_block, and todo_md without requiring -w, and formats todo_flow tasks without prefix
+        r_orch = self._run([str(SCRIPT), "chain"], cwd=str(todo_flow), env=base_env, check=True)
+        out_orch = r_orch.stdout
+        self.assertIn("D1", out_orch)
+        self.assertIn("F1", out_orch)
+        self.assertNotIn("todo_flow:D1", out_orch)
+        self.assertIn("run_block:F1", out_orch)
+        self.assertIn("[blocked by: D1, F1]", out_orch)
+        self.assertIn("todo_md:F1", out_orch)
+        self.assertIn("run_block:F3", out_orch)
+        self.assertIn("todo_md:F3", out_orch)
+        self.assertNotIn("unlisted_proj", out_orch)
+
+        # 2. `todo_md chain -w` filters discovery to .todo_projects when present (excluding unlisted_proj)
+        r_ws = self._run([str(SCRIPT), "chain", "-w"], cwd=str(ws), env=base_env, check=True)
+        self.assertIn("todo_flow:D1", r_ws.stdout)
+        self.assertIn("run_block:F1", r_ws.stdout)
+        self.assertIn("todo_md:F1", r_ws.stdout)
+        self.assertNotIn("unlisted_proj", r_ws.stdout)
+
+        # 3. Running `todo_md chain` directly inside child project `run_block`:
+        # - discovers todo_flow orchestrator DAG so F1 is blocked by todo_flow:D1, todo_flow:F1
+        # - omits `run_block:` prefix for local tasks (F1, F2, F3) while keeping `todo_flow:` and `todo_md:`
+        # - filters Chain finales, Chains, Standalone tasks, and Held branches to only those involving run_block
+        r_child_direct = self._run([str(SCRIPT), "chain"], cwd=str(run_block), env=base_env, check=True)
+        out_direct = r_child_direct.stdout
+        self.assertIn("Chain finales:", out_direct)
+        self.assertIn("F3", out_direct)
+        self.assertIn("[ready | after: D1]", out_direct)
+        self.assertNotIn("todo_md:F3", out_direct)
+        self.assertIn("Chain 1 (5 tasks, 0% | 0 done, 5 open):", out_direct)
+        self.assertIn("todo_flow:D1", out_direct)
+        self.assertIn("todo_flow:F1", out_direct)
+        self.assertIn("F1", out_direct)
+        self.assertNotIn("run_block:F1", out_direct)
+        self.assertIn("[blocked by: todo_flow:D1, todo_flow:F1] [unblocks 2]", out_direct)
+        self.assertIn("todo_md:F1", out_direct)
+        self.assertIn("todo_flow:F2", out_direct)
+        # Unrelated chains/tasks from todo_flow and todo_md are filtered out
+        self.assertNotIn("Flow internal step", out_direct)
+        self.assertNotIn("Flow standalone task", out_direct)
+        self.assertNotIn("Todo md standalone task", out_direct)
+        self.assertIn("Standalone tasks:", out_direct)
+        self.assertIn("F2", out_direct)
+        self.assertIn("Held branches:", out_direct)
+        self.assertIn("D2 (HOLD) -> F4 (NEW)", out_direct)
+        self.assertNotIn("todo_md:D2", out_direct)
+
+        # 4. Running `todo_md -C run_block chain` (and `--project run_block`) from outside `run_block`
+        # keeps the `run_block:` prefix on run_block tasks so IDs are ready for copy-paste in cwd
+        for from_cwd in (ws, todo_flow):
+            with self.subTest(from_cwd=from_cwd.name):
+                r_ext = self._run(
+                    [str(SCRIPT), "-C", "run_block", "chain"],
+                    cwd=str(from_cwd),
+                    env=base_env,
+                    check=True,
+                )
+                out_ext = r_ext.stdout
+                self.assertIn("run_block:F3", out_ext)
+                self.assertIn("run_block:F1", out_ext)
+                self.assertIn("[blocked by: todo_flow:D1, todo_flow:F1] [unblocks 2]", out_ext)
+                self.assertIn("run_block:F2", out_ext)
+                self.assertIn("run_block:D2 (HOLD) -> run_block:F4 (NEW)", out_ext)
+                self.assertNotIn("Flow internal step", out_ext)
+                self.assertNotIn("Todo md standalone task", out_ext)
+
+        # 5. Project-scoped `--ready` and `--by-role` filters to target project tasks while preserving orchestrator blockers
+        # Because run_block:F1 is blocked by todo_flow:D1 (design) and todo_flow:F1 (work),
+        # run_block:F1 is NOT ready in `--ready` and is placed in `Queue 4 (deferred work)` in `--by-role`!
+        r_ready = self._run(
+            [str(SCRIPT), "-C", "run_block", "chain", "--ready"],
+            cwd=str(ws),
+            env=base_env,
+            check=True,
+        )
+        self.assertIn("run_block:F3", r_ready.stdout)
+        self.assertIn("run_block:F2", r_ready.stdout)
+        self.assertNotIn("run_block:F1", r_ready.stdout)
+        self.assertNotIn("todo_flow:", r_ready.stdout)
+        self.assertNotIn("todo_md:", r_ready.stdout)
+
+        r_by_role = self._run(
+            [str(SCRIPT), "-C", "run_block", "chain", "--by-role"],
+            cwd=str(ws),
+            env=base_env,
+            check=True,
+        )
+        self.assertIn("Queue 1 (work):", r_by_role.stdout)
+        self.assertIn("run_block:F3", r_by_role.stdout)
+        self.assertIn("run_block:F2", r_by_role.stdout)
+        self.assertIn("Queue 4 (deferred work):", r_by_role.stdout)
+        self.assertIn("run_block:F1", r_by_role.stdout)
+        self.assertNotIn("Queue 3 (design):", r_by_role.stdout)
+        self.assertNotIn("todo_md:F2", r_by_role.stdout)
+
+        # 6. ANSI dim styling for external-project tasks inside displayed chains:
+        # - In pipes (default without FORCE_COLOR): no ANSI escape sequences
+        self.assertNotIn("\033[2m", out_direct)
+        # - With FORCE_COLOR=1: external tasks (todo_flow:*, todo_md:*) inside Chain 1 are wrapped in \033[2m...\033[0m,
+        #   while target-project tasks (run_block:*) are rendered in normal text without dim styling!
+        color_env = {**base_env, "FORCE_COLOR": "1", "COLUMNS": "72"}
+        r_color = self._run(
+            [str(SCRIPT), "-C", "run_block", "chain"],
+            cwd=str(ws),
+            env=color_env,
+            check=True,
+        )
+        color_lines = r_color.stdout.splitlines()
+        dim_lines = [ln for ln in color_lines if ln.startswith("\033[2m")]
+        normal_task_lines = [ln for ln in color_lines if ln.startswith("  ") and not ln.startswith("\033[2m")]
+        self.assertTrue(any("2. todo_flow:F1" in ln for ln in dim_lines), msg=r_color.stdout)
+        self.assertTrue(any("3. todo_flow:D1" in ln for ln in dim_lines), msg=r_color.stdout)
+        self.assertTrue(any("5. todo_md:F1" in ln for ln in dim_lines), msg=r_color.stdout)
+        self.assertTrue(any("6. todo_flow:F2" in ln for ln in dim_lines), msg=r_color.stdout)
+        self.assertFalse(any("4. run_block:F1" in ln for ln in dim_lines), msg=r_color.stdout)
+        self.assertTrue(any("4. run_block:F1" in ln for ln in normal_task_lines), msg=r_color.stdout)
+        self.assertTrue(any("7. run_block:F2" in ln for ln in normal_task_lines), msg=r_color.stdout)
+        self.assertTrue(any("1. run_block:F3" in ln for ln in normal_task_lines), msg=r_color.stdout)
+
+        # Verify column alignment is identical with and without ANSI color even when wrapping at COLUMNS=72
+        r_plain_72 = self._run(
+            [str(SCRIPT), "-C", "run_block", "chain"],
+            cwd=str(ws),
+            env={**base_env, "COLUMNS": "72"},
+            check=True,
+        )
+        stripped_color = self.todo_md_mod._strip_ansi(r_color.stdout)
+        self.assertEqual(stripped_color, r_plain_72.stdout)
+
+        # - With NO_COLOR=1 (and no FORCE_COLOR) on a real PTY: plain text without ANSI codes
+        master_fd, slave_fd = pty.openpty()
+        try:
+            proc_pty = subprocess.run(
+                [str(SCRIPT), "-C", "run_block", "chain"],
+                cwd=str(ws),
+                env={**base_env, "NO_COLOR": "1"},
+                stdin=slave_fd,
+                stdout=slave_fd,
+                stderr=slave_fd,
+                close_fds=True,
+                check=False,
+            )
+            self.assertEqual(proc_pty.returncode, 0)
+        finally:
+            os.close(slave_fd)
+        pty_chunks: list[bytes] = []
+        while True:
+            try:
+                data = os.read(master_fd, 4096)
+                if not data:
+                    break
+                pty_chunks.append(data)
+            except OSError:
+                break
+        os.close(master_fd)
+        pty_out = b"".join(pty_chunks).decode("utf-8", errors="replace")
+        self.assertNotIn("\033[2m", pty_out)
+
+        # 7. Support .todo_projects.local and TODO_MD_PROJECTS env override
+        (todo_flow / ".todo_projects").unlink()
+        (todo_flow / ".todo_projects.local").write_text("run_block\ntodo_md\n", encoding="utf-8")
+        r_local_cfg = self._run([str(SCRIPT), "chain"], cwd=str(run_block), env=base_env, check=True)
+        self.assertIn("[blocked by: todo_flow:D1, todo_flow:F1]", r_local_cfg.stdout)
+
+        (todo_flow / ".todo_projects.local").unlink()
+        env_projects = {**base_env, "TODO_MD_PROJECTS": "todo_flow,run_block,todo_md"}
+        r_env_orch = self._run([str(SCRIPT), "chain"], cwd=str(todo_flow), env=env_projects, check=True)
+        self.assertIn("run_block:F1", r_env_orch.stdout)
+        self.assertNotIn("unlisted_proj", r_env_orch.stdout)
+        r_env_child = self._run([str(SCRIPT), "chain"], cwd=str(run_block), env=env_projects, check=True)
+        self.assertIn("[blocked by: todo_flow:D1, todo_flow:F1]", r_env_child.stdout)
+        self.assertNotIn("Flow internal step", r_env_child.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

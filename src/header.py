@@ -53,6 +53,7 @@ Manages structured Markdown task files in a repository:
 Environment variables:
   TODO_MD_CWD          Override target directory (default: current directory)
   TODO_MD_WORKSPACE    Override workspace root directory for project discovery and <project>:<ID>
+  TODO_MD_PROJECTS     Override or specify configured .todo_projects file/list for orchestrator chain DAGs
   TODO_MD_COMMIT       Set to 1 to git-commit TODO*.md automatically on mutating commands
   TODO_MD_NO_COMMIT    Set to 1 to suppress git commits even when --commit / TODO_MD_COMMIT is set
   TODO_MD_UPDATE_URL   Override raw script URL for update / check-update

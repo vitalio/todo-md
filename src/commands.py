@@ -1089,12 +1089,18 @@ def cmd_chain(
     workspace: bool = False,
     explicit_dir: str | None = None,
 ) -> int:
+    b_res = base_dir.resolve()
+    ws_root = resolve_workspace_root(b_res, explicit_dir=explicit_dir)
+    is_orch = (not workspace) and is_orchestrator_project(b_res, ws_root, explicit_dir=explicit_dir)
     if workspace:
-        ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
-        if not discover_projects(ws_root):
+        if not resolve_workspace_chain_projects(b_res, ws_root):
             sys.stdout.write(f"No todo_md projects found under {ws_root}\n")
             return 0
-    elif not (base_dir / "TODO.md").is_file():
+    elif is_orch:
+        if not read_configured_todo_projects(b_res, ws_root, include_env=True) and not (b_res / "TODO.md").is_file():
+            sys.stdout.write(f"No todo_md projects found under {ws_root}\n")
+            return 0
+    elif not (b_res / "TODO.md").is_file():
         sys.stderr.write(f"{prog_name()}: no TODO.md found in {base_dir} (run '{prog_name()} init' to create one)\n")
         return 1
 
@@ -1118,9 +1124,13 @@ def cmd_chain(
     done_prereqs: dict[tuple[Path, str], list[str]] = dag.get("done_prereqs", {})  # type: ignore[assignment]
     dependents: dict[tuple[Path, str], list[tuple[Path, str]]] = dag["dependents"]  # type: ignore[assignment]
     topo_order: list[tuple[Path, str]] = dag["topo_order"]  # type: ignore[assignment]
+    target_project: Path | None = dag.get("target_project")  # type: ignore[assignment]
 
-    if not topo_order:
-        scope_msg = "across workspace projects" if workspace else "in TODO.md"
+    def _is_target_node(u: tuple[Path, str]) -> bool:
+        return target_project is None or u[0] == target_project
+
+    if not topo_order or (target_project is not None and not any(u[0] == target_project for u in topo_order)):
+        scope_msg = "across workspace projects" if (workspace or is_orch) else "in TODO.md"
         sys.stdout.write(f"No open tasks {scope_msg}\n")
         return 0
 
@@ -1129,7 +1139,7 @@ def cmd_chain(
             dag,
             include_hold=include_hold,
             ready_only=ready,
-            limit=limit,
+            limit=(None if target_project is not None else limit),
             role=role,
         )
     else:
@@ -1137,7 +1147,7 @@ def cmd_chain(
             dag,
             include_hold=include_hold,
             ready_only=ready,
-            limit=(None if role is not None else limit),
+            limit=(None if (role is not None or target_project is not None) else limit),
         )
     active_nodes: list[tuple[Path, str]] = plan["active_nodes"]  # type: ignore[assignment]
     active_unblocks: dict[tuple[Path, str], int] = plan["active_unblocks"]  # type: ignore[assignment]
@@ -1145,12 +1155,35 @@ def cmd_chain(
     finale_set: set[tuple[Path, str]] = plan.get("finale_set", set())  # type: ignore[assignment]
 
     active_set = set(active_nodes)
+    relevant_active_set: set[tuple[Path, str]] = set(active_set)
+    if target_project is not None:
+        undir: dict[tuple[Path, str], set[tuple[Path, str]]] = {u: set() for u in active_nodes}
+        for u in active_nodes:
+            for p in prereqs.get(u, []):
+                if p in active_set:
+                    undir[u].add(p)
+                    undir[p].add(u)
+        rel_vis: set[tuple[Path, str]] = set()
+        for u in active_nodes:
+            if u[0] == target_project and u not in rel_vis:
+                stk = [u]
+                rel_vis.add(u)
+                while stk:
+                    cur = stk.pop()
+                    for nb in undir[cur]:
+                        if nb not in rel_vis:
+                            rel_vis.add(nb)
+                            stk.append(nb)
+        relevant_active_set = rel_vis
+
     had_blocker_error = False
     for u in active_nodes:
+        if u not in relevant_active_set:
+            continue
         st = str(nodes[u]["status"])
         if st in ("MISSING", "CANCELED"):
             had_blocker_error = True
-            blocked_refs = [str(nodes[v]["ref"]) for v in dependents.get(u, []) if v in active_set]
+            blocked_refs = [str(nodes[v]["ref"]) for v in dependents.get(u, []) if v in relevant_active_set]
             if blocked_refs:
                 sys.stderr.write(
                     f"ERROR: unresolved blocker {nodes[u]['ref']} ({st}) blocks {', '.join(blocked_refs)}\n"
@@ -1159,6 +1192,7 @@ def cmd_chain(
                 sys.stderr.write(f"ERROR: unresolved blocker {nodes[u]['ref']} ({st})\n")
 
     term_width = _get_terminal_columns()
+    use_color = _use_ansi_color()
     wanted_role = role.strip().lower() if role is not None else None
     rank_pos = {node: idx for idx, node in enumerate(active_nodes)}
 
@@ -1168,7 +1202,12 @@ def cmd_chain(
         nd = nodes[u]
         return bool(nd.get("exists")) and _task_matches_role(nd, wanted_role)
 
-    def _format_row(idx: int, u: tuple[Path, str], show_downstream: bool = False) -> str:
+    def _format_row(
+        idx: int,
+        u: tuple[Path, str],
+        show_downstream: bool = False,
+        dim_external: bool = False,
+    ) -> str:
         nd = nodes[u]
         st = str(nd["status"])
         ref = str(nd["ref"])
@@ -1215,12 +1254,61 @@ def cmd_chain(
             f"{_pad_display(role_badge, 10)}  "
         )
         desc = f"{title}  {status_tag}"
-        return _wrap_table_row(prefix, desc, term_width) + "\n"
+        rendered = _wrap_table_row(prefix, desc, term_width) + "\n"
+        if dim_external and use_color and not _is_target_node(u):
+            return _style_ansi_lines(rendered, ANSI_DIM_ON)
+        return rendered
+
+    held_paths: list[list[tuple[Path, str]]] = []
+    if excluded_hold:
+        held_in_deg = {u: sum(1 for p in prereqs[u] if p in excluded_hold) for u in excluded_hold}
+        held_deps = {u: [v for v in dependents.get(u, []) if v in excluded_hold] for u in excluded_hold}
+        branch_roots = [u for u in topo_order if u in excluded_hold and held_in_deg[u] == 0]
+
+        def _collect_held_paths(u: tuple[Path, str], path: list[tuple[Path, str]]) -> None:
+            if len(held_paths) >= 64:
+                return
+            nxts = held_deps[u]
+            if not nxts:
+                held_paths.append(path)
+                return
+            for v in nxts:
+                _collect_held_paths(v, [*path, v])
+
+        for r in branch_roots:
+            _collect_held_paths(r, [r])
+
+        if target_project is not None:
+            held_paths = [path for path in held_paths if any(_is_target_node(k) for k in path)]
+        if wanted_role is not None:
+            held_paths = [path for path in held_paths if any(_matches_role(k) for k in path)]
+
+    scoped_excluded_hold = {
+        u
+        for u in excluded_hold
+        if _is_target_node(u) or any(u in path for path in held_paths)
+    }
 
     if by_role:
         queues: list[tuple[str, str, list[tuple[Path, str]]]] = plan["queues"]  # type: ignore[assignment]
+        if target_project is not None:
+            queues = [
+                (q_key, q_label, [u for u in q_items if _is_target_node(u)])
+                for q_key, q_label, q_items in queues
+            ]
+            if limit is not None:
+                rem = limit
+                limited_queues: list[tuple[str, str, list[tuple[Path, str]]]] = []
+                for q_key, q_label, q_items in queues:
+                    if rem <= 0:
+                        limited_queues.append((q_key, q_label, []))
+                        continue
+                    take = q_items[:rem]
+                    limited_queues.append((q_key, q_label, take))
+                    rem -= len(take)
+                queues = limited_queues
         non_empty_queues = [(q_label, q_items) for _, q_label, q_items in queues if q_items]
-        matching_held = [u for u in excluded_hold if _matches_role(u)]
+        matching_held = [u for u in scoped_excluded_hold if _matches_role(u) and _is_target_node(u)]
         if non_empty_queues:
             row_idx = 1
             for sec_idx, (q_label, q_items) in enumerate(non_empty_queues):
@@ -1241,11 +1329,13 @@ def cmd_chain(
             sys.stdout.write("Queues: (none)\n")
     elif ready:
         ready_tasks: list[tuple[Path, str]] = plan["ready_tasks"]  # type: ignore[assignment]
+        if target_project is not None:
+            ready_tasks = [u for u in ready_tasks if _is_target_node(u)]
         if wanted_role is not None:
             ready_tasks = [u for u in ready_tasks if _matches_role(u)]
-            if limit is not None:
-                ready_tasks = ready_tasks[:limit]
-        matching_held = [u for u in excluded_hold if _matches_role(u)]
+        if (target_project is not None or wanted_role is not None) and limit is not None:
+            ready_tasks = ready_tasks[:limit]
+        matching_held = [u for u in scoped_excluded_hold if _matches_role(u) and _is_target_node(u)]
         if ready_tasks:
             sys.stdout.write("Ready tasks:\n")
             for idx, u in enumerate(ready_tasks, start=1):
@@ -1281,29 +1371,37 @@ def cmd_chain(
                 for comp in chains
             ]
         standalone: list[tuple[Path, str]] = plan["standalone"]  # type: ignore[assignment]
+        if target_project is not None:
+            finales = [u for u in finales if _is_target_node(u)]
+            chains_with_stats = [
+                (comp, st_info)
+                for comp, st_info in chains_with_stats
+                if any(_is_target_node(u) for u in comp)
+            ]
+            standalone = [u for u in standalone if _is_target_node(u)]
         if wanted_role is not None:
             finales = [u for u in finales if _matches_role(u)]
             filtered_chains_with_stats: list[tuple[list[tuple[Path, str]], dict[str, object]]] = []
             for comp, st_info in chains_with_stats:
                 f_comp = [u for u in comp if _matches_role(u)]
-                if f_comp:
+                if f_comp and (target_project is None or any(_is_target_node(u) for u in f_comp)):
                     filtered_chains_with_stats.append((f_comp, st_info))
             chains_with_stats = filtered_chains_with_stats
             standalone = [u for u in standalone if _matches_role(u)]
-            if limit is not None:
-                rem = limit
-                finales = finales[:rem] if rem > 0 else []
-                rem -= len(finales)
-                limited_chains_with_stats: list[tuple[list[tuple[Path, str]], dict[str, object]]] = []
-                for comp, st_info in chains_with_stats:
-                    if rem <= 0:
-                        break
-                    take = comp[:rem]
-                    limited_chains_with_stats.append((take, st_info))
-                    rem -= len(take)
-                standalone = standalone[:rem] if rem > 0 else []
-                chains_with_stats = limited_chains_with_stats
-        matching_held = [u for u in excluded_hold if _matches_role(u)]
+        if (target_project is not None or wanted_role is not None) and limit is not None:
+            rem = limit
+            finales = finales[:rem] if rem > 0 else []
+            rem -= len(finales)
+            limited_chains_with_stats: list[tuple[list[tuple[Path, str]], dict[str, object]]] = []
+            for comp, st_info in chains_with_stats:
+                if rem <= 0:
+                    break
+                take = comp[:rem]
+                limited_chains_with_stats.append((take, st_info))
+                rem -= len(take)
+            standalone = standalone[:rem] if rem > 0 else []
+            chains_with_stats = limited_chains_with_stats
+        matching_held = [u for u in scoped_excluded_hold if _matches_role(u) and _is_target_node(u)]
         if finales or chains_with_stats or standalone:
             row_idx = 1
             wrote_section = False
@@ -1324,7 +1422,7 @@ def cmd_chain(
                     f"Chain {chain_idx} ({total_t} tasks, {pct}% | {done_c} done, {open_c} open):\n"
                 )
                 for u in comp:
-                    sys.stdout.write(_format_row(row_idx, u))
+                    sys.stdout.write(_format_row(row_idx, u, dim_external=(target_project is not None)))
                     row_idx += 1
                 wrote_section = True
             if standalone:
@@ -1344,32 +1442,16 @@ def cmd_chain(
         else:
             sys.stdout.write("Chain: (none)\n")
 
-    if excluded_hold:
-        held_in_deg = {u: sum(1 for p in prereqs[u] if p in excluded_hold) for u in excluded_hold}
-        held_deps = {u: [v for v in dependents.get(u, []) if v in excluded_hold] for u in excluded_hold}
-        branch_roots = [u for u in topo_order if u in excluded_hold and held_in_deg[u] == 0]
-        held_paths: list[list[tuple[Path, str]]] = []
-
-        def _collect_held_paths(u: tuple[Path, str], path: list[tuple[Path, str]]) -> None:
-            if len(held_paths) >= 64:
-                return
-            nxts = held_deps[u]
-            if not nxts:
-                held_paths.append(path)
-                return
-            for v in nxts:
-                _collect_held_paths(v, [*path, v])
-
-        for r in branch_roots:
-            _collect_held_paths(r, [r])
-
-        if wanted_role is not None:
-            held_paths = [path for path in held_paths if any(_matches_role(k) for k in path)]
-
-        if held_paths:
-            sys.stdout.write("\nHeld branches:\n")
-            for path in held_paths:
-                rendered = " -> ".join(f"{nodes[k]['ref']} ({nodes[k]['status']})" for k in path)
-                sys.stdout.write(f"  {rendered}\n")
+    if held_paths:
+        sys.stdout.write("\nHeld branches:\n")
+        for path in held_paths:
+            parts: list[str] = []
+            for k in path:
+                token = f"{nodes[k]['ref']} ({nodes[k]['status']})"
+                if target_project is not None and use_color and not _is_target_node(k):
+                    token = f"{ANSI_DIM_ON}{token}{ANSI_RESET}"
+                parts.append(token)
+            rendered = " -> ".join(parts)
+            sys.stdout.write(f"  {rendered}\n")
 
     return 1 if had_blocker_error else 0

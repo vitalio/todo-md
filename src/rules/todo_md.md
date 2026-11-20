@@ -41,12 +41,16 @@
     hides `DONE` unless `--all` is passed; prints `[ready]` / `[blocked by: ...]`
     and `Next actionable: <ref>`),
     `{cmd:todo_md} chain [--by-role] [--role <role>] [--ready] [--limit N] [--include-hold]`
-    (local or `-w` workspace work-only chain finales `[ready | after: ...]`
-    with all prerequisites resolved shown first before numbered RPG progress
-    chains `Chain <N> (<total> tasks, <pct>% | <done> done, <open> open):` and
-    standalone tasks, showing padded `[role]` badges, `[unblocks N]`, and
-    ranking by bug priority `B*`, role execution ease, status, role-weighted
-    velocity `work=1, plan=2, design=5`, and total chain value; `--by-role`
+    (local, `.todo_projects` orchestrator, or `-w` workspace work-only chain
+    finales `[ready | after: ...]` with all prerequisites resolved shown first
+    before numbered RPG progress chains
+    `Chain <N> (<total> tasks, <pct>% | <done> done, <open> open):` and
+    standalone tasks, merging `.todo_projects` orchestrator dependency edges into
+    child project views, formatting IDs relative to `cwd`, dimming external
+    project tasks in project-scoped chains, showing padded `[role]` badges and
+    `[unblocks N]`, and ranking by bug priority `B*`, role execution ease,
+    status, role-weighted velocity `work=1, plan=2, design=5`, and total chain
+    value; `--by-role`
     partitions active
     tasks into
     topologically sorted role queues: `Queue 1 (work)` with only `work`
