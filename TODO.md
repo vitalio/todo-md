@@ -1,3 +1,20 @@
+# 🎯 [NEXT] F56: Format and align -h/--help output with structured Usage/Commands/Options sections and <=100-col lines
+
+- In `src/header.py`, split the top-level `Usage:` block into a concise `Usage:` summary and a dedicated `Commands:` section followed by `Global options:`, `Quest-Log options:`, `Files:`, and `Environment variables:`.
+- Align all description columns and continuation lines against the rendered binary name (`todo_md`, accounting for `{prog}` length replacement) so continuation lines (`Opts: ...`, multi-line descriptions) start at the exact same column as primary descriptions.
+- Wrap all `--help` lines to at most 100 columns (and prose paragraphs to ~80 columns) and omit the redundant `queue` alias from `--help` (keeping `queue` accepted in `src/cli.py` for backward compatibility).
+- Add a unit test in `tests/test_cli.py` verifying that `todo_md --help` has aligned description columns and no lines exceeding 100 characters, update `README.md` if needed, rebuild `./todo_md` via `build.py`, and bump `VERSION` for a PATCH release.
+
+# 🎯 [NEXT] F55: Unify -s/--search, -f/--filter, -H/--highlight focus toggle, and --all across .todo_projects
+
+- In `src/cli.py` (`_parse_quest_log_args()`, `_quest_log()`, `QUEST_LOG_USAGE`) and `src/header.py`:
+  - Replace `-f` / `--focus` with `-f <ID>...` / `--filter <ID>...` for filtering by task IDs (case-insensitive `<ID>` or `<project>:<ID>`, space- or comma-separated).
+  - Keep `-s <QUERY>` / `--search <QUERY>` (`todo_md search <QUERY>`) for case-insensitive substring/regex search across task titles, bodies, and `<project>:<ID>`.
+  - Make focusing + highlighting the default behavior when `-s` and/or `-f` is given, and make `-H` / `--highlight` a focus-disabling toggle (rendering the full list with matched tasks highlighted; also accept `todo_md -H <ID>...` as shorthand for `-f <ID>... -H`).
+  - Expand `_quest_log()` search and bare-ID resolution across all projects in the active view (including `.todo_projects` when running inside an orchestrator without `-w`) in `src/cli.py` and `_normalize_target_refs()` in `src/parser.py`, so `todo_md -f F57`, `todo_md -f F57 -H`, and `todo_md -s append` inside `todo_flow` match child-project tasks such as `run_block:F57`.
+- Unify `--all` across Quest-Log, `-s`, and `-f` in `src/cli.py` and `src/commands.py` (`cmd_chain()`, `cmd_list()`, `cmd_workspace_list()`): `--all` always includes both active (`TODO.md`) and archived (`TODO_ARCHIVE.md`) tasks, and focused searches/filters display matched archived `DONE`/`CANCELED` tasks rather than dropping standalone archived tasks or printing the entire archive unfiltered.
+- Update `AGENTS.md`, `src/rules/todo_md.md`, `src/header.py`, `README.md`, and unit tests in `tests/test_cli.py` and `tests/test_chain.py`, rebuild `./todo_md` via `build.py`, and bump `VERSION` for a MINOR release.
+
 # 🎯 [NEXT] F54: Support nested .todo_projects orchestrator hierarchies and external project path aliases (e.g. ~/chrome/canary)
 
 - In `read_configured_todo_projects()` (`src/parser.py`), recursively expand nested orchestrator projects (tracking `visited_configs: set[Path]` to prevent cycles): when a configured entry (such as `todo_flow`) has its own `.todo_projects` / `.todo_projects.local`, transitively include its child projects (`agents-rules`, `agents_bundle`, `todo_md`, `run_block`) alongside sibling projects (such as `~/chrome/canary`).
@@ -32,15 +49,15 @@
 
 - Coordinate with `todo_flow:D4`: when a child repository belongs to a workspace orchestrator (`.todo_projects`), surface inbound orchestrator blockers in runtime `list` / `show` output (e.g. `[blocked via todo_flow:F2: ...]`) without storing cross-project `Depends on:` edges in the child `TODO.md`.
 
-# 🎯 [NEXT] D2: Design standalone task file mode (-f / --file) for shortlists and ad-hoc task files
+# 🎯 [NEXT] D2: Design standalone task file mode (-F / --file) for shortlists and ad-hoc task files
 
 - Role: design
-- Explore and specify `-f <path>` / `--file <path>` support across `todo_md` subcommands (`overview`, `list`, `show`, `next-id`, `queue`, `files`, `check`, `add`, `edit`, `append`, `status`, `next`) so `todo_md` can inspect and manipulate any Markdown task file (such as a temporary shortlist generated during planning or dispatch) outside a repository's `TODO.md`.
+- Explore and specify `-F <path>` / `--file <path>` support across `todo_md` subcommands (`overview`, `list`, `show`, `next-id`, `queue`, `files`, `check`, `add`, `edit`, `append`, `status`, `next`) so `todo_md` can inspect and manipulate any Markdown task file (such as a temporary shortlist generated during planning or dispatch) outside a repository's `TODO.md` (keeping `-f` reserved for `--filter`).
 - Define behavior when `TODO_ARCHIVE.md` is absent beside the target file: allow read/check and in-file status mutations without requiring an archive file, and specify explicit error or `--archive <path>` handling for `done` / `cancel` / `archive`.
 - Define interaction and precedence with `-C <dir|project>` (`F20`), `TODO_MD_CWD`, positional `.md` paths, and cross-project `<project>:<ID>` dependency lookups via `TODO_MD_WORKSPACE` when inspecting a shortlist in `/tmp` or another directory.
 - Target files for downstream implementation: `src/cli.py`, `src/parser.py`, `src/commands.py`, `src/header.py`, `src/rules/todo_md.md`, `README.md`, `tests/test_cli.py`, `tests/test_parser.py`, `tests/test_commands.py`.
 
-- Shortlist/chain export workflow: evaluate supporting an exported or agent-generated shortlist Markdown file (e.g. a custom prioritized sequence or `chain` snapshot) that users can inspect, filter, and step through with `todo_md -f <path>` while resolving `<project>:<ID>` references against `TODO_MD_WORKSPACE`.
+- Shortlist/chain export workflow: evaluate supporting an exported or agent-generated shortlist Markdown file (e.g. a custom prioritized sequence or `chain` snapshot) that users can inspect, filter, and step through with `todo_md -F <path>` while resolving `<project>:<ID>` references against `TODO_MD_WORKSPACE`.
 
 # ⚪ [NEW] P1: JSON output mode (`--json`)
 
