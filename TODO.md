@@ -1,3 +1,9 @@
+# 🎯 [NEXT] F57: Support glob path patterns in todo_md files (extract_task_files) for backticked file masks
+
+- In `extract_task_files()` (`src/commands.py`), allow `*` and `?` in backticked relative path tokens (instead of rejecting them in `any(ch in cand for ch in "<>*?{}")`): when a relative token contains glob metacharacters (`*`, `?`, `[`) along with a path separator `/` or file extension `.` (so bare prefix tokens like `D*` or `*` are ignored) and contains no `..` traversal segments, expand `sorted(repo_root.glob(cand))` into matching regular files inside `repo_root` (skipping `.git` and `__pycache__` directories and deduplicating via `seen`).
+- Preserve existing `cmd_files()` line and byte budget filtering (`--max-lines`, `--max-total-lines`, `--max-bytes`, `--max-total-bytes`) over the expanded file list in deterministic order.
+- Update `src/header.py`, `src/rules/todo_md.md`, `README.md`, and unit tests in `tests/test_commands.py`, rebuild `./todo_md` via `build.py`, and bump `VERSION` for a MINOR release.
+
 # 🎯 [NEXT] F55: Unify -s/--search, -f/--filter, -H/--highlight focus toggle, and --all across .todo_projects
 
 - In `src/cli.py` (`_parse_quest_log_args()`, `_quest_log()`, `QUEST_LOG_USAGE`) and `src/header.py`:
@@ -55,7 +61,7 @@
 
 # 🎯 [NEXT] F56: Format and align -h/--help output with structured Usage/Commands/Options sections and <=100-col lines
 
-- Depends on: F17, F44, F55
+- Depends on: F17, F44, F55, F57
 - In `src/header.py`, split the top-level `Usage:` block into a concise `Usage:` summary and a dedicated `Commands:` section followed by `Global options:`, `Quest-Log options:`, `Files:`, and `Environment variables:`.
 - Align all description columns and continuation lines against the rendered binary name (`todo_md`, accounting for `{prog}` length replacement) so continuation lines (`Opts: ...`, multi-line descriptions) start at the exact same column as primary descriptions.
 - Wrap all `--help` lines to at most 100 columns (and prose paragraphs to ~80 columns) and omit the redundant `queue` alias from `--help` (keeping `queue` accepted in `src/cli.py` for backward compatibility).
