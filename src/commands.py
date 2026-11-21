@@ -520,13 +520,11 @@ def _strip_plan_role_from_section_lines(sec_lines: list[str]) -> tuple[list[str]
     return [heading, "", *body_lines], True
 
 
-def _normalize_role_arg(raw_role: str, allow_empty: bool = False) -> str:
+def _normalize_role_arg(raw_role: str) -> str:
     if "\n" in raw_role or "\r" in raw_role:
         raise SystemExit(f"{prog_name()}: --role value must be a single line")
     stripped = raw_role.strip()
     if not stripped:
-        if allow_empty:
-            return ""
         raise SystemExit(f"{prog_name()}: --role requires a non-empty role name")
     role = stripped.lower()
     if role in RETIRED_ROLES:
@@ -540,27 +538,6 @@ def _normalize_role_arg(raw_role: str, allow_empty: bool = False) -> str:
             "expected lowercase role identifier matching ^[a-z][a-z0-9_-]*$"
         )
     return role
-
-
-def _apply_role_to_body_lines(lines: list[str], role: str | None) -> list[str]:
-    if role is None:
-        return lines
-    filtered: list[str] = []
-    in_fence = False
-    for line in lines:
-        if line.lstrip().startswith(FENCE):
-            in_fence = not in_fence
-        if not in_fence and ROLE_LINE_RE.match(line):
-            continue
-        filtered.append(line)
-    while filtered and not filtered[0].strip():
-        filtered.pop(0)
-    while filtered and not filtered[-1].strip():
-        filtered.pop()
-    if not role:
-        return filtered
-    role_line = f"- Role: {role}"
-    return [role_line, *filtered] if filtered else [role_line]
 
 
 def _apply_depends_to_body_lines(lines: list[str], depends_clauses: list[str] | None) -> list[str]:
@@ -597,7 +574,6 @@ def cmd_add(
     prefix: str | None = None
     note: str | None = None
     body: str | None = None
-    role: str | None = None
     depends_raw: list[str] = []
     pos: list[str] = []
     i = 0
@@ -637,14 +613,6 @@ def cmd_add(
                 raise SystemExit(f"{prog}: {a} requires an argument")
             body = argv[i + 1]
             i += 2
-        elif a == "--role":
-            if i + 1 >= len(argv):
-                raise SystemExit(f"{prog}: {a} requires an argument")
-            role = _normalize_role_arg(argv[i + 1])
-            i += 2
-        elif a.startswith("--role="):
-            role = _normalize_role_arg(a.split("=", 1)[1])
-            i += 1
         elif a in ("--depends", "-d"):
             if i + 1 >= len(argv):
                 raise SystemExit(f"{prog}: {a} requires an argument")
@@ -668,7 +636,7 @@ def cmd_add(
             pos = pos[1:]
 
     if len(pos) == 1:
-        tid = next_free_id(base_dir, prefix or "F")
+        tid = next_free_id(base_dir, prefix or DEFAULT_TASK_PREFIX)
         title = pos[0].strip()
     elif len(pos) == 2 and prefix is None:
         first, second = pos[0].strip(), pos[1].strip()
@@ -686,7 +654,7 @@ def cmd_add(
             raise SystemExit(f"{prog}: invalid ID prefix {first!r}; expected a single letter A-Z (e.g. F, B, P)")
     else:
         raise SystemExit(
-            f"{prog}: usage: {prog} add [<PREFIX>] <TITLE> [-p PREFIX] [--next] [--status STATUS] [-m NOTE] [-b BODY] [--role ROLE]"
+            f"{prog}: usage: {prog} add [<PREFIX>] <TITLE> [-p PREFIX] [--next] [--status STATUS] [-m NOTE] [-b BODY]"
         )
 
     if not title:
@@ -696,7 +664,6 @@ def cmd_add(
     depends_clauses = _normalize_depends_clauses(depends_raw) if depends_raw else None
     body_lines = body.strip().splitlines() if body and body.strip() else []
     body_lines = _apply_depends_to_body_lines(body_lines, depends_clauses)
-    body_lines = _apply_role_to_body_lines(body_lines, role)
 
     heading = _format_heading(status, tid, title, note=note)
     sec_lines = [heading]
@@ -727,7 +694,6 @@ def cmd_edit(
     note: str | None = None
     clear_note = False
     body: str | None = None
-    role: str | None = None
     depends_raw: list[str] | None = None
     pos: list[str] = []
     i = 0
@@ -756,14 +722,6 @@ def cmd_edit(
                 raise SystemExit(f"{prog}: {a} requires an argument")
             body = argv[i + 1]
             i += 2
-        elif a == "--role":
-            if i + 1 >= len(argv):
-                raise SystemExit(f"{prog}: {a} requires an argument")
-            role = _normalize_role_arg(argv[i + 1], allow_empty=True)
-            i += 2
-        elif a.startswith("--role="):
-            role = _normalize_role_arg(a.split("=", 1)[1], allow_empty=True)
-            i += 1
         elif a in ("--depends", "-d"):
             if i + 1 >= len(argv):
                 raise SystemExit(f"{prog}: {a} requires an argument")
@@ -778,14 +736,14 @@ def cmd_edit(
             i += 1
 
     if len(pos) != 1:
-        raise SystemExit(f"{prog}: usage: {prog} edit <ID> [-t TITLE] [-m NOTE] [-b BODY] [--role ROLE] [--depends SPEC]")
+        raise SystemExit(f"{prog}: usage: {prog} edit <ID> [-t TITLE] [-m NOTE] [-b BODY] [--depends SPEC]")
     base_dir, resolved_id = resolve_project_task_ref(base_dir, pos[0], explicit_dir=explicit_dir)
     target = resolved_id.upper()
     body = _resolve_body_arg(body)
     depends_clauses = _normalize_depends_clauses(depends_raw) if depends_raw is not None else None
 
-    if new_title is None and note is None and body is None and depends_clauses is None and role is None:
-        raise SystemExit(f"{prog}: edit requires at least one of -t TITLE, -m NOTE, -b BODY, --role ROLE, --depends, or stdin")
+    if new_title is None and note is None and body is None and depends_clauses is None:
+        raise SystemExit(f"{prog}: edit requires at least one of -t TITLE, -m NOTE, -b BODY, --depends, or stdin")
 
     for fname in TASK_FILES:
         p = base_dir / fname
@@ -820,16 +778,14 @@ def cmd_edit(
         if body is not None:
             body_lines = body.strip().splitlines() if body.strip() else []
             body_lines = _apply_depends_to_body_lines(body_lines, depends_clauses)
-            body_lines = _apply_role_to_body_lines(body_lines, role)
             new_sec = [heading]
             if body_lines:
                 new_sec.extend(["", *body_lines])
             new_sec.append("")
         else:
             old_sec = lines[start_idx:end_idx]
-            if depends_clauses is not None or role is not None:
+            if depends_clauses is not None:
                 body_lines = _apply_depends_to_body_lines(old_sec[1:], depends_clauses)
-                body_lines = _apply_role_to_body_lines(body_lines, role)
                 new_sec = [heading, *(["", *body_lines] if body_lines else []), ""]
             else:
                 old_sec[0] = heading

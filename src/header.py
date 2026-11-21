@@ -13,8 +13,8 @@
   {prog} list [filter] [<ID>...] [opts]      List tasks (active | archive | all | <STATUS>; highlight <ID>...; opts: --role ROLE, -r/--ready, --limit N, --full)
   {prog} archive [<ID>] [-m NOTE]            Print TODO_ARCHIVE.md, or archive task <ID>
   {prog} add [<PROJ>] [<PREFIX>] <TITLE>     Add a new task with auto-assigned ID (reads body from -b TEXT|- or stdin)
-                                             Opts: -p PREFIX (default: F), --next, --status STATUS, -m NOTE, -b BODY|-, --role ROLE, --depends SPEC
-  {prog} edit <ID> [opts]                    Update task title, note, body, role, or deps (-t TITLE, -m NOTE, -b BODY|-, --role ROLE, --depends SPEC)
+                                             Opts: -p PREFIX (default: F), --next, --status STATUS, -m NOTE, -b BODY|-, --depends SPEC
+  {prog} edit <ID> [opts]                    Update task title, note, body, or deps (-t TITLE, -m NOTE, -b BODY|-, --depends SPEC)
   {prog} append <ID> [-b TEXT|-]             Append text to task <ID> body (from -b TEXT|- or stdin)
   {prog} status <ID> <STATUS> [opts]         Update status of <ID> (WIP|NEXT|NEW|HOLD|QUESTION|DONE|CANCELED; opts: -m NOTE, --reopen)
   {prog} next <ID> [-m NOTE] [--reopen]      Promote task <ID> to 🎯 [NEXT] priority at the top of TODO.md (strips - Role: plan; --reopen if archived)
@@ -63,6 +63,14 @@ Quest-Log options ({prog} [opts], {prog} chain [<ID>...] [opts], {prog} queue <I
   -s, --search QUERY            Search task IDs (<ID> and <project>:<ID>), titles, and bodies across all projects in view
                                 (case-insensitive regex, substring if invalid; TODO.md only unless --all or an archive status is set;
                                 focuses and highlights matches by default, or prints full sections with --full)
+
+Task ID prefixes and roles (derived from the ID prefix and status, never from the task body):
+  F               Feature (default prefix for add)
+  B               Bugfix (ranked ahead of other tasks in chain)
+  D               Design (role: design in any status)
+  A-Z             Any other letter is a custom domain prefix
+  Status roles    WIP/NEXT -> work; NEW/QUESTION/HOLD -> plan (non-D prefixes)
+  Note            {prog} check rejects '- Role:' lines in TODO.md; --role only filters views
 
 Tabular views (list, chain, queue, projects) align status badges by display width and wrap long
 descriptions into aligned columns based on terminal width (falling back to a 4-space indent on
@@ -140,9 +148,35 @@ RETIRED_ROLES: dict[str, str] = {
     "execute": "work",
     "audit": "review",
 }
-PREFIX_DEFAULT_ROLES: dict[str, str] = {
-    "D": "design",
+DEFAULT_TASK_PREFIX = "F"
+PREFIX_INFO: dict[str, tuple[str, str | None]] = {
+    "F": ("feature", None),
+    "B": ("bugfix", None),
+    "D": ("design", "design"),
 }
+PREFIX_DEFAULT_ROLES: dict[str, str] = {
+    prefix: role for prefix, (_, role) in PREFIX_INFO.items() if role
+}
+STATUS_ROLES: dict[str, str] = {
+    "WIP": "work",
+    "NEXT": "work",
+    "NEW": "plan",
+    "QUESTION": "plan",
+    "HOLD": "plan",
+}
+
+def prefix_legend_lines() -> list[str]:
+    prefixes = ", ".join(
+        f"{p}={name}" + (" (default)" if p == DEFAULT_TASK_PREFIX else "")
+        for p, (name, _) in PREFIX_INFO.items()
+    )
+    design = ", ".join(f"{p}*={role}" for p, role in PREFIX_DEFAULT_ROLES.items())
+    work = "/".join(s for s, r in STATUS_ROLES.items() if r == "work")
+    plan = "/".join(s for s, r in STATUS_ROLES.items() if r == "plan")
+    return [
+        f"Prefixes: {prefixes}, other A-Z=custom domain",
+        f"Roles: {design}; others: {work}=work, {plan}=plan",
+    ]
 ROLE_EASE_ORDER: dict[str, int] = {
     "work": 0,
     "plan": 1,

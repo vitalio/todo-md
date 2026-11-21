@@ -98,6 +98,17 @@ class TestCli(TodoMdTestCase):
         self.assertIn("strips an existing `- Role: plan` line", rule_txt)
         self.assertIn("agents_bundle | run_block", rule_txt)
         self.assertNotIn("role=execute", rule_txt)
+        self.assertIn("Task ID prefixes and roles", rh.stdout)
+        self.assertIn("D               Design (role: design in any status)", rh.stdout)
+        self.assertNotIn("--role ROLE, --depends SPEC", rh.stdout)
+        self.assertIn("Task ID prefixes: `F` is a feature", rule_txt)
+        self.assertIn("rejects `- Role:` lines in active `TODO.md` tasks", rule_txt)
+        self.assertIn("inside the final commit step", rule_txt)
+        self.assertNotIn("--role <role>] [--depends <spec>]", rule_txt)
+        self.assertIn("close the design task (D*) via todo_md done <ID>", bundle_txt)
+        self.assertIn("do not spawn a new session unless the user explicitly requests it", bundle_txt)
+        self.assertNotIn("initialize a new session bundle via todo_md <ID>", bundle_txt)
+        self.assertIn("run todo_md done {task:} inside the final commit step", bundle_txt)
         self.assertNotIn("role=audit", rule_txt)
 
     def test_lazy_urllib_import_and_offline_update(self):
@@ -266,10 +277,10 @@ class TestCli(TodoMdTestCase):
         proj.mkdir()
         self._run([str(SCRIPT), "init"], cwd=str(proj), check=True)
         for title, extra in (
-            ("Alpha", ["--role", "work"]),
-            ("Beta", ["--role", "work", "--depends", "F1"]),
-            ("Gamma", ["--role", "work", "--status", "HOLD"]),
-            ("Delta", ["--role", "work"]),
+            ("Alpha", []),
+            ("Beta", ["--depends", "F1"]),
+            ("Gamma", ["--status", "HOLD"]),
+            ("Delta", []),
         ):
             self._run([str(SCRIPT), "add", title, *extra], cwd=str(proj), check=True)
 
@@ -336,12 +347,12 @@ class TestCli(TodoMdTestCase):
         proj.mkdir()
         self._run([str(SCRIPT), "init"], cwd=str(proj), check=True)
         self._run(
-            [str(SCRIPT), "add", "Parser rewrite", "--role", "work", "-b", "Mentions tokenizer details."],
+            [str(SCRIPT), "add", "Parser rewrite", "--next", "-b", "Mentions tokenizer details."],
             cwd=str(proj),
             check=True,
         )
-        self._run([str(SCRIPT), "add", "Docs polish", "--role", "work", "--depends", "F1"], cwd=str(proj), check=True)
-        self._run([str(SCRIPT), "add", "Unrelated cleanup", "--role", "work"], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "add", "Docs polish", "--next", "--depends", "F1"], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "add", "Unrelated cleanup", "--next"], cwd=str(proj), check=True)
 
         # Body match scopes the Quest-Log to the chain containing the task; case-insensitive
         out = self._run([str(SCRIPT), "--search", "tokenizer"], cwd=str(proj), check=True).stdout

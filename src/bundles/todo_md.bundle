@@ -8,7 +8,7 @@ rule vitalio/todo_md:todo_md
     [if task!=]
         [if piped!=1] $ todo_md {task:}
     [/if]
-    prompt Mode: DESIGN. Explore requirements and architecture; once agreed, update AGENTS.md and .agents_bundle as needed, and record the design specification in TODO.md via todo_md (commit TODO*.md once backlog updates are finished).
+    prompt Mode: DESIGN. Explore requirements and architecture; once agreed, update AGENTS.md and .agents_bundle as needed, and record the design specification in TODO.md via todo_md (commit TODO*.md once backlog updates are finished); close the design task (D*) via todo_md done <ID> once architectural invariants are persisted in AGENTS.md (and docs/adr/) and follow-up implementation tasks are created.
 [/if]
 [if role=plan]
     [if task=]
@@ -18,7 +18,7 @@ rule vitalio/todo_md:todo_md
     [if task!=]
         [if piped!=1] $ todo_md {task:}
     [/if]
-    prompt Mode: PLANNING. Decompose or compose (consolidate) work into self-contained tasks in TODO.md (default status NEW) depending on file, test, and documentation cohesion: refine or merge into an existing open task when the change touches the same files or tests, and split into separate tasks only when files, tests, and docs are independent; wire every new or refined task into open chains in both directions (upstream prerequisites via --depends on the new task, and downstream dependents via todo_md edit <ID> --depends ... on existing open tasks, doc/help alignment tasks, or orchestrator waves touching the same files or building on the new capability) so it is not left as an unintended standalone task; record target repository file paths and key symbol names (functions/classes) in backticks in each task body rather than brittle line ranges, promote ready prioritized tasks via todo_md next <ID>, and commit TODO*.md once backlog updates are finished; once task <ID> is agreed, initialize a new session bundle via todo_md <ID> | agents_bundle | run_block (or agents_bundle role=work task=<ID> | run_block).
+    prompt Mode: PLANNING. Decompose or compose (consolidate) work into self-contained tasks in TODO.md (default status NEW) depending on file, test, and documentation cohesion: refine or merge into an existing open task when the change touches the same files or tests, and split into separate tasks only when files, tests, and docs are independent; wire every new or refined task into open chains in both directions (upstream prerequisites via --depends on the new task, and downstream dependents via todo_md edit <ID> --depends ... on existing open tasks, doc/help alignment tasks, or orchestrator waves touching the same files or building on the new capability) so it is not left as an unintended standalone task; record target repository file paths and key symbol names (functions/classes) in backticks in each task body rather than brittle line ranges, promote ready prioritized tasks via todo_md next <ID>, and commit TODO*.md once backlog updates are finished; do not spawn a new session unless the user explicitly requests it.
 [/if]
 [if role=work]
     [if task=] var task=$(todo_md next-id --role work)
@@ -31,7 +31,7 @@ rule vitalio/todo_md:todo_md
         $ todo_md status {task:} WIP
         [if piped!=1] $ todo_md {task:}
         include $(todo_md files {task:} --max-lines 400 --max-total-lines 1200 --max-bytes 32768)
-        prompt Mode: WORK (task={task:}). Emit your first run_block in this very first reply without restating the plan in chat: if all target files for task {task:} are already preloaded above, apply edits, run tests, and print the diff in step 1; otherwise run a single batched read step (using targeted grep/sed for large files) for any missing target files first. Deliver verified code, synced docs, and tests, mark the task done via todo_md done {task:} before the final commit, and commit atomically.
+        prompt Mode: WORK (task={task:}). Emit your first run_block in this very first reply without restating the plan in chat: if all target files for task {task:} are already preloaded above, apply edits, run tests, and print the diff in step 1; otherwise run a single batched read step (using targeted grep/sed for large files) for any missing target files first. Deliver verified code, synced docs, and tests, run todo_md done {task:} inside the final commit step (after the diff is verified clean, immediately before staging and git commit, never during the edit step), record out-of-scope findings via todo_md add as problem/impact descriptions in default NEW status without --depends (staged into the same commit), and commit atomically.
     [/if]
 [/if]
 [if role=review]

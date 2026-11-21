@@ -206,13 +206,13 @@ class TestChain(TodoMdTestCase):
         self._run([str(SCRIPT), "init"], cwd=str(proj), check=True)
         env = {**os.environ, "COLUMNS": "160"}
         # F1 feeds two chains (F2, F3); F4 -> F5 -> F6 -> F7 is one deeper chain (F4 unblocks more tasks in total)
-        self._run([str(SCRIPT), "add", "Shared root", "--role", "work"], cwd=str(proj), check=True)
-        self._run([str(SCRIPT), "add", "Branch a", "--role", "work", "--depends", "F1"], cwd=str(proj), check=True)
-        self._run([str(SCRIPT), "add", "Branch b", "--role", "work", "--depends", "F1"], cwd=str(proj), check=True)
-        self._run([str(SCRIPT), "add", "Solo root", "--role", "work"], cwd=str(proj), check=True)
-        self._run([str(SCRIPT), "add", "Solo mid", "--role", "work", "--depends", "F4"], cwd=str(proj), check=True)
-        self._run([str(SCRIPT), "add", "Solo deep", "--role", "work", "--depends", "F5"], cwd=str(proj), check=True)
-        self._run([str(SCRIPT), "add", "Solo leaf", "--role", "work", "--depends", "F6"], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "add", "Shared root", "--next"], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "add", "Branch a", "--next", "--depends", "F1"], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "add", "Branch b", "--next", "--depends", "F1"], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "add", "Solo root", "--next"], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "add", "Solo mid", "--next", "--depends", "F4"], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "add", "Solo deep", "--next", "--depends", "F5"], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "add", "Solo leaf", "--next", "--depends", "F6"], cwd=str(proj), check=True)
         self._run([str(SCRIPT), "add", "D", "Design root"], cwd=str(proj), check=True)
 
         r_long = self._run([str(SCRIPT), "chain", "--numbered=right", "--ready"], cwd=str(proj), env=env, check=True)
@@ -242,12 +242,12 @@ class TestChain(TodoMdTestCase):
         proj.mkdir()
         self._run([str(SCRIPT), "init"], cwd=str(proj), check=True)
         env = {**os.environ, "COLUMNS": "160"}
-        self._run([str(SCRIPT), "add", "Finished root", "--role", "work"], cwd=str(proj), check=True)
-        self._run([str(SCRIPT), "add", "Continuation", "--role", "work", "--depends", "F1"], cwd=str(proj), check=True)
-        self._run([str(SCRIPT), "add", "Wide root", "--role", "work"], cwd=str(proj), check=True)
-        self._run([str(SCRIPT), "add", "Wide a", "--role", "work", "--depends", "F3"], cwd=str(proj), check=True)
-        self._run([str(SCRIPT), "add", "Wide b", "--role", "work", "--depends", "F3"], cwd=str(proj), check=True)
-        self._run([str(SCRIPT), "add", "After continuation", "--role", "work", "--depends", "F2"], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "add", "Finished root", "--next"], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "add", "Continuation", "--next", "--depends", "F1"], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "add", "Wide root", "--next"], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "add", "Wide a", "--next", "--depends", "F3"], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "add", "Wide b", "--next", "--depends", "F3"], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "add", "After continuation", "--next", "--depends", "F2"], cwd=str(proj), check=True)
         self._run([str(SCRIPT), "done", "F1"], cwd=str(proj), check=True)
 
         r_ready = self._run([str(SCRIPT), "chain", "-r", "--numbered=right"], cwd=str(proj), env=env, check=True)
@@ -265,9 +265,9 @@ class TestChain(TodoMdTestCase):
         self._run([str(SCRIPT), "init"], cwd=str(proj), check=True)
         env = {**os.environ, "COLUMNS": "160"}
         # F3 needs both F1 and F2, so completing F1 alone makes nothing immediately ready
-        self._run([str(SCRIPT), "add", "Root a", "--role", "work"], cwd=str(proj), check=True)
-        self._run([str(SCRIPT), "add", "Root b", "--role", "work"], cwd=str(proj), check=True)
-        self._run([str(SCRIPT), "add", "Joined", "--role", "work", "--depends", "F1, F2"], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "add", "Root a", "--next"], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "add", "Root b", "--next"], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "add", "Joined", "--next", "--depends", "F1, F2"], cwd=str(proj), check=True)
 
         r_ready = self._run([str(SCRIPT), "chain", "-r", "--numbered=right"], cwd=str(proj), env=env, check=True)
         rows = {k: v for k, v in self._table_rows(r_ready.stdout).items() if k.endswith(".")}
@@ -288,23 +288,23 @@ class TestChain(TodoMdTestCase):
         self._run([str(SCRIPT), "init"], cwd=str(proj_b), check=True)
 
         # Chain in proj_a: D1 (design) -> F1 (work) -> F2 (NEW defaults to plan)
-        # Standalone in proj_a: P1 (custom role 'ops'), B1 (NEXT defaults to work)
-        # Held branch in proj_a: D2 (HOLD, design) -> F3 (NEW, explicit work)
+        # Standalone in proj_a: P1 (NEW defaults to plan), B1 (NEXT defaults to work)
+        # Held branch in proj_a: D2 (HOLD, design) -> F3 (NEXT, work)
         self._run([str(SCRIPT), "add", "D", "Design schema", "--next"], cwd=str(proj_a), check=True)
-        self._run([str(SCRIPT), "add", "F", "Build backend", "--role", "work", "--depends", "D1"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Build backend", "--next", "--depends", "D1"], cwd=str(proj_a), check=True)
         self._run(
             [str(SCRIPT), "add", "F", "Plan rollout", "--depends", "F1"],
             cwd=str(proj_a),
             check=True,
         )
-        self._run([str(SCRIPT), "add", "P", "Unassigned idea", "--role", "ops"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "P", "Unassigned idea"], cwd=str(proj_a), check=True)
         self._run([str(SCRIPT), "add", "B", "Ready bugfix", "--next"], cwd=str(proj_a), check=True)
         self._run([str(SCRIPT), "add", "D", "Paused design", "--status", "HOLD"], cwd=str(proj_a), check=True)
-        self._run([str(SCRIPT), "add", "F", "Waiting work", "--role", "work", "--depends", "D2"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Waiting work", "--next", "--depends", "D2"], cwd=str(proj_a), check=True)
 
         # Cross-project task in proj_b: F1 (work, depends on proj_a:F1)
         self._run(
-            [str(SCRIPT), "add", "F", "Cross repo work", "--role", "work", "--depends", "proj_a:F1"],
+            [str(SCRIPT), "add", "F", "Cross repo work", "--next", "--depends", "proj_a:F1"],
             cwd=str(proj_b),
             check=True,
         )
@@ -316,7 +316,7 @@ class TestChain(TodoMdTestCase):
         self.assertIn("[work]", rows["2."])
         self.assertIn("[plan]", rows["3."])
         self.assertIn("[work]", rows["4."])
-        self.assertIn("[ops]", rows["5."])
+        self.assertIn("[plan]", rows["5."])
         role_cols = {
             line.index("[design]" if "[design]" in line else ("[work]" if "[work]" in line else "[plan]"))
             for k, line in rows.items()
@@ -342,7 +342,7 @@ class TestChain(TodoMdTestCase):
         self.assertNotIn("1 F2", r_work.stdout)
         self.assertNotIn("P1", r_work.stdout)
         self.assertIn("Held branches:", r_work.stdout)
-        self.assertIn("D2 (HOLD) -> F3 (NEW)", r_work.stdout)
+        self.assertIn("D2 (HOLD) -> F3 (NEXT)", r_work.stdout)
 
         # 3. --role plan hides unrelated held branches and standalone tasks
         r_plan = self._run([str(SCRIPT), "chain", "--numbered=right", "--role=plan"], cwd=str(proj_a), check=True)
@@ -350,7 +350,8 @@ class TestChain(TodoMdTestCase):
         self.assertIn("1 F2", r_plan.stdout)
         self.assertIn("[plan]", r_plan.stdout)
         self.assertIn("[blocked by: F1]", r_plan.stdout)
-        self.assertNotIn("Standalone tasks:", r_plan.stdout)
+        self.assertIn("Standalone tasks:", r_plan.stdout)
+        self.assertIn("P1", r_plan.stdout)
         self.assertNotIn("Held branches:", r_plan.stdout)
         self.assertNotIn("D1", r_plan.stdout)
         self.assertNotIn("B1", r_plan.stdout)
@@ -382,8 +383,8 @@ class TestChain(TodoMdTestCase):
         r_none = self._run([str(SCRIPT), "chain", "--numbered=right", "--role", "review"], cwd=str(proj_a), check=True)
         self.assertIn("Chain: (none matching role=review)", r_none.stdout)
 
-        r_none_ready = self._run([str(SCRIPT), "chain", "--numbered=right", "--role", "plan", "--ready"], cwd=str(proj_a), check=True)
-        self.assertIn("Ready tasks: (none matching role=plan)", r_none_ready.stdout)
+        r_none_ready = self._run([str(SCRIPT), "chain", "--numbered=right", "--role", "review", "--ready"], cwd=str(proj_a), check=True)
+        self.assertIn("Ready tasks: (none matching role=review)", r_none_ready.stdout)
 
         r_work_hold = self._run([str(SCRIPT), "chain", "--numbered=right", "--role", "work", "--include-hold"], cwd=str(proj_a), check=True)
         self.assertIn("F3", r_work_hold.stdout)
@@ -435,13 +436,13 @@ class TestChain(TodoMdTestCase):
 
         # Queue 1 (work): ready work (F1), work blocked only by work/DONE (F2), standalone work (B1)
         self._run([str(SCRIPT), "add", "F", "Ready work root", "--next", "--depends", "D1"], cwd=str(proj_a), check=True)
-        self._run([str(SCRIPT), "add", "F", "Work after work", "--role", "work", "--depends", "F1"], cwd=str(proj_a), check=True)
-        self._run([str(SCRIPT), "add", "B", "Standalone bugfix", "--role", "work"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Work after work", "--next", "--depends", "F1"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "B", "Standalone bugfix", "--next"], cwd=str(proj_a), check=True)
 
         # Queue 2 (plan): ready plan (F3, NEW fallback), plan depending on work (F4, NEW fallback), plan depending on plan (F5)
         self._run([str(SCRIPT), "add", "F", "Ready plan", "--depends", "D1"], cwd=str(proj_a), check=True)
         self._run([str(SCRIPT), "add", "F", "Plan after work", "--depends", "F2"], cwd=str(proj_a), check=True)
-        self._run([str(SCRIPT), "add", "F", "Plan after plan", "--role", "plan", "--depends", "F4"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Plan after plan", "--depends", "F4"], cwd=str(proj_a), check=True)
 
         # Queue 3 (design): ready design (D2), design depending on design (D3)
         self._run([str(SCRIPT), "add", "D", "Core design", "--next"], cwd=str(proj_a), check=True)
@@ -449,13 +450,13 @@ class TestChain(TodoMdTestCase):
 
         # Queue 4 (deferred work): work blocked by plan (F6), work blocked by design (F7),
         # and work blocked transitively by design through work (F8 -> F7 -> D2)
-        self._run([str(SCRIPT), "add", "F", "Work after plan", "--role", "work", "--depends", "F4"], cwd=str(proj_a), check=True)
-        self._run([str(SCRIPT), "add", "F", "Work after design", "--role", "work", "--depends", "D2"], cwd=str(proj_a), check=True)
-        self._run([str(SCRIPT), "add", "F", "Work transitively after design", "--role", "work", "--depends", "F7"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Work after plan", "--next", "--depends", "F4"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Work after design", "--next", "--depends", "D2"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Work transitively after design", "--next", "--depends", "F7"], cwd=str(proj_a), check=True)
 
-        # Held branch: D4 (HOLD, design) -> F9 (NEW, work)
+        # Held branch: D4 (HOLD, design) -> F9 (NEXT, work)
         self._run([str(SCRIPT), "add", "D", "Paused design", "--status", "HOLD"], cwd=str(proj_a), check=True)
-        self._run([str(SCRIPT), "add", "F", "Waiting on held design", "--role", "work", "--depends", "D4"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Waiting on held design", "--next", "--depends", "D4"], cwd=str(proj_a), check=True)
 
         # 1. Default --by-role renders all 4 queues in topological order + Held branches
         r_by_role = self._run(
@@ -470,7 +471,7 @@ class TestChain(TodoMdTestCase):
         self.assertIn("Queue 3 (design):", out)
         self.assertIn("Queue 4 (deferred work):", out)
         self.assertIn("Held branches:", out)
-        self.assertIn("D4 (HOLD) -> F9 (NEW)", out)
+        self.assertIn("D4 (HOLD) -> F9 (NEXT)", out)
         self.assertNotIn("Done design prereq", out)
         self.assertNotIn("[blocked by: D1]", out)
         self.assertIn("[ready | FINAL | COMBO]", out)
@@ -563,12 +564,12 @@ class TestChain(TodoMdTestCase):
 
         # 5. Workspace -w --by-role with cross-project design -> work dependency
         self._run(
-            [str(SCRIPT), "add", "F", "Cross-project deferred work", "--role", "work", "--depends", "proj_a:D2"],
+            [str(SCRIPT), "add", "F", "Cross-project deferred work", "--next", "--depends", "proj_a:D2"],
             cwd=str(proj_b),
             check=True,
         )
         self._run(
-            [str(SCRIPT), "add", "F", "Cross-project ready work", "--role", "work"],
+            [str(SCRIPT), "add", "F", "Cross-project ready work", "--next"],
             cwd=str(proj_b),
             check=True,
         )
@@ -578,23 +579,6 @@ class TestChain(TodoMdTestCase):
         self.assertIn("proj_b:F2", ws_q1)
         self.assertIn("proj_b:F1", ws_q4)
         self.assertIn("[blocked by: proj_a:D2]", " ".join(ws_q4.split()))
-
-        # 6. Plan blocked by design and custom role tasks go to Other tasks without failing
-        other_dir = ws / "other_roles"
-        other_dir.mkdir()
-        self._run([str(SCRIPT), "init"], cwd=str(other_dir), check=True)
-        self._run([str(SCRIPT), "add", "D", "Design first"], cwd=str(other_dir), check=True)
-        self._run([str(SCRIPT), "add", "F", "Plan after design", "--depends", "D1"], cwd=str(other_dir), check=True)
-        self._run([str(SCRIPT), "add", "P", "Unassigned idea", "--role", "ops"], cwd=str(other_dir), check=True)
-        self._run([str(SCRIPT), "add", "F", "Review diff", "--role", "review"], cwd=str(other_dir), check=True)
-        r_other = self._run([str(SCRIPT), "chain", "--numbered=right", "--by-role"], cwd=str(other_dir), check=True)
-        self.assertIn("Queue 3 (design):", r_other.stdout)
-        self.assertNotIn("Queue 2 (plan):", r_other.stdout)
-        self.assertIn("Other tasks:", r_other.stdout)
-        other_sec = r_other.stdout[r_other.stdout.index("Other tasks:"):]
-        self.assertIn("F1", other_sec)
-        self.assertIn("P1", other_sec)
-        self.assertIn("F2", other_sec)
 
     def test_chain_ready_downstream_targets(self):
         ws = self.tmp / "ws_ready_downstream"
@@ -694,7 +678,7 @@ class TestChain(TodoMdTestCase):
 
         # Active multi-node chain in NEXT tier: F4 (NEXT, unblocks 1) -> F5 (NEW, work)
         self._run([str(SCRIPT), "add", "F", "Chain root", "--next"], cwd=str(proj_a), check=True)
-        self._run([str(SCRIPT), "add", "F", "Chain leaf", "--role", "work", "--depends", "F4"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Chain leaf", "--next", "--depends", "F4"], cwd=str(proj_a), check=True)
 
         # Standalone task in NEXT tier (no deps ever): B1
         self._run([str(SCRIPT), "add", "B", "Standalone next", "--next"], cwd=str(proj_a), check=True)
@@ -715,25 +699,25 @@ class TestChain(TodoMdTestCase):
         )
 
         # Active chain in NEW tier (work): F8 (unblocks 1) -> F9
-        self._run([str(SCRIPT), "add", "F", "New chain root", "--role", "work"], cwd=str(proj_a), check=True)
-        self._run([str(SCRIPT), "add", "F", "New chain leaf", "--role", "work", "--depends", "F8"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "New chain root", "--next"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "New chain leaf", "--next", "--depends", "F8"], cwd=str(proj_a), check=True)
 
         # Two work finales in NEW tier to verify done_count ranking (longer completed chain ranks above 2-task chain):
         # F10 depends on D1 (1 done), F11 depends on D1, F1, F2 (3 done) -> F11 ranks before F10 in Chain finales:
         self._run(
-            [str(SCRIPT), "add", "F", "Short work finale", "--role", "work", "--depends", "D1"],
+            [str(SCRIPT), "add", "F", "Short work finale", "--next", "--depends", "D1"],
             cwd=str(proj_a),
             check=True,
         )
         self._run(
-            [str(SCRIPT), "add", "F", "Long work finale", "--role", "work", "--depends", "D1, F1, F2"],
+            [str(SCRIPT), "add", "F", "Long work finale", "--next", "--depends", "D1, F1, F2"],
             cwd=str(proj_a),
             check=True,
         )
 
         # Cross-project finale in proj_b depending on proj_a:F3
         self._run(
-            [str(SCRIPT), "add", "F", "Cross finale", "--role", "work", "--depends", "proj_a:F3"],
+            [str(SCRIPT), "add", "F", "Cross finale", "--next", "--depends", "proj_a:F3"],
             cwd=str(proj_b),
             check=True,
         )
@@ -799,20 +783,22 @@ class TestChain(TodoMdTestCase):
         )
         ready_rows = {k: v for k, v in self._table_rows(r_ready.stdout).items() if k.endswith(".")}
         self.assertEqual(sorted(ready_rows), ["1.", "2.", "3.", "4.", "5.", "6.", "7."], msg=r_ready.stdout)
-        self.assertIn("F6", ready_rows["1."])
-        self.assertIn("[FINAL | COMBO]", ready_rows["1."])
-        self.assertIn("F4", ready_rows["2."])
-        self.assertIn("[ready: +1, unblocks: 1]", ready_rows["2."])
-        self.assertIn("B1", ready_rows["3."])
-        self.assertTrue(ready_rows["3."].endswith("Standalone next"), msg=ready_rows["3."])
-        self.assertIn("F11", ready_rows["4."])
-        self.assertIn("[FINAL]", ready_rows["4."])
-        self.assertIn("F10", ready_rows["5."])
-        self.assertIn("[FINAL]", ready_rows["5."])
-        self.assertIn("F8", ready_rows["6."])
-        self.assertIn("[ready: +1, unblocks: 1]", ready_rows["6."])
-        self.assertIn("F7", ready_rows["7."])
-        self.assertIn("[FINAL]", ready_rows["7."])
+        # All fixtures are NEXT/work except F7 (NEW -> plan): finales rank first, then ready chain roots, then standalone, then plan
+        expected_ready = [
+            ("F6", "[FINAL | COMBO]"),
+            ("F11", "[FINAL]"),
+            ("F10", "[FINAL]"),
+            ("F8", "[ready: +1, unblocks: 1]"),
+            ("F4", "[ready: +1, unblocks: 1]"),
+            ("B1", None),
+            ("F7", "[FINAL]"),
+        ]
+        for idx, (tid, tag) in enumerate(expected_ready, start=1):
+            row = ready_rows[f"{idx}."]
+            self.assertIn(tid, row, msg=r_ready.stdout)
+            if tag is not None:
+                self.assertIn(tag, row, msg=r_ready.stdout)
+        self.assertTrue(ready_rows["6."].endswith("Standalone next"), msg=ready_rows["6."])
 
         # 3. --by-role ranks chain finales first within their status tier in each role queue
         r_by_role = self._run(
@@ -822,9 +808,10 @@ class TestChain(TodoMdTestCase):
             check=True,
         )
         br_rows = {k: v for k, v in self._table_rows(r_by_role.stdout).items() if k.endswith(".")}
-        self.assertIn("F6", br_rows["1."])
+        self.assertIn("F6", br_rows["1."], msg=r_by_role.stdout)
         self.assertIn("[ready | FINAL | COMBO]", br_rows["1."])
-        self.assertIn("F4", br_rows["2."])
+        self.assertIn("F11", br_rows["2."], msg=r_by_role.stdout)
+        self.assertIn("F10", br_rows["3."], msg=r_by_role.stdout)
 
         # 4. --role and --limit apply consistently starting from top-ranked finale Chain 1:
         r_lim = self._run(
@@ -903,48 +890,48 @@ class TestChain(TodoMdTestCase):
         # Chain A (non-bug work chain linked to 3 transitive DONE tasks: F2 -> F3)
         # 3 done + 2 open = 5 tasks, 60% | 3 done, 2 open
         self._run(
-            [str(SCRIPT), "add", "F", "Progress chain open 1", "--role", "work", "--depends", "F1"],
+            [str(SCRIPT), "add", "F", "Progress chain open 1", "--next", "--depends", "F1"],
             cwd=str(proj_a),
             check=True,
         )
         self._run(
-            [str(SCRIPT), "add", "F", "Progress chain open 2", "--role", "work", "--depends", "F2"],
+            [str(SCRIPT), "add", "F", "Progress chain open 2", "--next", "--depends", "F2"],
             cwd=str(proj_a),
             check=True,
         )
 
         # Chain B (ready bug B1 -> F4): ready_bugs=1, total_bugs=1, dist=0 -> ranks #1!
-        self._run([str(SCRIPT), "add", "B", "Ready bug root", "--role", "work"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "B", "Ready bug root", "--next"], cwd=str(proj_a), check=True)
         self._run(
-            [str(SCRIPT), "add", "F", "After ready bug", "--role", "work", "--depends", "B1"],
+            [str(SCRIPT), "add", "F", "After ready bug", "--next", "--depends", "B1"],
             cwd=str(proj_a),
             check=True,
         )
 
         # Chain C (blocked bug at distance 1: F5 -> B2): ready_bugs=0, total_bugs=1, dist=1 -> ranks #2!
-        self._run([str(SCRIPT), "add", "F", "Pre-bug step", "--role", "work"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Pre-bug step", "--next"], cwd=str(proj_a), check=True)
         self._run(
-            [str(SCRIPT), "add", "B", "Blocked bug dist 1", "--role", "work", "--depends", "F5"],
+            [str(SCRIPT), "add", "B", "Blocked bug dist 1", "--next", "--depends", "F5"],
             cwd=str(proj_a),
             check=True,
         )
 
         # Chain D (blocked bug at distance 2: F6 -> F7 -> B3): ready_bugs=0, total_bugs=1, dist=2 -> ranks #3!
-        self._run([str(SCRIPT), "add", "F", "Far bug step 1", "--role", "work"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Far bug step 1", "--next"], cwd=str(proj_a), check=True)
         self._run(
-            [str(SCRIPT), "add", "F", "Far bug step 2", "--role", "work", "--depends", "F6"],
+            [str(SCRIPT), "add", "F", "Far bug step 2", "--next", "--depends", "F6"],
             cwd=str(proj_a),
             check=True,
         )
         self._run(
-            [str(SCRIPT), "add", "B", "Blocked bug dist 2", "--role", "work", "--depends", "F7"],
+            [str(SCRIPT), "add", "B", "Blocked bug dist 2", "--next", "--depends", "F7"],
             cwd=str(proj_a),
             check=True,
         )
 
         # Chain E (plan chain: F8 [plan] -> F9 [plan]): 0 bugs, role=plan -> ranks after work Chain A!
         self._run(
-            [str(SCRIPT), "add", "F", "Plan chain root", "--role", "plan", "--next"],
+            [str(SCRIPT), "add", "F", "Plan chain root"],
             cwd=str(proj_a),
             check=True,
         )
@@ -966,15 +953,15 @@ class TestChain(TodoMdTestCase):
         # - D3: NEXT, design
         # - F10: NEXT, plan
         # - F11: NEW, work
-        # - B4: NEW, work (bug task B* even with NEW status must rank above NEXT non-bugs!)
+        # - B4: NEXT, work (bug task B* must rank above other work tasks!)
         self._run([str(SCRIPT), "add", "D", "Standalone design next", "--next"], cwd=str(proj_a), check=True)
         self._run(
-            [str(SCRIPT), "add", "F", "Standalone plan next", "--role", "plan", "--next"],
+            [str(SCRIPT), "add", "F", "Standalone plan next"],
             cwd=str(proj_a),
             check=True,
         )
-        self._run([str(SCRIPT), "add", "F", "Standalone work new", "--role", "work"], cwd=str(proj_a), check=True)
-        self._run([str(SCRIPT), "add", "B", "Standalone bug new", "--role", "work"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Standalone work new", "--next"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "B", "Standalone bug new", "--next"], cwd=str(proj_a), check=True)
 
         r_chain = self._run(
             [str(SCRIPT), "chain", "--numbered=right"],
@@ -1016,7 +1003,7 @@ class TestChain(TodoMdTestCase):
         # Add another task after B2 so Chain (F5 [DONE] -> B2 -> F12) stays a 2-open-task chain with 1 done task:
         # 3 tasks, 33% | 1 done, 2 open, and now B2 is ready!
         self._run(
-            [str(SCRIPT), "add", "F", "Followup after B2", "--role", "work", "--depends", "B2"],
+            [str(SCRIPT), "add", "F", "Followup after B2", "--next", "--depends", "B2"],
             cwd=str(proj_a),
             check=True,
         )
@@ -1036,27 +1023,27 @@ class TestChain(TodoMdTestCase):
         # - Long 3-open work chain (F15 -> F16 -> F17, remaining_effort = 3, velocity = 1/4)
         # Fast 2-open work chain has higher weighted velocity (1/3 > 1/4) and lower effort (2 < 3), so it ranks before the 3-open chain!
         self._run(
-            [str(SCRIPT), "add", "F", "Fast vel 1", "--role", "work", "--depends", "proj_b:D1"],
+            [str(SCRIPT), "add", "F", "Fast vel 1", "--next", "--depends", "proj_b:D1"],
             cwd=str(proj_a),
             check=True,
         )
         self._run(
-            [str(SCRIPT), "add", "F", "Fast vel 2", "--role", "work", "--depends", "F13"],
+            [str(SCRIPT), "add", "F", "Fast vel 2", "--next", "--depends", "F13"],
             cwd=str(proj_a),
             check=True,
         )
         self._run(
-            [str(SCRIPT), "add", "F", "Slow vel 1", "--role", "work", "--depends", "proj_b:D1"],
+            [str(SCRIPT), "add", "F", "Slow vel 1", "--next", "--depends", "proj_b:D1"],
             cwd=str(proj_a),
             check=True,
         )
         self._run(
-            [str(SCRIPT), "add", "F", "Slow vel 2", "--role", "work", "--depends", "F15"],
+            [str(SCRIPT), "add", "F", "Slow vel 2", "--next", "--depends", "F15"],
             cwd=str(proj_a),
             check=True,
         )
         self._run(
-            [str(SCRIPT), "add", "F", "Slow vel 3", "--role", "work", "--depends", "F16"],
+            [str(SCRIPT), "add", "F", "Slow vel 3", "--next", "--depends", "F16"],
             cwd=str(proj_a),
             check=True,
         )
@@ -1078,7 +1065,7 @@ class TestChain(TodoMdTestCase):
         )
         ws_solo = r_ws.stdout[r_ws.stdout.index("Standalone tasks:"):]
         self.assertLess(ws_solo.index("proj_a:B4"), ws_solo.index("proj_b:F3"), msg=ws_solo)
-        self.assertLess(ws_solo.index("proj_b:F3"), ws_solo.index("proj_a:F11"), msg=ws_solo)
+        self.assertLess(ws_solo.index("proj_a:F11"), ws_solo.index("proj_b:F3"), msg=ws_solo)
 
     def test_chain_todo_projects_orchestrator_dag_child_scoping_cwd_refs_and_ansi_dimming(self):
         ws = self.tmp / "ws_orch"
@@ -1101,12 +1088,12 @@ class TestChain(TodoMdTestCase):
 
         # Child project run_block has F1 (which will be sequenced by todo_flow), standalone F2,
         # finale F3 (with local DONE prerequisite D1), and held branch H -> F4
-        self._run([str(SCRIPT), "add", "F", "Run block sequenced task", "--role", "work"], cwd=str(run_block), check=True)
-        self._run([str(SCRIPT), "add", "F", "Run block standalone task", "--role", "work"], cwd=str(run_block), check=True)
+        self._run([str(SCRIPT), "add", "F", "Run block sequenced task", "--next"], cwd=str(run_block), check=True)
+        self._run([str(SCRIPT), "add", "F", "Run block standalone task", "--next"], cwd=str(run_block), check=True)
         self._run([str(SCRIPT), "add", "D", "Run block done design"], cwd=str(run_block), check=True)
         self._run([str(SCRIPT), "done", "D1", "-m", "done"], cwd=str(run_block), check=True)
         self._run(
-            [str(SCRIPT), "add", "F", "Run block finale task", "--role", "work", "--depends", "D1"],
+            [str(SCRIPT), "add", "F", "Run block finale task", "--next", "--depends", "D1"],
             cwd=str(run_block),
             check=True,
         )
@@ -1116,19 +1103,19 @@ class TestChain(TodoMdTestCase):
             check=True,
         )
         self._run(
-            [str(SCRIPT), "add", "F", "Run block held leaf", "--role", "work", "--depends", "D2"],
+            [str(SCRIPT), "add", "F", "Run block held leaf", "--next", "--depends", "D2"],
             cwd=str(run_block),
             check=True,
         )
 
         # Child project todo_md has F1 (part of the cross-project chain), standalone F2,
         # finale F3 (after local DONE D1), and held task D2
-        self._run([str(SCRIPT), "add", "F", "Todo md downstream task", "--role", "work"], cwd=str(todo_md_proj), check=True)
-        self._run([str(SCRIPT), "add", "F", "Todo md standalone task", "--role", "work"], cwd=str(todo_md_proj), check=True)
+        self._run([str(SCRIPT), "add", "F", "Todo md downstream task", "--next"], cwd=str(todo_md_proj), check=True)
+        self._run([str(SCRIPT), "add", "F", "Todo md standalone task", "--next"], cwd=str(todo_md_proj), check=True)
         self._run([str(SCRIPT), "add", "D", "Todo md done design"], cwd=str(todo_md_proj), check=True)
         self._run([str(SCRIPT), "done", "D1", "-m", "done"], cwd=str(todo_md_proj), check=True)
         self._run(
-            [str(SCRIPT), "add", "F", "Todo md finale task", "--role", "work", "--depends", "D1"],
+            [str(SCRIPT), "add", "F", "Todo md finale task", "--next", "--depends", "D1"],
             cwd=str(todo_md_proj),
             check=True,
         )
@@ -1213,7 +1200,7 @@ class TestChain(TodoMdTestCase):
         self.assertIn("Standalone tasks:", out_direct)
         self.assertIn("F2", out_direct)
         self.assertIn("Held branches:", out_direct)
-        self.assertIn("D2 (HOLD) -> F4 (NEW)", out_direct)
+        self.assertIn("D2 (HOLD) -> F4 (NEXT)", out_direct)
         self.assertNotIn("todo_md:D2", out_direct)
 
         # 4. Running `todo_md -C run_block chain` (and `--project run_block`) from outside `run_block`
@@ -1231,7 +1218,7 @@ class TestChain(TodoMdTestCase):
                 self.assertIn("run_block:F1", out_ext)
                 self.assertIn("[blocked by: todo_flow:D1, todo_flow:F1 | unblocks: 2]", out_ext)
                 self.assertIn("run_block:F2", out_ext)
-                self.assertIn("run_block:D2 (HOLD) -> run_block:F4 (NEW)", out_ext)
+                self.assertIn("run_block:D2 (HOLD) -> run_block:F4 (NEXT)", out_ext)
                 self.assertNotIn("Flow internal step", out_ext)
                 self.assertNotIn("Todo md standalone task", out_ext)
 
@@ -1364,22 +1351,22 @@ class TestChain(TodoMdTestCase):
         self._run([str(SCRIPT), "done", "D1", "-m", "done"], cwd=str(todo_flow), check=True)
 
         self._run(
-            [str(SCRIPT), "add", "F", "Shared core parser", "--role", "work", "--depends", "todo_flow:D1"],
+            [str(SCRIPT), "add", "F", "Shared core parser", "--next", "--depends", "todo_flow:D1"],
             cwd=str(run_block),
             check=True,
         )
         self._run(
-            [str(SCRIPT), "add", "F", "Goal A mid step", "--role", "work", "--depends", "F1"],
+            [str(SCRIPT), "add", "F", "Goal A mid step", "--next", "--depends", "F1"],
             cwd=str(run_block),
             check=True,
         )
         self._run(
-            [str(SCRIPT), "add", "F", "Goal A closing root", "--role", "work", "--depends", "F2"],
+            [str(SCRIPT), "add", "F", "Goal A closing root", "--next", "--depends", "F2"],
             cwd=str(run_block),
             check=True,
         )
         self._run(
-            [str(SCRIPT), "add", "F", "Goal B closing root", "--role", "work", "--depends", "F1"],
+            [str(SCRIPT), "add", "F", "Goal B closing root", "--next", "--depends", "F1"],
             cwd=str(run_block),
             check=True,
         )
@@ -1496,7 +1483,7 @@ class TestChain(TodoMdTestCase):
         self._run([str(SCRIPT), "done", "F1", "-m", "done"], cwd=str(run_block), check=True)
         # Add another step F8 after F3 so Goal A (now rooted at F8) remains a 2-open-task chain after F2 is done
         self._run(
-            [str(SCRIPT), "add", "F", "Goal A post-root step", "--role", "work", "--depends", "F3"],
+            [str(SCRIPT), "add", "F", "Goal A post-root step", "--next", "--depends", "F3"],
             cwd=str(run_block),
             check=True,
         )
@@ -1611,8 +1598,7 @@ class TestChain(TodoMdTestCase):
                 "add",
                 "F",
                 "External milestone aggregator combining completed foundation and open parser prerequisite",
-                "--role",
-                "work",
+                "--next",
                 "--depends",
                 "F1",
             ],
@@ -1642,8 +1628,7 @@ class TestChain(TodoMdTestCase):
                 "add",
                 "F",
                 "Local intermediate milestone integrating external aggregator and local engine prerequisite",
-                "--role",
-                "work",
+                "--next",
                 "--depends",
                 "todo_flow:F2, F1",
             ],
@@ -1656,8 +1641,7 @@ class TestChain(TodoMdTestCase):
                 "add",
                 "F",
                 "Parallel sibling verification suite feeding directly into the closing release goal",
-                "--role",
-                "work",
+                "--next",
             ],
             cwd=str(run_block),
             check=True,
@@ -1668,8 +1652,7 @@ class TestChain(TodoMdTestCase):
                 "add",
                 "F",
                 "Closing root questline goal delivering nested milestone sub-chains and wrapped tree rows",
-                "--role",
-                "work",
+                "--next",
                 "--depends",
                 "F2, F3",
             ],
@@ -1785,7 +1768,7 @@ class TestChain(TodoMdTestCase):
         proj.mkdir()
         self._run([str(SCRIPT), "-C", str(proj), "init"], check=True)
         for n in range(1, 11):
-            add_args = [str(SCRIPT), "add", f"Task {n}", "--role", "work"]
+            add_args = [str(SCRIPT), "add", f"Task {n}"]
             if n > 1:
                 add_args += ["--depends", f"F{n - 1}"]
             self._run(add_args, cwd=str(proj), check=True)
@@ -1848,21 +1831,21 @@ class TestChain(TodoMdTestCase):
 
         # Add tasks with overlapping IDs across projects + archived DONE/CANCELED tasks
         self._run(
-            [str(SCRIPT), "-C", str(todo_md_p), "add", "Nested todo_projects support", "--role", "work"],
+            [str(SCRIPT), "-C", str(todo_md_p), "add", "Nested todo_projects support", "--next"],
             check=True,
         )  # todo_md:F1
         self._run(
-            [str(SCRIPT), "-C", str(todo_md_p), "add", "Archived completed leaf task", "--role", "work"],
+            [str(SCRIPT), "-C", str(todo_md_p), "add", "Archived completed leaf task", "--next"],
             check=True,
         )  # todo_md:F2
         self._run([str(SCRIPT), "-C", str(todo_md_p), "done", "F2", "-m", "done"], check=True)
 
         self._run(
-            [str(SCRIPT), "-C", str(run_block_p), "add", "Runner isolation", "--role", "work"],
+            [str(SCRIPT), "-C", str(run_block_p), "add", "Runner isolation", "--next"],
             check=True,
         )  # run_block:F1
         self._run(
-            [str(SCRIPT), "-C", str(run_block_p), "add", "Dropped experiment", "--role", "work"],
+            [str(SCRIPT), "-C", str(run_block_p), "add", "Dropped experiment", "--next"],
             check=True,
         )  # run_block:F2
         self._run([str(SCRIPT), "-C", str(run_block_p), "cancel", "F2", "-m", "superseded"], check=True)
@@ -1874,8 +1857,7 @@ class TestChain(TodoMdTestCase):
                 str(todo_flow),
                 "add",
                 "Orchestrator rollout",
-                "--role",
-                "work",
+                "--next",
                 "--depends",
                 "todo_md:F1",
                 "-b",
@@ -2027,11 +2009,11 @@ class TestChain(TodoMdTestCase):
         }
         env["HOME"] = str(home)
         self._run(
-            [str(SCRIPT), "add", "F", "Canary base", "--role", "work"],
+            [str(SCRIPT), "add", "F", "Canary base", "--next"],
             cwd=str(canary), env=env, check=True,
         )
         self._run(
-            [str(SCRIPT), "add", "F", "Leaf consumer", "--role", "work", "--depends", "chrome/canary:F1"],
+            [str(SCRIPT), "add", "F", "Leaf consumer", "--next", "--depends", "chrome/canary:F1"],
             cwd=str(todo_md_p), env=env, check=True,
         )
         for cwd in (todo_md_p, todo_flow, meta_orch):

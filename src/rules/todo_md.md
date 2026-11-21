@@ -11,17 +11,28 @@
     status (rendered in compact view by `{cmd:todo_md}`), `NEXT` is promoted in
     `role=plan` for prioritized ready tasks (expanded view), `WIP` is set
     automatically when starting `role=work task=<ID>`, and `done` is run
-    before the final commit in `role=work` so backlog updates are committed
-    atomically with code changes. Explicit `- Role: <role>` (normalized to
-    lowercase matching `^[a-z][a-z0-9_-]*$`) always wins; when omitted, `D*`
-    resolves to `design` and any non-`D` prefix (`F`, `B`, or custom `A-Z`)
-    resolves to `plan` in `NEW`/`QUESTION`/`HOLD` and to `work` in
-    `WIP`/`NEXT`. Promoting a task via `{cmd:todo_md} next <ID>` (or
+    inside the final commit step in `role=work` (after the edit-and-diff step
+    is verified clean, immediately before staging and `git commit`, never
+    during the edit step) so backlog updates are committed atomically with
+    code changes. Task roles are never stored in task bodies and are derived
+    from the ID prefix and status: `D*` resolves to `design` in any status
+    and any non-`D` prefix (`F`, `B`, or custom `A-Z`) resolves to `plan` in
+    `NEW`/`QUESTION`/`HOLD` and to `work` in `WIP`/`NEXT`; `{cmd:todo_md} check`
+    rejects `- Role:` lines in active `TODO.md` tasks (use a `D*` prefix for
+    design, or `{cmd:todo_md} next <ID>` to promote to work).
+    Promoting a task via `{cmd:todo_md} next <ID>` (or
     `{cmd:todo_md} status <ID> NEXT`) strips an existing `- Role: plan` line so
     promoted non-`D` tasks transition to `work` automatically, and
     `{cmd:todo_md} <ID>` always emits `Role: <role>` in its preamble for
     role-agnostic pipe auto-consumption
     (`{cmd:todo_md} <ID> | agents_bundle | run_block`).
+  - Task ID prefixes: `F` is a feature (default prefix on `add`), `B` is a
+    bugfix (ranked ahead of other tasks in `chain`), and `D` is a design task
+    (role `design`); any other single `A-Z` letter is a custom domain prefix
+    whose role follows the status rule above. `{cmd:todo_md} ids` prints the
+    IDs in use together with this legend. Close design tasks via
+    `{cmd:todo_md} done <ID>` once their invariants are persisted in
+    `AGENTS.md` (and `docs/adr/`) and follow-up implementation tasks exist.
   - Target selection: pass `-C <dir|project>` or `--project <name>` before
     any `{cmd:todo_md}` subcommand (`ids`, `list`, `archive`, `last`, `last-id`,
     `next-id`, `files`, `check`, `add`, `edit`, `append`, `status`, `next`,
@@ -98,10 +109,10 @@
     (existing backtick-referenced repo files within optional size budgets;
     reference target file paths and key symbol names in backticks in task
     bodies rather than brittle line ranges)
-  - Create: `{cmd:todo_md} add [<PROJECT>] [<PREFIX>] "<title>" [-p <PREFIX>] [--next] [--status WIP|NEXT|NEW|HOLD|QUESTION] [-m "<note>"] [-b "<body_md>"|-] [--role <role>] [--depends <spec>] [-c|--commit]`
+  - Create: `{cmd:todo_md} add [<PROJECT>] [<PREFIX>] "<title>" [-p <PREFIX>] [--next] [--status WIP|NEXT|NEW|HOLD|QUESTION] [-m "<note>"] [-b "<body_md>"|-] [--depends <spec>] [-c|--commit]`
     (auto-assigns `<ID>`, default prefix `F`; pass body via `-b`, `-b -` for `stdin`, or piped `stdin`;
     `{cmd:todo_md} init "<idea>"` bootstraps a new `TODO.md`)
-  - Update: `{cmd:todo_md} edit <ID> [-t "<title>"] [-m "<note>"] [-b "<body_md>"|-] [--role <role>] [--depends <spec>] [-c|--commit]`,
+  - Update: `{cmd:todo_md} edit <ID> [-t "<title>"] [-m "<note>"] [-b "<body_md>"|-] [--depends <spec>] [-c|--commit]`,
     `{cmd:todo_md} append <ID> [-b "<text>"|-] [-c|--commit]`
   - Dependencies (`--depends` and `- Depends on:`): use `,` for parallel items
     within a stage (`A,B`) and `->` for sequential stages (`"A -> B -> C"`,
@@ -130,7 +141,11 @@
     or cleared):
     - `role=work`: do not pass `-c` / `--commit`; stage `TODO.md` and
       `TODO_ARCHIVE.md` into the final code commit so `done` is atomic with
-      implementation.
+      implementation. Record out-of-scope findings via `{cmd:todo_md} add` as
+      problem/impact descriptions in default `NEW` status without `--depends`;
+      they are staged into the final code commit, or committed immediately
+      with `-c` / `--commit` when recorded after the code commit is already
+      pushed or when no code commit follows.
     - `role=plan`, `role=design`, and `role=review`: batch `{cmd:todo_md}`
       mutations without `-c` and commit `TODO*.md` in a single commit once
       backlog updates are finished (via `-c` / `--commit` on the final

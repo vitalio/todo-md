@@ -141,54 +141,38 @@ class TestParser(TodoMdTestCase):
                 msg=f"status={st}",
             )
 
-        # Explicit --role overrides status/prefix fallback and normalizes uppercase input to lowercase
-        self._run([str(SCRIPT), "add", "F", "Audit task", "--role", "Review", "--depends", "D1", "-b", "Review body"], cwd=str(proj_a), check=True)
+        # Roles derive from prefix/status only: a NEW non-D task resolves to plan, NEXT to work
+        self._run([str(SCRIPT), "add", "F", "Audit task", "--depends", "D1", "-b", "Review body"], cwd=str(proj_a), check=True)
         r_f2 = self._run([str(SCRIPT), "proj_a:F2"], cwd=str(ws), check=True)
         self.assertEqual(
             r_f2.stdout.splitlines()[:5],
-            ["Task: F2", "Title: Audit task", "Role: review", f"Workdir: {resolved_proj_a}", ""],
+            ["Task: F2", "Title: Audit task", "Role: plan", f"Workdir: {resolved_proj_a}", ""],
         )
-        self.assertIn("- Role: review", r_f2.stdout)
+        self.assertNotIn("- Role:", r_f2.stdout)
         self.assertIn("- Depends on: D1", r_f2.stdout)
 
-        # edit --role updates or clears - Role: without dropping - Depends on:
-        self._run([str(SCRIPT), "edit", "proj_a:F2", "--role", "PLAN"], cwd=str(ws), check=True)
-        r_f2_plan = self._run([str(SCRIPT), "show", "proj_a:F2"], cwd=str(ws), check=True)
-        self.assertEqual(r_f2_plan.stdout.splitlines()[:3], ["Task: F2", "Title: Audit task", "Role: plan"])
-        self.assertIn("- Role: plan", r_f2_plan.stdout)
-        self.assertIn("- Depends on: D1", r_f2_plan.stdout)
-
-        # Promoting a task with explicit - Role: plan to NEXT via `next` or `status <ID> NEXT` strips `- Role: plan` so it resolves to `work`
         self._run([str(SCRIPT), "next", "F2"], cwd=str(proj_a), check=True)
         r_f2_next = self._run([str(SCRIPT), "F2"], cwd=str(proj_a), check=True)
         self.assertEqual(r_f2_next.stdout.splitlines()[:3], ["Task: F2", "Title: Audit task", "Role: work"])
-        self.assertNotIn("- Role: plan", r_f2_next.stdout)
         self.assertIn("- Depends on: D1", r_f2_next.stdout)
 
-        # Also test `status <ID> NEXT` stripping `- Role: plan` in place
         self._run([str(SCRIPT), "status", "F2", "NEW"], cwd=str(proj_a), check=True)
-        self._run([str(SCRIPT), "edit", "F2", "--role=plan"], cwd=str(proj_a), check=True)
-        self.assertIn("- Role: plan", (proj_a / "TODO.md").read_text(encoding="utf-8"))
-        self._run([str(SCRIPT), "status", "F2", "NEXT"], cwd=str(proj_a), check=True)
-        r_f2_status_next = self._run([str(SCRIPT), "F2"], cwd=str(proj_a), check=True)
-        self.assertEqual(r_f2_status_next.stdout.splitlines()[:3], ["Task: F2", "Title: Audit task", "Role: work"])
-        self.assertNotIn("- Role: plan", r_f2_status_next.stdout)
+        r_f2_new = self._run([str(SCRIPT), "F2"], cwd=str(proj_a), check=True)
+        self.assertEqual(r_f2_new.stdout.splitlines()[:3], ["Task: F2", "Title: Audit task", "Role: plan"])
 
-        # Clearing an explicit role on a NEXT task keeps fallback `work`; on a NEW task keeps fallback `plan`
-        self._run([str(SCRIPT), "edit", "F2", "--role", "review"], cwd=str(proj_a), check=True)
-        self._run([str(SCRIPT), "edit", "F2", "--role", ""], cwd=str(proj_a), check=True)
-        r_f2_cleared = self._run([str(SCRIPT), "F2"], cwd=str(proj_a), check=True)
-        self.assertEqual(r_f2_cleared.stdout.splitlines()[:3], ["Task: F2", "Title: Audit task", "Role: work"])
-        self.assertIn("- Depends on: D1", r_f2_cleared.stdout)
+        # Mutating commands no longer accept --role (it stays a read-only filter)
+        for bad_cmd in (
+            ["add", "F", "Role override", "--role", "work"],
+            ["add", "F", "Role override", "--role=work"],
+            ["edit", "F2", "--role", "plan"],
+            ["edit", "F2", "--role="],
+        ):
+            with self.subTest(bad_cmd=bad_cmd):
+                r_bad = self._run([str(SCRIPT), *bad_cmd], cwd=str(proj_a))
+                self.assertNotEqual(r_bad.returncode, 0, msg=r_bad.stdout)
+                self.assertIn("unknown option", r_bad.stderr)
 
-        self._run([str(SCRIPT), "edit", "P1", "--role", "design"], cwd=str(proj_a), check=True)
-        r_p1 = self._run([str(SCRIPT), str(proj_a), "P1"], cwd=str(ws), check=True)
-        self.assertEqual(
-            r_p1.stdout.splitlines()[:5],
-            ["Task: P1", "Title: Idea without role", "Role: design", f"Workdir: {resolved_proj_a}", ""],
-        )
-
-        # Fenced - Role: inside code block does not override status-aware fallback role
+        # Fenced - Role: inside code block is ignored by role resolution
         fenced_body = "`" * 3 + "markdown\n- Role: custom\n" + "`" * 3 + "\nDetails."
         self._run([str(SCRIPT), "add", "F", "Fenced role test", "-b", fenced_body], cwd=str(proj_a), check=True)
         r_f3 = self._run([str(SCRIPT), "F3"], cwd=str(proj_a), check=True)
@@ -216,34 +200,17 @@ class TestParser(TodoMdTestCase):
         self.assertNotIn("Task:", r_ws.stdout)
         self.assertNotIn("Title:", r_ws.stdout)
 
-        # Invalid multi-line, malformed, or retired --role values fail explicitly on CLI
-        r_bad_role = self._run([str(SCRIPT), "add", "Bad role", "--role", "a\nb"], cwd=str(proj_a))
-        self.assertNotEqual(r_bad_role.returncode, 0, msg=r_bad_role.stdout)
-        self.assertIn("single line", r_bad_role.stderr)
-
-        for retired_arg, expected_hint in (("execute", "work"), ("EXECUTE", "work"), ("audit", "review"), ("Audit", "review")):
-            with self.subTest(retired_arg=retired_arg):
-                r_ret = self._run([str(SCRIPT), "add", "F", "Retired role", "--role", retired_arg], cwd=str(proj_a))
-                self.assertNotEqual(r_ret.returncode, 0, msg=r_ret.stdout)
-                self.assertIn("retired --role value", r_ret.stderr)
-                self.assertIn(expected_hint, r_ret.stderr)
-
-        for bad_role_val in ("", "123", "bad role", "-work", "role!"):
-            with self.subTest(bad_role_val=bad_role_val):
-                r_inv = self._run([str(SCRIPT), "add", "F", "Invalid role", "--role", bad_role_val], cwd=str(proj_a))
-                self.assertNotEqual(r_inv.returncode, 0, msg=r_inv.stdout)
-
-        # Active backlog validation (`todo_md check`) rejects multiple - Role: lines, non-lowercase/invalid roles,
-        # and retired roles in TODO.md, while exempting historical TODO_ARCHIVE.md
+        # Active backlog validation (`todo_md check`) rejects any in-body Role: line in TODO.md
+        # (outside code fences), while exempting historical TODO_ARCHIVE.md
         chk_dir = ws / "role_check_proj"
         chk_dir.mkdir()
         self._run([str(SCRIPT), "init"], cwd=str(chk_dir), check=True)
+        fence = "`" * 3
         (chk_dir / "TODO.md").write_text(
-            "# ⚪ [NEW] F1: Multiple roles\n\n- Role: plan\n- Role: work\n\n"
+            "# ⚪ [NEW] F1: In-body role\n\n- Role: plan\n\n"
             "# ⚪ [NEW] F2: Retired execute\n\n- Role: execute\n\n"
-            "# ⚪ [NEW] F3: Retired audit\n\n- Role: audit\n\n"
-            "# ⚪ [NEW] F4: Uppercase role in file\n\n- Role: Work\n\n"
-            "# ⚪ [NEW] F5: Empty role line\n\n- Role:\n",
+            "# ⚪ [NEW] F3: Fenced role is ignored\n\n" + fence + "markdown\n- Role: work\n" + fence + "\n\n"
+            "# ⚪ [NEW] F4: Empty role line\n\n- Role:\n",
             encoding="utf-8",
         )
         (chk_dir / "TODO_ARCHIVE.md").write_text(
@@ -253,19 +220,30 @@ class TestParser(TodoMdTestCase):
         )
         r_chk_fail = self._run([str(SCRIPT), "check"], cwd=str(chk_dir))
         self.assertNotEqual(r_chk_fail.returncode, 0, msg=r_chk_fail.stdout)
-        self.assertIn("task F1 has multiple Role: lines", r_chk_fail.stderr)
-        self.assertIn("task F2 uses retired role 'execute' (use 'work' instead)", r_chk_fail.stderr)
-        self.assertIn("task F3 uses retired role 'audit' (use 'review' instead)", r_chk_fail.stderr)
-        self.assertIn("task F4 has invalid Role: value 'Work'", r_chk_fail.stderr)
-        self.assertIn("task F5 has invalid Role: value ''", r_chk_fail.stderr)
+        for bad_tid in ("F1", "F2", "F4"):
+            with self.subTest(bad_tid=bad_tid):
+                self.assertIn(f"task {bad_tid} has an in-body 'Role:' line", r_chk_fail.stderr)
+        self.assertIn("use a D* prefix for design tasks or 'todo_md next <ID>' to promote to work", r_chk_fail.stderr)
+        self.assertNotIn("task F3 ", r_chk_fail.stderr)
         self.assertNotIn("U20", r_chk_fail.stderr)
 
         (chk_dir / "TODO.md").write_text(
-            "# 🎯 [NEXT] O4: Subsystem task\n\n- Role: work\n",
+            "# 🎯 [NEXT] O4: Subsystem task\n\nBody without role.\n",
             encoding="utf-8",
         )
         r_chk_ok = self._run([str(SCRIPT), "check"], cwd=str(chk_dir), check=True)
         self.assertIn("OK", r_chk_ok.stdout)
+
+    def test_ids_prefix_legend(self):
+        proj = self.tmp / "legend"
+        proj.mkdir()
+        self._run([str(SCRIPT), "init"], cwd=str(proj), check=True)
+        r_ids = self._run([str(SCRIPT), "ids"], cwd=str(proj), check=True)
+        lines = r_ids.stdout.splitlines()
+        self.assertTrue(lines[0].startswith("IDs in use:"), msg=r_ids.stdout)
+        self.assertEqual(lines[1], "Prefixes: F=feature (default), B=bugfix, D=design, other A-Z=custom domain")
+        self.assertEqual(lines[2], "Roles: D*=design; others: WIP/NEXT=work, NEW/QUESTION/HOLD=plan")
+        self.assertEqual(len(lines), 3, msg=r_ids.stdout)
 
     def test_files_budget_options(self):
         ws = self.tmp / "ws"
@@ -628,12 +606,12 @@ class TestParser(TodoMdTestCase):
         # D2 (HOLD) -> F4 (held leaf), F5 (canceled)
         self._run([str(SCRIPT), "add", "D", "RB done design"], cwd=str(run_block), check=True)
         self._run([str(SCRIPT), "done", "D1", "-m", "done"], cwd=str(run_block), check=True)
-        self._run([str(SCRIPT), "add", "F", "RB finale task", "--role", "work", "--depends", "D1"], cwd=str(run_block), check=True)
-        self._run([str(SCRIPT), "add", "F", "RB chain task", "--role", "work"], cwd=str(run_block), check=True)
-        self._run([str(SCRIPT), "add", "F", "RB standalone task", "--role", "work"], cwd=str(run_block), check=True)
+        self._run([str(SCRIPT), "add", "F", "RB finale task", "--next", "--depends", "D1"], cwd=str(run_block), check=True)
+        self._run([str(SCRIPT), "add", "F", "RB chain task", "--next"], cwd=str(run_block), check=True)
+        self._run([str(SCRIPT), "add", "F", "RB standalone task", "--next"], cwd=str(run_block), check=True)
         self._run([str(SCRIPT), "add", "D", "RB held root", "--status", "HOLD"], cwd=str(run_block), check=True)
-        self._run([str(SCRIPT), "add", "F", "RB held leaf", "--role", "work", "--depends", "D2"], cwd=str(run_block), check=True)
-        self._run([str(SCRIPT), "add", "F", "RB canceled task", "--role", "work"], cwd=str(run_block), check=True)
+        self._run([str(SCRIPT), "add", "F", "RB held leaf", "--next", "--depends", "D2"], cwd=str(run_block), check=True)
+        self._run([str(SCRIPT), "add", "F", "RB canceled task", "--next"], cwd=str(run_block), check=True)
         self._run([str(SCRIPT), "cancel", "F5", "-m", "drop"], cwd=str(run_block), check=True)
 
         # todo_flow orchestrator sequences todo_flow:D1 -> run_block:F2 -> todo_flow:F1,
@@ -696,8 +674,8 @@ class TestParser(TodoMdTestCase):
         self.assertTrue(any(ln.startswith("\033[2;3m") and "4 todo_flow:F1 " in ln for ln in lines_hl), msg=out_hl)
         # Held branches tokens: D2 (local highlighted -> \033[1;93m), todo_flow:D2 (external highlighted -> \033[1;3;93m),
         # F4 (local unhighlighted -> plain), todo_flow:F2 (external unhighlighted -> \033[2;3m)
-        self.assertIn("\033[1;93mD2 (HOLD)\033[0m -> F4 (NEW)", out_hl)
-        self.assertIn("\033[1;3;93mtodo_flow:D2 (HOLD)\033[0m -> F4 (NEW) -> \033[2;3mtodo_flow:F2 (NEW)\033[0m", out_hl)
+        self.assertIn("\033[1;93mD2 (HOLD)\033[0m -> F4 (NEXT)", out_hl)
+        self.assertIn("\033[1;3;93mtodo_flow:D2 (HOLD)\033[0m -> F4 (NEXT) -> \033[2;3mtodo_flow:F2 (NEW)\033[0m", out_hl)
 
         # Strip ANSI equals plain output at identical terminal width
         r_chain_plain = self._run(

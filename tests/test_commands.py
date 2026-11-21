@@ -172,26 +172,25 @@ class TestCommands(TodoMdTestCase):
         self._run([str(SCRIPT), "init"], cwd=str(role_dir), check=True)
         # D1 is a ready NEXT design task (prefix D defaults to role=design)
         self._run([str(SCRIPT), "add", "D", "Design spec", "--next"], cwd=str(role_dir), check=True)
-        # P1 is a ready NEXT plan task with explicit --role plan
-        self._run([str(SCRIPT), "add", "P", "Plan breakdown", "--next", "--role", "plan"], cwd=str(role_dir), check=True)
         # F1 is a NEXT work task blocked by D1
         self._run([str(SCRIPT), "add", "F", "Blocked work", "--next", "--depends", "D1"], cwd=str(role_dir), check=True)
 
-        # Unfiltered next-id picks top ready NEXT task (P1 was prepended after D1)
+        # Unfiltered next-id skips blocked F1 and picks the top ready NEXT task (D1)
         r_unfiltered = self._run([str(SCRIPT), "next-id"], cwd=str(role_dir), check=True)
-        self.assertEqual(r_unfiltered.stdout.strip(), "P1")
+        self.assertEqual(r_unfiltered.stdout.strip(), "D1")
         r_design = self._run([str(SCRIPT), "next-id", "--role", "design"], cwd=str(role_dir), check=True)
         self.assertEqual(r_design.stdout.strip(), "D1")
-        r_plan = self._run([str(SCRIPT), "next-id", "--role=plan"], cwd=str(role_dir), check=True)
-        self.assertEqual(r_plan.stdout.strip(), "P1")
+        # NEXT/WIP tasks always resolve to work or design, so no ready plan task exists
+        r_plan = self._run([str(SCRIPT), "next-id", "--role=plan"], cwd=str(role_dir))
+        self.assertEqual(r_plan.returncode, 1, msg=r_plan.stderr)
         # Work task F1 is blocked by D1, so next-id --role work finds no ready work task
         r_work_blocked = self._run([str(SCRIPT), "next-id", "--role", "work"], cwd=str(role_dir))
         self.assertEqual(r_work_blocked.returncode, 1, msg=r_work_blocked.stderr)
         self.assertIn("no active WIP or NEXT task (role=work)", r_work_blocked.stderr)
 
-        # Even if blocked F1 is promoted to WIP, unfiltered next-id skips it and returns ready P1
+        # Even if blocked F1 is promoted to WIP, unfiltered next-id skips it and returns ready D1
         self._run([str(SCRIPT), "status", "F1", "WIP"], cwd=str(role_dir), check=True)
-        self.assertEqual(self._run([str(SCRIPT), "next-id"], cwd=str(role_dir), check=True).stdout.strip(), "P1")
+        self.assertEqual(self._run([str(SCRIPT), "next-id"], cwd=str(role_dir), check=True).stdout.strip(), "D1")
         r_work_wip = self._run([str(SCRIPT), "next-id", "--role", "work"], cwd=str(role_dir))
         self.assertEqual(r_work_wip.returncode, 1, msg=r_work_wip.stderr)
 
@@ -503,7 +502,7 @@ class TestCommands(TodoMdTestCase):
         self._run([str(SCRIPT), "add", "B", "Fix crash", "--next", "-b", "Bug body"], cwd=str(proj_a), check=True)
         self._run([str(SCRIPT), "add", "P", "Unassigned role", "-b", "Proposal body"], cwd=str(proj_a), check=True)
         self._run(
-            [str(SCRIPT), "add", "F", "Audit diff", "--role", "review", "-b", "Review body"],
+            [str(SCRIPT), "add", "F", "Audit diff", "-b", "Review body"],
             cwd=str(proj_a),
             check=True,
         )
@@ -512,7 +511,7 @@ class TestCommands(TodoMdTestCase):
 
         self._run([str(SCRIPT), "add", "F", "Other work", "--next", "-b", "B body"], cwd=str(proj_b), check=True)
         self._run(
-            [str(SCRIPT), "add", "P", "Other review", "--role", "Review", "-b", "B review"],
+            [str(SCRIPT), "add", "P", "Other review", "-b", "B review"],
             cwd=str(proj_b),
             check=True,
         )
@@ -526,7 +525,7 @@ class TestCommands(TodoMdTestCase):
         self.assertIn("[design]", rows["D1"])
         self.assertIn("[work]", rows["F1"])
         self.assertIn("[work]", rows["B1"])
-        self.assertIn("[review]", rows["F2"])
+        self.assertIn("[plan]", rows["F2"])
         self.assertIn("[plan]", rows["P1"])
 
         r_design = self._run([str(SCRIPT), "list", "--role", "design"], cwd=str(proj_a), check=True)
@@ -542,7 +541,7 @@ class TestCommands(TodoMdTestCase):
         self.assertNotIn("D1", r_work.stdout)
 
         r_review_full = self._run(
-            [str(SCRIPT), "list", "--role", "REVIEW", "--limit", "1", "--full"],
+            [str(SCRIPT), "list", "--role", "PLAN", "--limit", "2", "--full"],
             cwd=str(proj_a),
             check=True,
         )
@@ -565,13 +564,13 @@ class TestCommands(TodoMdTestCase):
         }
         self.assertIn("[design]", ws_rows["proj_a:D1"])
         self.assertIn("[work]", ws_rows["proj_a:F1"])
-        self.assertIn("[review]", ws_rows["proj_a:F2"])
+        self.assertIn("[plan]", ws_rows["proj_a:F2"])
         self.assertNotIn("[work]", ws_rows["proj_a:P1"])
         self.assertIn("[work]", ws_rows["proj_b:F1"])
         self.assertIn("[plan]", ws_rows["proj_a:P1"])
-        self.assertIn("[review]", ws_rows["proj_b:P1"])
+        self.assertIn("[plan]", ws_rows["proj_b:P1"])
 
-        r_ws_rev = self._run([str(SCRIPT), "-w", "list", "--role=review"], cwd=str(proj_a), check=True)
+        r_ws_rev = self._run([str(SCRIPT), "-w", "list", "--role=plan"], cwd=str(proj_a), check=True)
         self.assertIn("proj_a:F2", r_ws_rev.stdout)
         self.assertIn("proj_b:P1", r_ws_rev.stdout)
         self.assertNotIn("proj_a:F1", r_ws_rev.stdout)

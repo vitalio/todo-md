@@ -1,3 +1,17 @@
+# ✅ [DONE] F17: Add CLI prefix legend (F, B, D), remove in-body - Role: overrides, and document prefix/status role resolution — *2026-11-21*
+
+- Coordinate with `F43` and `todo_flow` `docs/adr/0001-prefix-and-status-task-role-resolution.md`:
+  - Remove in-body `- Role: <role>` overrides from `resolve_task_role()` in `src/parser.py` so role resolution is strictly prefix- and status-driven (`D*` -> `design`; non-`D` `A-Z` -> `work` in `WIP`/`NEXT` and `plan` in `NEW`/`QUESTION`/`HOLD`).
+  - Remove `--role` from `cmd_add()` and `cmd_edit()` in `src/commands.py` (keeping `--role` strictly as a read-only filter on `todo_md`, `chain`, `list`, and `next-id`), and update `todo_md check` (`validate_repo()` in `src/parser.py`) to reject `- Role:` lines in active `TODO.md` files with an error guiding to `D*` prefix (for `design`) or `todo_md next <ID>` (for `work`), exempting historical `TODO_ARCHIVE.md`.
+  - Define a canonical prefix metadata table in `src/header.py` describing standard prefixes `F` (feature, default prefix on `add`), `B` (bugfix, priority boost in `chain`), and `D` (design, role `design`), plus custom `A-Z` domain prefixes.
+  - Update `cmd_ids` in `src/parser.py` to print a compact prefix legend below `IDs in use: ...`, and summarize the prefix and status-role conventions in `src/header.py` (`--help`).
+  - Document standard task ID prefixes (`F`, `B`, `D`), custom `A-Z` prefix conventions, and prefix/status role resolution in `src/rules/todo_md.md`.
+  - Clarify in `src/rules/todo_md.md` and `src/bundles/todo_md.bundle` (`[if role=work]`) that `todo_md done <ID>` is executed inside the final commit step (after the edit-and-diff step is verified clean, immediately before staging and `git commit`) rather than during the edit step, and that out-of-scope findings recorded by `role=work` via `todo_md add` are written as problem/impact descriptions in default `NEW` status without `--depends` (staged into the final code commit, or committed immediately with `-c` / `--commit` if recorded after the code commit is already pushed or when no code commit follows).
+  - Update `src/bundles/todo_md.bundle`:
+    - In `[if role=design]`, instruct that design tasks (`D*`) are closed via `todo_md done <ID>` once architectural invariants are persisted in `AGENTS.md` (and `docs/adr/`) and follow-up implementation tasks are created.
+    - In `[if role=plan]`, remove the trailing `once task <ID> is agreed, initialize a new session bundle via todo_md <ID> | agents_bundle | run_block...` instruction so planning sessions finish by committing `TODO*.md` without automatically spawning a new session unless explicitly requested by the user.
+  - Rebuild and reinstall via `build.py` and `install.sh`, keep `README.md` and `tests/test_parser.py`, `tests/test_commands.py`, and `tests/test_cli.py` in sync, and bump `VERSION` for a MINOR release.
+
 # ✅ [DONE] F61: Omit default chain: 1 and ready: +0 from -r/--ready task stats — *2026-11-21*
 
 - In `_format_row()` (`src/commands.py`, lines 1275-1340), when `show_downstream=True` (`-r` / `--ready` mode):

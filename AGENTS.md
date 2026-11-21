@@ -64,6 +64,16 @@ rules are loaded via `.agents_bundle`.
   harness (`TodoMdTestCase`) and modular unit test suites (`test_cli.py`,
   `test_parser.py`, `test_commands.py`, `test_deps.py`, `test_chain.py`).
 
+## Task Roles & Prefixes
+
+- Task roles are derived only from the ID prefix and status in
+  `resolve_task_role()`; never reintroduce in-body `- Role:` overrides or a
+  `--role` option on mutating commands (`--role` stays a read-only filter).
+- Prefix metadata (`PREFIX_INFO`, `DEFAULT_TASK_PREFIX`) and status roles
+  (`STATUS_ROLES`) live in `src/header.py`; `todo_md ids` renders the legend
+  from them via `prefix_legend_lines()`, so keep `--help`, `README.md`, and
+  `src/rules/todo_md.md` aligned with those tables.
+
 ## Dependency Graph & Sequencing Contract
 
 - Single source of truth: express both prerequisites and execution order in

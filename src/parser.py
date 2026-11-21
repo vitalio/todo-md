@@ -727,30 +727,11 @@ def _is_task_blocked(
     return any(st != "DONE" for _, st, _ in resolved)
 
 
-def parse_task_role(section_text: str) -> str | None:
-    in_fence = False
-    for line in section_text.splitlines():
-        if line.lstrip().startswith(FENCE):
-            in_fence = not in_fence
-            continue
-        if in_fence:
-            continue
-        m = ROLE_LINE_RE.match(line)
-        if m:
-            role = m.group(1).strip()
-            if role:
-                return role.lower()
-    return None
-
-
 def resolve_task_role(
     task_id: str,
     section_text: str,
     status: str | None = None,
 ) -> str:
-    explicit = parse_task_role(section_text)
-    if explicit:
-        return explicit.lower()
     prefix = task_id.strip().upper().split(":")[-1][:1]
     if prefix in PREFIX_DEFAULT_ROLES:
         return PREFIX_DEFAULT_ROLES[prefix]
@@ -760,10 +741,8 @@ def resolve_task_role(
         m = HEADING_RE.match(first_line)
         if m:
             norm_status = m.group(2).upper()
-    if norm_status in ("WIP", "NEXT"):
-        return "work"
-    if norm_status in ("NEW", "QUESTION", "HOLD"):
-        return "plan"
+    if norm_status in STATUS_ROLES:
+        return STATUS_ROLES[norm_status]
     return "work" if norm_status in ("DONE", "CANCELED") else "plan"
 
 
@@ -1009,6 +988,8 @@ def cmd_summary(base_dir: Path, full: bool = False) -> int:
 def cmd_ids(base_dir: Path) -> int:
     top = highest_ids_in_use(base_dir)
     sys.stdout.write(f"IDs in use: {format_ids_summary(top)}\n")
+    for legend_line in prefix_legend_lines():
+        sys.stdout.write(legend_line + "\n")
     return 0
 
 
@@ -1583,33 +1564,17 @@ def validate_all(base_dir: Path) -> tuple[list[str], int]:
             lineno = int(t["line"])
             sec = str(t["section"])
             in_role_fence = False
-            role_entries: list[tuple[int, str]] = []
             for offset, sline in enumerate(sec.splitlines()):
                 if sline.lstrip().startswith(FENCE):
                     in_role_fence = not in_role_fence
                     continue
                 if in_role_fence:
                     continue
-                rm = ROLE_LINE_RE.match(sline)
-                if rm:
-                    role_entries.append((lineno + offset, rm.group(1).strip()))
-            if len(role_entries) > 1:
-                dup_lines = ", ".join(str(r_line) for r_line, _ in role_entries)
-                errors.append(
-                    f"TODO.md:{role_entries[1][0]}: task {tid} has multiple Role: lines (lines {dup_lines})"
-                )
-            for r_line, raw_role in role_entries:
-                low_role = raw_role.lower()
-                if low_role in RETIRED_ROLES:
-                    replacement = RETIRED_ROLES[low_role]
+                if ROLE_LINE_RE.match(sline):
                     errors.append(
-                        f"TODO.md:{r_line}: task {tid} uses retired role {raw_role!r} "
-                        f"(use {replacement!r} instead)"
-                    )
-                elif not ROLE_NAME_RE.match(raw_role):
-                    errors.append(
-                        f"TODO.md:{r_line}: task {tid} has invalid Role: value {raw_role!r} "
-                        "(expected lowercase identifier matching ^[a-z][a-z0-9_-]*$)"
+                        f"TODO.md:{lineno + offset}: task {tid} has an in-body 'Role:' line "
+                        "(roles are derived from the ID prefix and status; remove it, "
+                        "use a D* prefix for design tasks or 'todo_md next <ID>' to promote to work)"
                     )
             clauses, syntax_errs = parse_dependency_clauses(sec)
             for serr in syntax_errs:
