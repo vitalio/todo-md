@@ -79,13 +79,17 @@
   - `src/cli.py`: self-update commands (`cmd_check_update()`, `cmd_update()`), CLI argument parsing (`_parse_quest_log_args()`), and `main()`.
 - Update `MODULE_ORDER` in `build.py`, regenerate standalone `./todo_md`, align `AGENTS.md` module descriptions, and verify all unit tests in `tests/test_*.py` pass without behavioral regressions.
 
-# ⚪ [NEW] F6: Move exported rules and bundles from src/ to agents/
-
-- Depends on: F62
-- Move `src/rules/todo_md.md` and `src/bundles/todo_md.bundle` to `agents/` using the unified logical bundle/rule layout once `agents_bundle` supports the root `agents/` directory (coordinated in `todo_flow`).
-- Update `AGENTS.md`, `README.md`, and tests to reference the new paths under `agents/`.
-
 # ⚪ [NEW] P1: JSON output mode (`--json`)
 
 - Depends on: F62
 Allow exporting parsed tasks as JSON for scripting.
+
+# ⚪ [NEW] F63: Implement context-bundle-protocol v1 producer, embedded agents/todo_md.md rule, and curated file/slice includes
+
+- Depends on: F62
+- Implement the Producer side of `context-bundle-protocol` v1 per `todo_flow` `docs/adr/0002-context-bundle-protocol-and-self-contained-producers.md`:
+  - Move `src/rules/todo_md.md` to `agents/todo_md.md`, delete `src/bundles/todo_md.bundle`, remove all role-specific prompts (`Mode: DESIGN/PLANNING/WORK/REVIEW`), and embed `agents/todo_md.md` into `src/header.py` (`EMBEDDED_RULE_TODO_MD`) via `build.py` (with source-tree fallback to `agents/todo_md.md` in `get_embedded_todo_rule()`).
+  - Add `--bundle` (`TODO_MD_BUNDLE=1`), `--plain` (`TODO_MD_PLAIN=1`), and `--no-files` flags; auto-detect bundle protocol emission on `todo_md <ID>` (`show <ID>`, `last`), `todo_md [-w]`, and `todo_md overview [--full] [-w]` when `sys.stdout` is a FIFO pipe (`stat.S_ISFIFO`) and its `st_dev:st_ino` does not match `RUN_BLOCK_STEP_STDOUT_INO` (and when `IN_RUN_BLOCK=1` is set without `RUN_BLOCK_STEP_STDOUT_INO`, emit plain step output unless `--bundle` is passed).
+  - In bundle mode, emit `Bundle-Protocol: 1`, `Bundle-Command`, `Bundle-Boundary: <nonce>`, `Bundle-Expose: Role, Task, Title`, context headers (`Task`, `Title`, `Role`, `Workdir`), `===== Rules =====` containing `{"kind": "rule", "id": "todo_md:todo_md", "chain": ["todo_md"]}`, preloaded `{"kind": "include", "name": "<rel_path>[:<start>-<end>]", "chain": ["todo_md"]}` fragments for backticked files and `path:start-end` slices within default size budgets (`<= 400` lines per file/slice, `<= 1200` total lines, `<= 32768` bytes; skipped when `--no-files` is passed), and `===== Prompt =====` containing `{"kind": "task", "id": "<ID>", "name": "<file>:<ID>", "chain": ["todo_md"]}` (or `{"kind": "context", "name": "todo_md", "chain": ["todo_md"]}`).
+  - Update `agents/todo_md.md` to document the two-tier task-detail contract (`NEW` backlog tasks use file paths and symbol names in backticks; `NEXT` tasks promoted by `role=plan` include `path:start-end` slices for files `> 400` lines) and instruct `role=work` to run `todo_md status <ID> WIP` in step 1 when starting a `NEXT` task and `todo_md done <ID>` inside the final commit step.
+  - Target files: `src/header.py`, `src/parser.py`, `src/render.py`, `src/commands.py`, `src/cli.py`, `agents/todo_md.md`, `build.py`, `AGENTS.md`, `README.md`, `tests/helpers.py`, `tests/test_cli.py`, `tests/test_commands.py`.

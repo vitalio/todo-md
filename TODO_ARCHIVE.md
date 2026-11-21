@@ -1,3 +1,9 @@
+# ❌ [CANCELED] F6: Move exported rules and bundles from src/ to agents/ — *Superseded by F63 and todo_flow:D6 (todo_md.bundle removed; agents/todo_md.md embedded at build time)*
+
+- Depends on: F62
+- Move `src/rules/todo_md.md` and `src/bundles/todo_md.bundle` to `agents/` using the unified logical bundle/rule layout once `agents_bundle` supports the root `agents/` directory (coordinated in `todo_flow`).
+- Update `AGENTS.md`, `README.md`, and tests to reference the new paths under `agents/`.
+
 # ✅ [DONE] F44: Sync with git upstream (git pull --ff-only) before mutating backlog commands — *2026-11-21*
 
 - Depends on: F17
