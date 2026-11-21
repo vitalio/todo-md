@@ -1,3 +1,10 @@
+# ✅ [DONE] B3: Scope Sub-chain milestone stats and subtree_nodes to rendered subtree tasks in build_chain_milestone_tree — *2026-11-21, Scoped Sub-chain stats and subtree_nodes to rendered subtree tasks*
+
+- Fix `build_chain_milestone_tree()` in `src/parser.py` (`src/parser.py:2852-3070`) so that for each `Sub-chain ->` node (`is_root=False`), `done_count`, `open_count`, `total_tasks`, `progress_pct`, and `subtree_nodes` are computed exclusively from the tasks actually rendered inside that sub-chain's subtree rather than the milestone's full unfiltered transitive cone:
+  - When a shared prerequisite branch (such as `D1` or `D6`) has already been emitted in an earlier sibling sub-chain of the same root `Chain`, exclude already-emitted open tasks and their already-claimed `DONE` prerequisites from subsequent sibling `Sub-chain` header stats (`[pct% | done: D, open: O]` / `[open: O]`) so header counts match the tasks displayed under that `Sub-chain` (both with and without `--all`).
+  - Scope `subtree_nodes` on each `Sub-chain` node (`src/parser.py:2943-2990`, used by `_render_chain_tree_children()` in `src/commands.py:1645-1675`) to the tasks actually rendered inside that sub-chain so `--filter` / `-f` and `--highlight` / `-H` do not highlight unrelated sibling `Sub-chain` headers whose only connection to the target task was an already-emitted shared prerequisite above.
+- Add regression tests in `tests/test_chain.py` covering `--tree` and `--tree --all` (plus `-f` highlighting) on a diamond/shared-prerequisite DAG where two sibling sub-chains depend on a common sub-chain with completed tasks.
+
 # ✅ [DONE] F57: Support glob path patterns and line-range slices (path:start-end) in todo_md files (extract_task_files and cmd_files) — *2026-11-21, glob patterns and line-range slices in files*
 
 - Depends on: F56

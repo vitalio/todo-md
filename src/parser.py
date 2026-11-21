@@ -2908,7 +2908,20 @@ def build_chain_milestone_tree(
     def _collect_subtree_nodes(u: tuple[Path, str]) -> set[tuple[Path, str]]:
         return (_ancestors(u) | {u}) & display_set
 
+    def _is_done(u: tuple[Path, str]) -> bool:
+        return str(nodes.get(u, {}).get("status", "")) == "DONE"
+
+    def _done_claims(us: set[tuple[Path, str]]) -> set[tuple[Path, str]]:
+        claimed: set[tuple[Path, str]] = set()
+        for u in us:
+            if _is_done(u):
+                claimed |= set(done_map.get(u, {u}))
+            else:
+                claimed |= set(done_map.get(u, set()))
+        return claimed
+
     def _build_node(target: tuple[Path, str], is_root: bool) -> dict[str, object]:
+        claimed_before = _done_claims(emitted)
         children_items: list[dict[str, object]] = []
         direct_children = [p for p in reduced_prereqs.get(target, []) if p not in emitted]
         def _child_subtree_sort_key(c: tuple[Path, str]) -> tuple[int, int]:
@@ -2941,8 +2954,21 @@ def build_chain_milestone_tree(
                     "is_closing": True,
                 }
             )
-        total_c, pct_c, done_c, open_c = _milestone_stats(target)
         nd = nodes.get(target, {})
+        if is_root:
+            total_c, pct_c, done_c, open_c = _milestone_stats(target)
+            subtree = _collect_subtree_nodes(target)
+        else:
+            subtree = set()
+            for item in children_items:
+                if item.get("kind") == "subchain":
+                    subtree |= item["subtree_nodes"]  # type: ignore[arg-type]
+                else:
+                    subtree.add(item["node"])  # type: ignore[arg-type]
+            open_c = sum(1 for u in subtree if not _is_done(u))
+            done_c = len(_done_claims(subtree) - claimed_before)
+            total_c = done_c + open_c
+            pct_c = round(100 * done_c / total_c) if total_c > 0 else 0
         return {
             "kind": "chain" if is_root else "subchain",
             "milestone": target,
@@ -2952,7 +2978,7 @@ def build_chain_milestone_tree(
             "progress_pct": pct_c,
             "done_count": done_c,
             "open_count": open_c,
-            "subtree_nodes": _collect_subtree_nodes(target),
+            "subtree_nodes": subtree,
             "children": children_items,
         }
 

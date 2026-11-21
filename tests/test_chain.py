@@ -1987,6 +1987,60 @@ class TestChain(TodoMdTestCase):
         self.assertIn("todo_md:F2", r_arch_hl.stdout)
         self.assertIn("run_block:F2", r_arch_hl.stdout)
 
+    def test_chain_tree_subchain_stats_scope_to_rendered_subtree(self):
+        proj = self.tmp / "diamond"
+        proj.mkdir()
+        self._run([str(SCRIPT), "-C", str(proj), "init"], check=True)
+
+        def add(title, deps=None, kind="F"):
+            args = [str(SCRIPT), "add", kind, title]
+            if deps:
+                args += ["--depends", deps]
+            self._run(args, cwd=str(proj), check=True)
+
+        add("Completed base", kind="D")
+        self._run([str(SCRIPT), "done", "D1", "-m", "done"], cwd=str(proj), check=True)
+        add("Shared leaf", "D1")
+        add("Shared milestone", "F1")
+        add("Left extra")
+        add("Right extra")
+        add("Left branch", "F2,F3")
+        add("Right branch", "F2,F4")
+        add("Final", "F5,F6")
+
+        base_env = {
+            k: v for k, v in os.environ.items() if k not in ("NO_COLOR", "FORCE_COLOR", "TODO_MD_PROJECTS")
+        }
+        env = {**base_env, "COLUMNS": "200"}
+
+        def headers(out):
+            return {
+                m.group(1): m.group(2)
+                for m in re.finditer(r"Sub-chain -> (\S+): .*? (\[[^\]]*\]):$", out, re.M)
+            }
+
+        out = self._run([str(SCRIPT), "chain", "--tree"], cwd=str(proj), env=env, check=True).stdout
+        h = headers(out)
+        self.assertEqual(h["F2"], "[33% | done: 1, open: 2]", msg=out)
+        self.assertEqual(sorted([h["F5"], h["F6"]]), ["[20% | done: 1, open: 4]", "[open: 2]"], msg=out)
+        self.assertNotIn("F1", h, msg=out)
+
+        out_all = self._run([str(SCRIPT), "chain", "--tree", "--all"], cwd=str(proj), env=env, check=True).stdout
+        h_all = headers(out_all)
+        self.assertEqual(h_all["F1"], "[50% | done: 1, open: 1]", msg=out_all)
+        self.assertEqual(h_all["F2"], "[33% | done: 1, open: 2]", msg=out_all)
+        self.assertEqual(
+            sorted([h_all["F5"], h_all["F6"]]), ["[20% | done: 1, open: 4]", "[open: 2]"], msg=out_all
+        )
+
+        color_env = {**env, "FORCE_COLOR": "1"}
+        out_hl = self._run(
+            [str(SCRIPT), "chain", "--tree", "-H", "F1"], cwd=str(proj), env=color_env, check=True
+        ).stdout
+        branch_hdrs = [ln for ln in out_hl.splitlines() if "Sub-chain -> F5:" in ln or "Sub-chain -> F6:" in ln]
+        self.assertEqual(len(branch_hdrs), 2, msg=out_hl)
+        self.assertEqual(sum("\033[1;93m" in ln for ln in branch_hdrs), 1, msg=out_hl)
+
     def test_chain_nested_orchestrators_and_external_path_alias(self):
         import os
 
