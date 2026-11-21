@@ -19,6 +19,51 @@ def _default_archive_header(base_dir: Path) -> str:
     return ""
 
 
+def _commit_enabled(commit: bool, no_commit: bool) -> bool:
+    env_commit = os.environ.get("TODO_MD_COMMIT", "").strip().lower() in ("1", "true", "yes")
+    env_no_commit = os.environ.get("TODO_MD_NO_COMMIT", "").strip().lower() in ("1", "true", "yes")
+    return (commit or env_commit) and not no_commit and not env_no_commit
+
+
+def _git_run(base_dir: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", "-C", str(base_dir), *args],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+
+
+def _sync_upstream(base_dir: Path, commit: bool = False, no_commit: bool = False) -> None:
+    if os.environ.get("TODO_MD_NO_GIT_PULL", "").strip().lower() in ("1", "true", "yes"):
+        return
+    try:
+        r_wt = _git_run(base_dir, "rev-parse", "--is-inside-work-tree")
+    except OSError:
+        return
+    if r_wt.returncode != 0 or r_wt.stdout.strip() != "true":
+        return
+    if _git_run(base_dir, "rev-parse", "--abbrev-ref", "@{u}").returncode != 0:
+        return
+    if not _commit_enabled(commit, no_commit):
+        r_st = _git_run(base_dir, "status", "--porcelain", "--untracked-files=no")
+        if r_st.returncode != 0:
+            return
+        if any(Path(line[3:].strip()).name not in TASK_FILES for line in r_st.stdout.splitlines()):
+            return
+    r_pull = _git_run(base_dir, "pull", "--ff-only", "--quiet")
+    if r_pull.returncode != 0:
+        detail = (r_pull.stderr or r_pull.stdout).strip()
+        msg = (
+            f"{prog_name()}: git pull --ff-only failed in {base_dir}; "
+            "resolve the upstream state first (TODO_MD_NO_GIT_PULL=1 skips the sync)"
+        )
+        if detail:
+            msg += f"\n{detail}"
+        raise SystemExit(msg)
+
+
 def _git_commit_todo(base_dir: Path, commit_msg: str) -> None:
     try:
         r_wt = subprocess.run(
@@ -109,9 +154,7 @@ def _finalize_mutation(
         for e in errors:
             sys.stderr.write(f"ERROR: {e}\n")
         return 1
-    env_commit = os.environ.get("TODO_MD_COMMIT", "").strip().lower() in ("1", "true", "yes")
-    env_no_commit = os.environ.get("TODO_MD_NO_COMMIT", "").strip().lower() in ("1", "true", "yes")
-    if (commit or env_commit) and not no_commit and not env_no_commit:
+    if _commit_enabled(commit, no_commit):
         _git_commit_todo(base_dir, commit_msg)
     return 0
 
@@ -136,6 +179,7 @@ def cmd_init(
             raise SystemExit(f"{prog}: unknown option for init: {a}")
         else:
             pos.append(a)
+    _sync_upstream(base_dir, commit, no_commit)
     idea_text = " ".join(pos).strip() if pos else (_read_stdin_if_piped() or "").strip()
     todo_content = ""
     if idea_text:
@@ -271,6 +315,7 @@ def cmd_transition(
     target = task_id.strip().upper()
     if new_status and new_status not in VALID_STATUSES:
         raise SystemExit(f"{prog_name()}: invalid status {new_status!r}; expected one of {', '.join(VALID_STATUSES)}")
+    _sync_upstream(base_dir, commit, no_commit)
     source_file: str | None = None
     found: dict[str, object] | None = None
     updated_source_text = ""
@@ -635,6 +680,7 @@ def cmd_add(
             base_dir = cand_dir
             pos = pos[1:]
 
+    _sync_upstream(base_dir, commit, no_commit)
     if len(pos) == 1:
         tid = next_free_id(base_dir, prefix or DEFAULT_TASK_PREFIX)
         title = pos[0].strip()
@@ -738,6 +784,7 @@ def cmd_edit(
     if len(pos) != 1:
         raise SystemExit(f"{prog}: usage: {prog} edit <ID> [-t TITLE] [-m NOTE] [-b BODY] [--depends SPEC]")
     base_dir, resolved_id = resolve_project_task_ref(base_dir, pos[0], explicit_dir=explicit_dir)
+    _sync_upstream(base_dir, commit, no_commit)
     target = resolved_id.upper()
     body = _resolve_body_arg(body)
     depends_clauses = _normalize_depends_clauses(depends_raw) if depends_raw is not None else None
@@ -832,6 +879,7 @@ def cmd_append(base_dir: Path, argv: list[str], commit: bool = False, no_commit:
     if not body or not body.strip():
         raise SystemExit(f"{prog}: append requires non-empty text via -b TEXT or stdin")
 
+    _sync_upstream(base_dir, commit, no_commit)
     for fname in TASK_FILES:
         p = base_dir / fname
         if not p.is_file():

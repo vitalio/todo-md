@@ -134,6 +134,14 @@
     (prints `Unblocked: ...` when closing `<ID>` completes all prerequisites for
     open tasks in the current repo or workspace orchestrator),
     `{cmd:todo_md} cancel <ID> [-m "<reason>"] [-c|--commit]`
+  - Upstream sync: when the repository has a configured git upstream,
+    mutating commands (`init`, `add`, `edit`, `append`, `status`, `next`,
+    `reopen`, `done`, `cancel`) first run `git pull --ff-only --quiet` so task
+    IDs are never assigned from a stale `HEAD`; the sync is skipped when
+    `TODO_MD_NO_GIT_PULL=1`, outside a git repository, without an upstream, or
+    (unless `-c` / `--commit` is enabled) when tracked files other than
+    `TODO*.md` have uncommitted changes, and aborts with an error when the
+    branch has diverged or the pull fails.
   - Validation & commits: mutating commands automatically validate and reorder
     `TODO.md` without git-committing by default (run `{cmd:todo_md} check` to
     validate manually; rejects stale completion date notes `— *YYYY-MM-DD...*`

@@ -129,6 +129,64 @@ class TestCommands(TodoMdTestCase):
         r_log = self._run_subprocess(["git", "log", "--oneline"], check=True)
         self.assertEqual(len(r_log.stdout.strip().splitlines()), 2)
 
+    def test_upstream_sync_before_mutation(self):
+        def git(cwd, *args):
+            return self._run_subprocess(["git", *args], cwd=str(cwd), check=True)
+
+        def tmd(cwd, *args, **kwargs):
+            return self._run_subprocess([str(SCRIPT), *args], cwd=str(cwd), **kwargs)
+
+        def identify(cwd):
+            git(cwd, "config", "user.name", "Test User")
+            git(cwd, "config", "user.email", "test@example.com")
+
+        no_pull = dict(os.environ, TODO_MD_NO_GIT_PULL="1")
+        remote = self.tmp / "remote.git"
+        repo_a = self.tmp / "a"
+        repo_b = self.tmp / "b"
+        remote.mkdir()
+        repo_a.mkdir()
+        git(remote, "init", "--bare")
+        git(remote, "symbolic-ref", "HEAD", "refs/heads/main")
+        git(repo_a, "init")
+        git(repo_a, "symbolic-ref", "HEAD", "refs/heads/main")
+        identify(repo_a)
+        git(repo_a, "remote", "add", "origin", str(remote))
+        (repo_a / "code.txt").write_text("code\n", encoding="utf-8")
+        git(repo_a, "add", "code.txt")
+        git(repo_a, "commit", "-m", "Add code")
+        tmd(repo_a, "init", input="", check=True)
+        tmd(repo_a, "add", "Task A", "-c", check=True)
+        git(repo_a, "push", "-u", "origin", "main")
+        git(self.tmp, "clone", str(remote), "b")
+        identify(repo_b)
+
+        # Upstream moved ahead: the mutation pulls first, so the new ID is not a duplicate
+        tmd(repo_a, "add", "Task B", "-c", check=True)
+        git(repo_a, "push")
+        r_c = tmd(repo_b, "add", "Task C", "-c", check=True)
+        self.assertIn("added F3", r_c.stdout)
+        self.assertIn("Task B", (repo_b / "TODO.md").read_text(encoding="utf-8"))
+        git(repo_b, "push")
+
+        # Uncommitted tracked code changes without --commit: the sync is skipped
+        (repo_b / "code.txt").write_text("dirty\n", encoding="utf-8")
+        tmd(repo_a, "add", "Task D", "-c", check=True)
+        git(repo_a, "push")
+        r_e = tmd(repo_b, "add", "Task E", check=True)
+        self.assertIn("added F4", r_e.stdout)
+        self.assertNotIn("Task D", (repo_b / "TODO.md").read_text(encoding="utf-8"))
+
+        # Diverged branch: fail fast without touching TODO.md; TODO_MD_NO_GIT_PULL skips the sync
+        git(repo_b, "checkout", "--", ".")
+        tmd(repo_b, "add", "Local F", "-c", env=no_pull, check=True)
+        r_div = tmd(repo_b, "add", "Task G", "-c")
+        self.assertNotEqual(r_div.returncode, 0, msg=r_div.stdout)
+        self.assertIn("git pull --ff-only failed", r_div.stderr)
+        self.assertNotIn("Task G", (repo_b / "TODO.md").read_text(encoding="utf-8"))
+        r_skip = tmd(repo_b, "add", "Task G", env=no_pull)
+        self.assertEqual(r_skip.returncode, 0, msg=r_skip.stderr)
+
     def test_next_id_files_and_pipe_output(self):
         self._run([str(SCRIPT), "init"], check=True)
         r_empty = self._run([str(SCRIPT), "next-id"])

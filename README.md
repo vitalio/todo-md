@@ -41,6 +41,14 @@ todo_md check
 
 ## CLI Reference
 
+Mutating commands (`init`, `add`, `edit`, `append`, `status`, `next`, `reopen`, `done`,
+`cancel`) first run `git pull --ff-only --quiet` when the repository has a configured
+git upstream, so task IDs are never assigned from a stale `HEAD`. The sync is skipped
+outside a git repository, without an upstream, when `TODO_MD_NO_GIT_PULL=1` is set, or
+(unless `-c` / `--commit` is enabled) when tracked files other than `TODO*.md` have
+uncommitted changes. If the pull fails (for example the branch has diverged), the
+command aborts with an error before touching `TODO*.md`.
+
 Global options accepted before subcommands:
 
 - `-C <dir|project>`, `--project <name>` — target a repository directory or discovered workspace project from any working directory (keeping `-p` in `add` for ID prefix, and `<project>:<ID>` strictly for task-level references like `show`, `edit`, `done`, and `Depends on:`). Target precedence: `-C`/`--project` > `TODO_MD_CWD` > `<project>:<ID>` > current directory.
