@@ -85,7 +85,10 @@ rules are loaded via `.agents_bundle`.
 - Unified DAG: dependency resolution merges explicit `->` stage edges on the
   target task with transitive `- Depends on:` edges inside referenced tasks
   (preserving one-way cross-repo boundaries when orchestrators sequence child
-  tasks).
+  tasks). `build_dependency_dag()` also merges inbound stage edges declared
+  in `.todo_projects` orchestrator tasks, so `queue`, `next-id`, `list`, and
+  `show` agree with `chain`; `--ready` ranks tasks by their best parent chain
+  index before local chain counts.
 - Validation & execution: `todo_md check` detects syntax errors, missing refs,
   and transitive cycles; `DONE` unblocks while `CANCELED` or `MISSING` blocks;
   `todo_md queue <ID>` shows the ordered queue and `todo_md next-id <ID>`

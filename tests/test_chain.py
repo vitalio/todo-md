@@ -222,11 +222,12 @@ class TestChain(TodoMdTestCase):
         self.assertEqual(r_long.stdout, r_default.stdout)
         rows = {k: v for k, v in self._table_rows(r_long.stdout).items() if k.endswith(".")}
         self.assertEqual(sorted(rows), ["1.", "2.", "3."], msg=r_long.stdout)
-        # Multi-chain leverage beats a larger single-chain cone: F1 (2 chains) ahead of F4 (1 chain, unblocks 3)
-        self.assertIn("F1", rows["1."])
-        self.assertIn("[chain: 2, ready: +2, unblocks: 2]", rows["1."])
-        self.assertIn("F4", rows["2."])
-        self.assertIn("[ready: +1, unblocks: 3]", rows["2."])
+        # Top chain priority beats multi-chain leverage: F4 advances Chain 1 (the 4-task cone),
+        # while F1 only feeds the lower-ranked 2-task chains
+        self.assertIn("F4", rows["1."])
+        self.assertIn("[ready: +1, unblocks: 3]", rows["1."])
+        self.assertIn("F1", rows["2."])
+        self.assertIn("[chain: 2, ready: +2, unblocks: 2]", rows["2."])
         # Role ease: work tasks rank ahead of the design root within the same status tier
         self.assertIn("D1", rows["3."])
         self.assertIn("[design]", rows["3."])
@@ -783,13 +784,14 @@ class TestChain(TodoMdTestCase):
         )
         ready_rows = {k: v for k, v in self._table_rows(r_ready.stdout).items() if k.endswith(".")}
         self.assertEqual(sorted(ready_rows), ["1.", "2.", "3.", "4.", "5.", "6.", "7."], msg=r_ready.stdout)
-        # All fixtures are NEXT/work except F7 (NEW -> plan): finales rank first, then ready chain roots, then standalone, then plan
+        # All fixtures are NEXT/work except F7 (NEW -> plan): finales rank first, then ready chain roots
+        # ordered by parent chain rank (F4 in Chain 4 before F8 in Chain 5), then standalone, then plan
         expected_ready = [
             ("F6", "[FINAL | COMBO]"),
             ("F11", "[FINAL]"),
             ("F10", "[FINAL]"),
-            ("F8", "[ready: +1, unblocks: 1]"),
             ("F4", "[ready: +1, unblocks: 1]"),
+            ("F8", "[ready: +1, unblocks: 1]"),
             ("B1", None),
             ("F7", "[FINAL]"),
         ]
@@ -2081,6 +2083,36 @@ class TestChain(TodoMdTestCase):
             cwd=str(todo_md_p), env=env, check=True,
         )
         self.assertIn("Canary base", r_c.stdout)
+
+    def test_ready_ranking_follows_top_chain_priority(self):
+        proj = self.tmp / "readychain"
+        proj.mkdir()
+        self._run([str(SCRIPT), "-C", str(proj), "init"], check=True)
+        self._run([str(SCRIPT), "add", "F", "Chain A head", "--next"], cwd=str(proj), check=True)
+        self._run(
+            [str(SCRIPT), "add", "B", "Chain A bug", "--next", "--depends", "F1"],
+            cwd=str(proj),
+            check=True,
+        )
+        self._run([str(SCRIPT), "add", "F", "Chain B head", "--next"], cwd=str(proj), check=True)
+        self._run(
+            [str(SCRIPT), "add", "F", "Chain B middle", "--next", "--depends", "F2"],
+            cwd=str(proj),
+            check=True,
+        )
+        self._run(
+            [str(SCRIPT), "add", "F", "Chain B tail", "--next", "--depends", "F3"],
+            cwd=str(proj),
+            check=True,
+        )
+
+        out_chain = self._run([str(SCRIPT), "chain"], cwd=str(proj), check=True).stdout
+        self.assertIn("Chain 1 -> B1", out_chain)
+
+        out_ready = self._run([str(SCRIPT), "chain", "--ready"], cwd=str(proj), check=True).stdout
+        self.assertIn("Chain A head", out_ready)
+        self.assertIn("Chain B head", out_ready)
+        self.assertLess(out_ready.index("Chain A head"), out_ready.index("Chain B head"), msg=out_ready)
 
 
 if __name__ == "__main__":

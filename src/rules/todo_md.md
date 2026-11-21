@@ -85,7 +85,7 @@
     `Queue 3 (design)`, and `Queue 4 (deferred work)` for `work` blocked by
     `plan`/`design` [omitted with `--ready`]; `--role <role>` filters displayed
     tasks while preserving DAG validation and unblock context; `--ready` / `-r` filters
-    to ready tasks ranked by role ease, Quest Momentum continuation, multi-chain count, completed prerequisite count, and immediate ready unlocks,
+    to ready tasks ranked by role ease, Quest Momentum continuation, best parent chain rank (tasks advancing `Chain 1` first), multi-chain count, completed prerequisite count, and immediate ready unlocks,
     shown as `[FINAL | STAGE | COMBO | chain: <N>, ready: +<M>, unblocks: <K>]` (`chain: <N>` only when `N > 1`, `ready: +<M>` only when `M > 0`; tag omitted on zero-stat standalone tasks); excludes `HOLD` and tasks transitively
     blocked by `HOLD` into `Held branches:` unless `--include-hold` is passed;
     reports diagnostics on cycles, syntax errors, or `MISSING` / `CANCELED`
@@ -123,7 +123,8 @@
     `--depends` or add multiple `- Depends on:` lines for independent branches
     combined with AND; do not introduce a separate `- Order:` field;
     cross-project orchestrator dependencies (`<project>:<ID>`) preserve one-way
-    repo boundaries without modifying child repos
+    repo boundaries without modifying child repos (inbound orchestrator stage edges also block
+    child tasks in `queue`, `next-id <ID>`, `list`, and `show`)
   - Chain integration (both directions): whenever adding or refining a task,
     check existing open chains upstream (`--depends` on the new task) and
     downstream (`{cmd:todo_md} edit <ID> --depends ...` on existing open tasks,

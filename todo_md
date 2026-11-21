@@ -17,7 +17,7 @@ import unicodedata
 from datetime import date
 from pathlib import Path
 
-VERSION = "0.40.1"
+VERSION = "0.40.2"
 REPO_MARKER = "todo_md-repo: vitalio/todo_md"
 DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/vitalio/todo_md/main/todo_md"
 FENCE = chr(96) * 3
@@ -227,8 +227,9 @@ HELP_QUEST_OPTIONS: tuple[tuple[str, str], ...] = (
      "Include archived DONE/CANCELED tasks from TODO_ARCHIVE.md (same as the ALL status "
      "keyword)"),
     ("-r, --ready",
-     "Show only ready tasks ranked by role ease, Quest Momentum, chain count, done count, "
-     "and ready unlocks (rows show [FINAL | STAGE | COMBO | chain: N, ready: +M, "
+     "Show only ready tasks ranked by role ease, Quest Momentum, best chain rank, chain "
+     "count, done count, and ready unlocks (rows show [FINAL | STAGE | COMBO | chain: N, "
+     "ready: +M, "
      "unblocks: K], with chain only when N > 1 and ready only when M > 0); also accepted "
      "by list"),
     ("--by-role", "Partition active tasks into role queues"),
@@ -813,6 +814,10 @@ def build_dependency_dag(
         if pm:
             proj_name = pm.group(1).strip().replace("\\", "/").strip("/")
             cand = (ws_resolved / proj_name).resolve()
+            if not is_todo_project(cand) and ws_resolved.name == ".todo_projects":
+                alt = (ws_resolved.parent / proj_name).resolve()
+                if is_todo_project(alt):
+                    cand = alt
             if not is_todo_project(cand):
                 alias = lookup_external_alias(base_dir, ws_resolved, proj_name)
                 if alias is not None:
@@ -844,6 +849,51 @@ def build_dependency_dag(
         if dep not in prereq_sets[node]:
             prereq_sets[node].add(dep)
             prereqs[node].append(dep)
+
+    orch_cache: dict[Path, list[Path]] = {}
+    orch_edge_cache: dict[Path, dict[tuple[Path, str], list[tuple[Path, str]]]] = {}
+
+    def _is_done_key(k: tuple[Path, str]) -> bool:
+        kt = _task_map(k[0]).get(k[1])
+        return kt is not None and str(kt["status"]) == "DONE"
+
+    def _orchestrators_of(proj_dir: Path) -> list[Path]:
+        p_res = proj_dir.resolve()
+        if p_res not in orch_cache:
+            found: list[Path] = []
+            if is_todo_project(p_res):
+                found, _ = discover_orchestrators_for_project(p_res, ws_resolved)
+            orch_cache[p_res] = found
+        return orch_cache[p_res]
+
+    def _orch_stage_edges(orch_dir: Path) -> dict[tuple[Path, str], list[tuple[Path, str]]]:
+        o_res = orch_dir.resolve()
+        if o_res not in orch_edge_cache:
+            edges: dict[tuple[Path, str], list[tuple[Path, str]]] = {}
+            for ot in _task_map(o_res).values():
+                if str(ot["status"]) not in ACTIVE_STATUS_ORDER:
+                    continue
+                o_clauses, _ = parse_dependency_clauses(str(ot["section"]))
+                for o_clause in o_clauses:
+                    o_stages = [[_resolve_ref(o_res, r) for r in stage] for stage in o_clause]
+                    for i, stage_keys in enumerate(o_stages):
+                        if i == 0:
+                            continue
+                        for k in stage_keys:
+                            lst = edges.setdefault(k, [])
+                            for prev_k in o_stages[i - 1]:
+                                if prev_k != k and prev_k not in lst:
+                                    lst.append(prev_k)
+            orch_edge_cache[o_res] = edges
+        return orch_edge_cache[o_res]
+
+    def _inbound_prereqs(node_key: tuple[Path, str]) -> list[tuple[Path, str]]:
+        out: list[tuple[Path, str]] = []
+        for orch_dir in _orchestrators_of(node_key[0]):
+            for prev_k in _orch_stage_edges(orch_dir).get(node_key, []):
+                if prev_k not in out:
+                    out.append(prev_k)
+        return out
 
     def _visit(node_key: tuple[Path, str]) -> None:
         if node_key in nodes:
@@ -889,6 +939,10 @@ def build_dependency_dag(
                                     pt = _task_map(prev_k[0]).get(prev_k[1])
                                     if pt is not None and str(pt["status"]) == "DONE":
                                         _add_prereq(k, prev_k)
+            for prev_k in _inbound_prereqs(node_key):
+                if _is_done_key(prev_k):
+                    _add_prereq(node_key, prev_k)
+                    done_refs_to_visit.append(prev_k)
             for k in done_refs_to_visit:
                 _visit(k)
             order_idx[node_key] = len(order_idx)
@@ -904,6 +958,9 @@ def build_dependency_dag(
                     if i > 0:
                         for prev_k in resolved_stages[i - 1]:
                             _add_prereq(k, prev_k)
+        for prev_k in _inbound_prereqs(node_key):
+            _add_prereq(node_key, prev_k)
+            to_visit.append(prev_k)
         for k in to_visit:
             _visit(k)
         order_idx[node_key] = len(order_idx)
@@ -993,6 +1050,72 @@ def _first_actionable_in_dag(
     return None
 
 
+def _task_dag(
+    base_dir: Path,
+    task: dict[str, object],
+    explicit_dir: str | None = None,
+) -> dict[str, object] | None:
+    if str(task.get("status", "")) not in ACTIVE_STATUS_ORDER:
+        return None
+    dag = build_dependency_dag(
+        base_dir,
+        base_dir,
+        str(task["id"]),
+        explicit_dir=explicit_dir,
+        stop_at_done=True,
+    )
+    if dag["syntax_errors"] or dag["cycle"]:
+        return None
+    return dag
+
+
+def _dag_blocked_suffix(dag: dict[str, object]) -> str:
+    nodes: dict[tuple[Path, str], dict[str, object]] = dag["nodes"]  # type: ignore[assignment]
+    prereqs: dict[tuple[Path, str], list[tuple[Path, str]]] = dag["prereqs"]  # type: ignore[assignment]
+    root_key: tuple[Path, str] = dag["root"]  # type: ignore[assignment]
+    anc_cache: dict[tuple[Path, str], set[tuple[Path, str]]] = {}
+
+    def _unres_ancestors(u: tuple[Path, str]) -> set[tuple[Path, str]]:
+        if u not in anc_cache:
+            found: set[tuple[Path, str]] = set()
+            for p in prereqs.get(u, []):
+                if str(nodes[p]["status"]) != "DONE":
+                    found.add(p)
+                    found.update(_unres_ancestors(p))
+            anc_cache[u] = found
+        return anc_cache[u]
+
+    def _reduced_unres_prereqs(u: tuple[Path, str]) -> list[tuple[Path, str]]:
+        raw = [p for p in prereqs.get(u, []) if str(nodes[p]["status"]) != "DONE"]
+        return [
+            p
+            for p in raw
+            if not any(p in _unres_ancestors(other) for other in raw if other != p)
+        ]
+
+    def _paths_to(u: tuple[Path, str]) -> list[list[tuple[Path, str]]]:
+        ups = _reduced_unres_prereqs(u)
+        if not ups:
+            return [[u]]
+        out: list[list[tuple[Path, str]]] = []
+        for p in ups:
+            for sub_path in _paths_to(p):
+                out.append(sub_path + [u])
+        return out
+
+    chain_strs: list[str] = []
+    seen_chains: set[str] = set()
+    for direct_blocker in _reduced_unres_prereqs(root_key):
+        for path_nodes in _paths_to(direct_blocker):
+            rendered = " -> ".join(
+                f"{nodes[k]['ref']} ({nodes[k]['status']})" for k in path_nodes
+            )
+            if rendered not in seen_chains:
+                seen_chains.add(rendered)
+                chain_strs.append(rendered)
+    return f" [blocked: {', '.join(chain_strs)}]" if chain_strs else ""
+
+
 def _task_dependency_info(
     base_dir: Path,
     task: dict[str, object],
@@ -1001,68 +1124,18 @@ def _task_dependency_info(
     sec = str(task["section"])
     _, syntax_errs = parse_dependency_clauses(sec)
     deps = parse_task_dependencies(sec)
+    dag = None if syntax_errs else _task_dag(base_dir, task, explicit_dir=explicit_dir)
+    dag_suffix = _dag_blocked_suffix(dag) if dag is not None else ""
     if not deps and not syntax_errs:
-        return False, ""
+        return (True, dag_suffix) if dag_suffix else (False, "")
     resolved = resolve_dependency_statuses(base_dir, deps, explicit_dir=explicit_dir) if deps else []
     blocked = [f"{r} ({st})" for r, st, _ in resolved if st != "DONE"]
     if syntax_errs and not blocked:
         return True, f" [blocked: syntax error: {'; '.join(syntax_errs)}]"
+    if dag_suffix:
+        return True, dag_suffix
     if not blocked and not syntax_errs:
         return False, " [deps: DONE]"
-    if not syntax_errs and str(task.get("status", "")) in ACTIVE_STATUS_ORDER:
-        dag = build_dependency_dag(
-            base_dir,
-            base_dir,
-            str(task["id"]),
-            explicit_dir=explicit_dir,
-            stop_at_done=True,
-        )
-        if not dag["syntax_errors"] and not dag["cycle"]:
-            nodes: dict[tuple[Path, str], dict[str, object]] = dag["nodes"]  # type: ignore[assignment]
-            prereqs: dict[tuple[Path, str], list[tuple[Path, str]]] = dag["prereqs"]  # type: ignore[assignment]
-            root_key: tuple[Path, str] = dag["root"]  # type: ignore[assignment]
-            anc_cache: dict[tuple[Path, str], set[tuple[Path, str]]] = {}
-
-            def _unres_ancestors(u: tuple[Path, str]) -> set[tuple[Path, str]]:
-                if u not in anc_cache:
-                    found: set[tuple[Path, str]] = set()
-                    for p in prereqs.get(u, []):
-                        if str(nodes[p]["status"]) != "DONE":
-                            found.add(p)
-                            found.update(_unres_ancestors(p))
-                    anc_cache[u] = found
-                return anc_cache[u]
-
-            def _reduced_unres_prereqs(u: tuple[Path, str]) -> list[tuple[Path, str]]:
-                raw = [p for p in prereqs.get(u, []) if str(nodes[p]["status"]) != "DONE"]
-                return [
-                    p
-                    for p in raw
-                    if not any(p in _unres_ancestors(other) for other in raw if other != p)
-                ]
-
-            def _paths_to(u: tuple[Path, str]) -> list[list[tuple[Path, str]]]:
-                ups = _reduced_unres_prereqs(u)
-                if not ups:
-                    return [[u]]
-                out: list[list[tuple[Path, str]]] = []
-                for p in ups:
-                    for sub in _paths_to(p):
-                        out.append(sub + [u])
-                return out
-
-            chain_strs: list[str] = []
-            seen_chains: set[str] = set()
-            for direct_blocker in _reduced_unres_prereqs(root_key):
-                for path_nodes in _paths_to(direct_blocker):
-                    rendered = " -> ".join(
-                        f"{nodes[k]['ref']} ({nodes[k]['status']})" for k in path_nodes
-                    )
-                    if rendered not in seen_chains:
-                        seen_chains.add(rendered)
-                        chain_strs.append(rendered)
-            if chain_strs:
-                return True, f" [blocked: {', '.join(chain_strs)}]"
     return True, f" [blocked: {', '.join(blocked)}]"
 
 
@@ -1076,10 +1149,17 @@ def _is_task_blocked(
     if syntax_errs:
         return True
     deps = parse_task_dependencies(sec)
-    if not deps:
+    if deps:
+        resolved = resolve_dependency_statuses(base_dir, deps, explicit_dir=explicit_dir)
+        if any(st != "DONE" for _, st, _ in resolved):
+            return True
+    dag = _task_dag(base_dir, task, explicit_dir=explicit_dir)
+    if dag is None:
         return False
-    resolved = resolve_dependency_statuses(base_dir, deps, explicit_dir=explicit_dir)
-    return any(st != "DONE" for _, st, _ in resolved)
+    nodes: dict[tuple[Path, str], dict[str, object]] = dag["nodes"]  # type: ignore[assignment]
+    prereqs: dict[tuple[Path, str], list[tuple[Path, str]]] = dag["prereqs"]  # type: ignore[assignment]
+    root_key: tuple[Path, str] = dag["root"]  # type: ignore[assignment]
+    return any(str(nodes[p]["status"]) != "DONE" for p in prereqs.get(root_key, []))
 
 
 def resolve_task_role(
@@ -1101,13 +1181,48 @@ def resolve_task_role(
     return "work" if norm_status in ("DONE", "CANCELED") else "plan"
 
 
+def _inbound_blocker_items(
+    base_dir: Path,
+    task: dict[str, object],
+    own_clauses: list[list[list[str]]],
+    explicit_dir: str | None = None,
+) -> list[str]:
+    dag = _task_dag(base_dir, task, explicit_dir=explicit_dir)
+    if dag is None:
+        return []
+    nodes: dict[tuple[Path, str], dict[str, object]] = dag["nodes"]  # type: ignore[assignment]
+    prereqs: dict[tuple[Path, str], list[tuple[Path, str]]] = dag["prereqs"]  # type: ignore[assignment]
+    root_key: tuple[Path, str] = dag["root"]  # type: ignore[assignment]
+
+    def _norm(ref: str) -> str:
+        return ref.strip().upper().lstrip("~/")
+
+    own = {_norm(ref) for clause in own_clauses for stage in clause for ref in stage}
+    items: list[str] = []
+    for p in prereqs.get(root_key, []):
+        nd = nodes[p]
+        st = str(nd["status"])
+        if st == "DONE" or _norm(str(nd["ref"])) in own:
+            continue
+        emoji = str(nd.get("emoji", ""))
+        label = f"{emoji} [{st}]".strip() if emoji else f"[{st}]"
+        items.append(f"{nd['ref']} {label}")
+    return items
+
+
 def format_dependency_summary(
     base_dir: Path,
     section_text: str,
     explicit_dir: str | None = None,
+    task: dict[str, object] | None = None,
 ) -> str | None:
     clauses, syntax_errors = parse_dependency_clauses(section_text)
-    if not clauses and not syntax_errors:
+    inbound_items = (
+        _inbound_blocker_items(base_dir, task, clauses, explicit_dir=explicit_dir)
+        if task is not None and not syntax_errors
+        else []
+    )
+    if not clauses and not syntax_errors and not inbound_items:
         return None
     flat_refs: list[str] = []
     seen_refs: set[str] = set()
@@ -1138,6 +1253,9 @@ def format_dependency_summary(
                     item_strs.append(f"{ref} {label}")
             stage_strs.append(", ".join(item_strs))
         clause_strs.append(" -> ".join(stage_strs))
+    if inbound_items:
+        blocked = True
+        clause_strs.append(", ".join(inbound_items))
     if syntax_errors and not clause_strs:
         return f"Dependencies (blocked): [syntax error: {'; '.join(syntax_errors)}]"
     state = "blocked" if blocked else "ready"
@@ -1285,7 +1403,13 @@ def _format_task_for_summary(
         tid = str(task["id"])
         lines[0] = lines[0].replace(f"] {tid}:", f"] {proj_prefix}:{tid}:", 1)
         sec = "\n".join(lines)
-    dep_line = format_dependency_summary(base_dir, str(task["section"])) if base_dir else None
+    dep_line = (
+        format_dependency_summary(
+            base_dir, str(task["section"]), task=None if proj_prefix else task
+        )
+        if base_dir
+        else None
+    )
     status = str(task["status"])
     if full or status in ("WIP", "NEXT", "QUESTION"):
         return f"{sec}\n{dep_line}" if dep_line else sec
@@ -1420,7 +1544,7 @@ def cmd_show(base_dir: Path, task_id: str) -> int:
                 f"Workdir: {workdir}",
             ]
             headers = "\n".join(header_lines)
-            dep_line = format_dependency_summary(base_dir, section)
+            dep_line = format_dependency_summary(base_dir, section, task=t)
             dep_block = f"\n{dep_line}" if dep_line else ""
             sys.stdout.write(
                 f"{headers}\n\n# {t['file']}:{t['line']}\n{section}{dep_block}\n\n---\nIDs in use: {format_ids_summary(top)}\n"
@@ -3111,10 +3235,12 @@ def _prepare_active_plan(
         for u in active_list
     }
 
+    best_chain_rank: dict[tuple[Path, str], int] = {}
+
     def _node_rank(
         u: tuple[Path, str],
         ready_step: int = 0,
-    ) -> tuple[int, int, int, int, int, int, int, int, int, int, tuple[str, str, str], tuple[Path, str]]:
+    ) -> tuple[int, int, int, int, int, int, int, int, int, int, int, tuple[str, str, str], tuple[Path, str]]:
         st = str(nodes[u]["status"])
         prio = ACTIVE_STATUS_ORDER.get(st, 99)
         is_fin = 0 if u in finale_set else 1
@@ -3123,6 +3249,7 @@ def _prepare_active_plan(
             is_fin,
             _resolve_node_role_ease(nodes, u),
             is_momentum_next.get(u, 1),
+            best_chain_rank.get(u, 0),
             -chain_counts.get(u, 0),
             -done_counts.get(u, 0),
             -ready_unblocks.get(u, 0),
@@ -3166,6 +3293,7 @@ def _prepare_active_plan(
         "ready_unblocks": ready_unblocks,
         "immediate_ready_targets": immediate_ready_targets,
         "node_rank": _node_rank,
+        "best_chain_rank": best_chain_rank,
     }
 
 
@@ -3460,31 +3588,7 @@ def plan_execution_chains(
     ready_unblocks: dict[tuple[Path, str], int] = prep["ready_unblocks"]  # type: ignore[assignment]
     immediate_ready_targets: dict[tuple[Path, str], list[tuple[Path, str]]] = prep["immediate_ready_targets"]  # type: ignore[assignment]
     _node_rank = prep["node_rank"]  # type: ignore[assignment]
-
-    if ready_only:
-        ready_nodes = [
-            u
-            for u in ranked_active
-            if _is_ready_in_dag(nodes, prereqs, u, include_hold=include_hold)
-        ]
-        ready_nodes.sort(key=_node_rank)
-        if limit is not None:
-            ready_nodes = ready_nodes[:limit]
-        return {
-            "active_nodes": ranked_active,
-            "active_unblocks": active_unblocks,
-            "excluded_hold": excluded_hold,
-            "finale_set": finale_set,
-            "chain_counts": chain_counts,
-            "done_counts": done_counts,
-            "is_momentum_next": is_momentum_next,
-            "ready_unblocks": ready_unblocks,
-            "immediate_ready_targets": immediate_ready_targets,
-            "chains": [],
-            "chain_stats": [],
-            "standalone": [],
-            "ready_tasks": ready_nodes,
-        }
+    best_chain_rank: dict[tuple[Path, str], int] = prep["best_chain_rank"]  # type: ignore[assignment]
 
     latest_done_task: tuple[Path, str] | None = dag.get("latest_done_task")  # type: ignore[assignment]
     if latest_done_task is None and "latest_done_task" not in dag:
@@ -3707,6 +3811,37 @@ def plan_execution_chains(
 
     chain_entries = [_build_chain_entry(root, comp_open) for root, comp_open in root_cones]
     chain_entries.sort(key=lambda entry: entry["rank_key"])  # type: ignore[arg-type, return-value]
+
+    if ready_only:
+        for rank_idx, chain_entry in enumerate(chain_entries):
+            members: list[tuple[Path, str]] = chain_entry["open_nodes"]  # type: ignore[assignment]
+            for member in members:
+                best_chain_rank.setdefault(member, rank_idx)
+        for member in active_list:
+            best_chain_rank.setdefault(member, len(chain_entries))
+        ready_nodes = [
+            u
+            for u in ranked_active
+            if _is_ready_in_dag(nodes, prereqs, u, include_hold=include_hold)
+        ]
+        ready_nodes.sort(key=_node_rank)
+        if limit is not None:
+            ready_nodes = ready_nodes[:limit]
+        return {
+            "active_nodes": ranked_active,
+            "active_unblocks": active_unblocks,
+            "excluded_hold": excluded_hold,
+            "finale_set": finale_set,
+            "chain_counts": chain_counts,
+            "done_counts": done_counts,
+            "is_momentum_next": is_momentum_next,
+            "ready_unblocks": ready_unblocks,
+            "immediate_ready_targets": immediate_ready_targets,
+            "chains": [],
+            "chain_stats": [],
+            "standalone": [],
+            "ready_tasks": ready_nodes,
+        }
 
     node_chain_refs: dict[tuple[Path, str], list[str]] = {}
     for entry in chain_entries:

@@ -456,6 +456,43 @@ class TestDeps(TodoMdTestCase):
             self.assertEqual(mod.project_label(canary.resolve(), ws), "chrome/canary")
             self.assertEqual(mod.project_label(todo_md_p, ws), "todo_md")
 
+    def test_orchestrator_inbound_edges_in_queue_next_id_list_and_show(self):
+        ws = self.tmp / "ws_inbound"
+        todo_flow = ws / "todo_flow"
+        todo_md_p = ws / "todo_md"
+        for d in (todo_flow, todo_md_p):
+            d.mkdir(parents=True)
+            self._run([str(SCRIPT), "init"], cwd=str(d), check=True)
+        (todo_flow / ".todo_projects").write_text("todo_flow\ntodo_md\n", encoding="utf-8")
+        self._run([str(SCRIPT), "add", "F", "Flow prerequisite", "--next"], cwd=str(todo_flow), check=True)
+        self._run([str(SCRIPT), "add", "F", "Md downstream", "--next"], cwd=str(todo_md_p), check=True)
+        self._run(
+            [str(SCRIPT), "add", "F", "Flow sequencing", "--next", "--depends", "F1 -> todo_md:F1"],
+            cwd=str(todo_flow),
+            check=True,
+        )
+
+        r_next = self._run([str(SCRIPT), "next-id", "F1"], cwd=str(todo_md_p))
+        self._assert_ok(["next-id", "F1"], r_next)
+        self.assertEqual(r_next.stdout.strip(), "todo_flow:F1", msg=r_next.stderr)
+
+        r_chain = self._run([str(SCRIPT), "chain", "-f", "todo_md:F1"], cwd=str(todo_md_p), check=True)
+        self.assertIn("Next actionable: todo_flow:F1", r_chain.stdout)
+
+        r_show = self._run([str(SCRIPT), "F1"], cwd=str(todo_md_p), check=True)
+        self.assertIn("Dependencies (blocked):", r_show.stdout)
+        self.assertIn("todo_flow:F1", r_show.stdout)
+
+        r_list = self._run([str(SCRIPT), "list", "active"], cwd=str(todo_md_p), check=True)
+        self.assertIn("[blocked: todo_flow:F1 (NEXT)]", self._flat_text(r_list.stdout), msg=r_list.stdout)
+
+        self._run([str(SCRIPT), "done", "todo_flow:F1", "-m", "done"], cwd=str(ws), check=True)
+        r_next_done = self._run([str(SCRIPT), "next-id", "F1"], cwd=str(todo_md_p))
+        self._assert_ok(["next-id", "F1"], r_next_done)
+        self.assertEqual(r_next_done.stdout.strip(), "F1")
+        r_show_done = self._run([str(SCRIPT), "F1"], cwd=str(todo_md_p), check=True)
+        self.assertNotIn("Dependencies (blocked)", r_show_done.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

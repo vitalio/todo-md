@@ -227,8 +227,9 @@ HELP_QUEST_OPTIONS: tuple[tuple[str, str], ...] = (
      "Include archived DONE/CANCELED tasks from TODO_ARCHIVE.md (same as the ALL status "
      "keyword)"),
     ("-r, --ready",
-     "Show only ready tasks ranked by role ease, Quest Momentum, chain count, done count, "
-     "and ready unlocks (rows show [FINAL | STAGE | COMBO | chain: N, ready: +M, "
+     "Show only ready tasks ranked by role ease, Quest Momentum, best chain rank, chain "
+     "count, done count, and ready unlocks (rows show [FINAL | STAGE | COMBO | chain: N, "
+     "ready: +M, "
      "unblocks: K], with chain only when N > 1 and ready only when M > 0); also accepted "
      "by list"),
     ("--by-role", "Partition active tasks into role queues"),
