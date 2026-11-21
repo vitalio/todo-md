@@ -189,10 +189,10 @@ class TestChain(TodoMdTestCase):
         ready_rows = self._table_rows(r_out)
         self.assertEqual(sorted(ready_rows), ["1.", "2.", "3.", "4."], msg=r_out)
         self.assertIn("F5", ready_rows["1."])
-        self.assertIn("[chain: 1, ready: +1, unblocks: 2]", ready_rows["1."])
+        self.assertIn("[ready: +1, unblocks: 2]", ready_rows["1."])
         self.assertNotIn("F7", r_out)
         self.assertIn("F3", ready_rows["2."])
-        self.assertIn("[chain: 1, ready: +1, unblocks: 1]", ready_rows["2."])
+        self.assertIn("[ready: +1, unblocks: 1]", ready_rows["2."])
         self.assertIn("F1", ready_rows["3."])
         self.assertTrue(ready_rows["3."].endswith("Solo A"), msg=ready_rows["3."])
         self.assertNotIn("unblocks", ready_rows["3."])
@@ -226,7 +226,7 @@ class TestChain(TodoMdTestCase):
         self.assertIn("F1", rows["1."])
         self.assertIn("[chain: 2, ready: +2, unblocks: 2]", rows["1."])
         self.assertIn("F4", rows["2."])
-        self.assertIn("[chain: 1, ready: +1, unblocks: 3]", rows["2."])
+        self.assertIn("[ready: +1, unblocks: 3]", rows["2."])
         # Role ease: work tasks rank ahead of the design root within the same status tier
         self.assertIn("D1", rows["3."])
         self.assertIn("[design]", rows["3."])
@@ -255,9 +255,28 @@ class TestChain(TodoMdTestCase):
         self.assertEqual(sorted(rows), ["1.", "2."], msg=r_ready.stdout)
         # F2 continues the branch of the task that was just completed, ahead of the wider F3 chain set
         self.assertIn("F2", rows["1."])
-        self.assertIn("[STAGE | COMBO | chain: 1, ready: +1, unblocks: 1]", rows["1."])
+        self.assertIn("[STAGE | COMBO | ready: +1, unblocks: 1]", rows["1."])
         self.assertIn("F3", rows["2."])
         self.assertIn("[chain: 2, ready: +2, unblocks: 2]", rows["2."])
+
+    def test_ready_stats_omit_default_chain_and_zero_ready_unlocks(self):
+        proj = self.tmp / "ready_omit_defaults"
+        proj.mkdir()
+        self._run([str(SCRIPT), "init"], cwd=str(proj), check=True)
+        env = {**os.environ, "COLUMNS": "160"}
+        # F3 needs both F1 and F2, so completing F1 alone makes nothing immediately ready
+        self._run([str(SCRIPT), "add", "Root a", "--role", "work"], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "add", "Root b", "--role", "work"], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "add", "Joined", "--role", "work", "--depends", "F1, F2"], cwd=str(proj), check=True)
+
+        r_ready = self._run([str(SCRIPT), "chain", "-r", "--numbered=right"], cwd=str(proj), env=env, check=True)
+        rows = {k: v for k, v in self._table_rows(r_ready.stdout).items() if k.endswith(".")}
+        self.assertEqual(sorted(rows), ["1.", "2."], msg=r_ready.stdout)
+        for key in ("1.", "2."):
+            with self.subTest(row=key):
+                self.assertIn("[unblocks: 1]", rows[key], msg=r_ready.stdout)
+                self.assertNotIn("ready: +", rows[key])
+                self.assertNotIn("chain:", rows[key])
 
     def test_chain_role_badges_and_role_filter(self):
         ws = self.tmp / "ws_chain_role"
@@ -641,7 +660,7 @@ class TestChain(TodoMdTestCase):
         )
         hold_rows = {k: v for k, v in self._table_rows(r_hold.stdout).items() if k.endswith(".")}
         self.assertIn("B1", hold_rows["1."])
-        self.assertIn("[chain: 1, ready: +1, unblocks: 1]", hold_rows["1."])
+        self.assertIn("[ready: +1, unblocks: 1]", hold_rows["1."])
 
         # Workspace -w --ready includes cross-project downstream unblock stats
         r_ws = self._run(
@@ -652,7 +671,7 @@ class TestChain(TodoMdTestCase):
         )
         ws_rows = {k: v for k, v in self._table_rows(r_ws.stdout).items() if k.endswith(".")}
         self.assertIn("proj_a:B1", ws_rows["1."])
-        self.assertIn("[chain: 1, ready: +1, unblocks: 1]", ws_rows["1."])
+        self.assertIn("[ready: +1, unblocks: 1]", ws_rows["1."])
         self.assertIn("proj_a:D1", ws_rows["2."])
         self.assertIn("[chain: 4, ready: +4, unblocks: 5]", ws_rows["2."])
 
@@ -781,19 +800,19 @@ class TestChain(TodoMdTestCase):
         ready_rows = {k: v for k, v in self._table_rows(r_ready.stdout).items() if k.endswith(".")}
         self.assertEqual(sorted(ready_rows), ["1.", "2.", "3.", "4.", "5.", "6.", "7."], msg=r_ready.stdout)
         self.assertIn("F6", ready_rows["1."])
-        self.assertIn("[FINAL | COMBO | chain: 1]", ready_rows["1."])
+        self.assertIn("[FINAL | COMBO]", ready_rows["1."])
         self.assertIn("F4", ready_rows["2."])
-        self.assertIn("[chain: 1, ready: +1, unblocks: 1]", ready_rows["2."])
+        self.assertIn("[ready: +1, unblocks: 1]", ready_rows["2."])
         self.assertIn("B1", ready_rows["3."])
         self.assertTrue(ready_rows["3."].endswith("Standalone next"), msg=ready_rows["3."])
         self.assertIn("F11", ready_rows["4."])
-        self.assertIn("[FINAL | chain: 1]", ready_rows["4."])
+        self.assertIn("[FINAL]", ready_rows["4."])
         self.assertIn("F10", ready_rows["5."])
-        self.assertIn("[FINAL | chain: 1]", ready_rows["5."])
+        self.assertIn("[FINAL]", ready_rows["5."])
         self.assertIn("F8", ready_rows["6."])
-        self.assertIn("[chain: 1, ready: +1, unblocks: 1]", ready_rows["6."])
+        self.assertIn("[ready: +1, unblocks: 1]", ready_rows["6."])
         self.assertIn("F7", ready_rows["7."])
-        self.assertIn("[FINAL | chain: 1]", ready_rows["7."])
+        self.assertIn("[FINAL]", ready_rows["7."])
 
         # 3. --by-role ranks chain finales first within their status tier in each role queue
         r_by_role = self._run(

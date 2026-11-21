@@ -1,11 +1,3 @@
-# 🎯 [NEXT] F61: Omit default chain: 1 and ready: +0 from -r/--ready task stats
-
-- In `_format_row()` (`src/commands.py`, lines 1275-1340), when `show_downstream=True` (`-r` / `--ready` mode):
-  - Append `chain: <N>` to `kv_stats` only when `n_chains > 1` (omitting `chain: 1` for single-chain tasks).
-  - Append `ready: +<M>` to `kv_stats` only when `imm_count > 0` (omitting `ready: +0` when no downstream task becomes immediately ready upon completing the task, while still keeping `unblocks: <K>` when `impact > 0`).
-- Update `D5` numeric stats description if needed, and update `--ready` format notes in `src/header.py`, `src/rules/todo_md.md`, `README.md`, and unit test assertions in `tests/test_chain.py` (lines 185-270 and 615-800).
-- Rebuild via `build.py` and bump `VERSION` for a PATCH release.
-
 # 🎯 [NEXT] F57: Support glob path patterns and line-range slices (path:start-end) in todo_md files (extract_task_files and cmd_files)
 
 - In `extract_task_files()` (`src/commands.py:1005-1095`), support both glob patterns and line-range suffixes on backticked repository file references:

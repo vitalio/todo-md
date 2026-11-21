@@ -1300,11 +1300,12 @@ def cmd_chain(
                 kv_stats: list[str] = []
                 if show_downstream:
                     n_chains = chain_counts.get(u, 0)
-                    if n_chains > 0:
+                    if n_chains > 1:
                         kv_stats.append(f"chain: {n_chains}")
                     if impact > 0:
                         imm_count = len(immediate_ready_targets.get(u, []))
-                        kv_stats.append(f"ready: +{imm_count}")
+                        if imm_count > 0:
+                            kv_stats.append(f"ready: +{imm_count}")
                         kv_stats.append(f"unblocks: {impact}")
                 else:
                     if impact > 0:

@@ -75,7 +75,7 @@
     `plan`/`design` [omitted with `--ready`]; `--role <role>` filters displayed
     tasks while preserving DAG validation and unblock context; `--ready` / `-r` filters
     to ready tasks ranked by role ease, Quest Momentum continuation, multi-chain count, completed prerequisite count, and immediate ready unlocks,
-    shown as `[FINAL | STAGE | COMBO | chain: <N>, ready: +<M>, unblocks: <K>]` (omitted on zero-stat standalone tasks); excludes `HOLD` and tasks transitively
+    shown as `[FINAL | STAGE | COMBO | chain: <N>, ready: +<M>, unblocks: <K>]` (`chain: <N>` only when `N > 1`, `ready: +<M>` only when `M > 0`; tag omitted on zero-stat standalone tasks); excludes `HOLD` and tasks transitively
     blocked by `HOLD` into `Held branches:` unless `--include-hold` is passed;
     reports diagnostics on cycles, syntax errors, or `MISSING` / `CANCELED`
     blockers; `--filter` / `-f <ID>...` (and positional `<ID>...` under `chain`) filters by task IDs

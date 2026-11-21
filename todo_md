@@ -49,7 +49,8 @@ Quest-Log options ({prog} [opts], {prog} chain [<ID>...] [opts], {prog} queue <I
   -l N, --limit N, -n N         Limit displayed rows to N (-n is a backward-compatible alias)
   --all                         Include archived DONE/CANCELED tasks from TODO_ARCHIVE.md (same as the ALL status keyword)
   -r, --ready                   Show only ready tasks ranked by role ease, Quest Momentum, chain count, done count, and ready unlocks
-                                (rows show [FINAL | STAGE | COMBO | chain: N, ready: +M, unblocks: K]; also accepted by list)
+                                (rows show [FINAL | STAGE | COMBO | chain: N, ready: +M, unblocks: K], with chain only when N > 1 and ready only when M > 0;
+                                also accepted by list)
   --by-role                     Partition active tasks into role queues
   --role ROLE                   Show only tasks matching ROLE
   --include-hold                Include HOLD tasks and branches blocked by HOLD
@@ -97,7 +98,7 @@ import unicodedata
 from datetime import date
 from pathlib import Path
 
-VERSION = "0.37.1"
+VERSION = "0.37.2"
 REPO_MARKER = "todo_md-repo: vitalio/todo_md"
 DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/vitalio/todo_md/main/todo_md"
 FENCE = chr(96) * 3
@@ -5119,11 +5120,12 @@ def cmd_chain(
                 kv_stats: list[str] = []
                 if show_downstream:
                     n_chains = chain_counts.get(u, 0)
-                    if n_chains > 0:
+                    if n_chains > 1:
                         kv_stats.append(f"chain: {n_chains}")
                     if impact > 0:
                         imm_count = len(immediate_ready_targets.get(u, []))
-                        kv_stats.append(f"ready: +{imm_count}")
+                        if imm_count > 0:
+                            kv_stats.append(f"ready: +{imm_count}")
                         kv_stats.append(f"unblocks: {impact}")
                 else:
                     if impact > 0:

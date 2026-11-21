@@ -1,3 +1,11 @@
+# ✅ [DONE] F61: Omit default chain: 1 and ready: +0 from -r/--ready task stats — *2026-11-21*
+
+- In `_format_row()` (`src/commands.py`, lines 1275-1340), when `show_downstream=True` (`-r` / `--ready` mode):
+  - Append `chain: <N>` to `kv_stats` only when `n_chains > 1` (omitting `chain: 1` for single-chain tasks).
+  - Append `ready: +<M>` to `kv_stats` only when `imm_count > 0` (omitting `ready: +0` when no downstream task becomes immediately ready upon completing the task, while still keeping `unblocks: <K>` when `impact > 0`).
+- Update `D5` numeric stats description if needed, and update `--ready` format notes in `src/header.py`, `src/rules/todo_md.md`, `README.md`, and unit test assertions in `tests/test_chain.py` (lines 185-270 and 615-800).
+- Rebuild via `build.py` and bump `VERSION` for a PATCH release.
+
 # ✅ [DONE] F60: Render work chain finales as top-ranked Chain <N> entries and keep done: <D> exclusively on chain headers — *2026-11-21*
 
 - Depends on: F59
