@@ -1,3 +1,8 @@
+# ❌ [CANCELED] F65: Workspace overview omits inbound orchestrator blockers for prefixed project tasks — *Consolidated into F64*
+
+- `_format_task_for_summary()` in `src/parser.py` calls `format_dependency_summary()` without the task when `proj_prefix` is set, so the `Dependencies (...)` line for such tasks in workspace overviews does not list inbound `.todo_projects` orchestrator blockers that `show`, `chain`, and `list` report.
+- Impact: inconsistent blocker reporting between the workspace overview and the other views.
+
 # ✅ [DONE] B2: Include inbound .todo_projects orchestrator dependencies in build_dependency_dag and align --ready (-r) ranking with top chain priority — *2026-11-22, Inbound orchestrator edges merged into build_dependency_dag; --ready ranks by best parent chain*
 
 - Fix `build_dependency_dag()` in `src/parser.py:433-645` so that when resolving dependencies for a task in a child project managed by one or more `.todo_projects` orchestrators (discovered via `discover_orchestrators_for_project()` in `src/parser.py:2029-2290`), inbound cross-project prerequisite edges declared in orchestrator task files (such as `todo_flow:D4 -> todo_md:D6` inside `todo_flow:D2`) are merged into the task's dependency DAG just as `build_execution_chain_dag()` does.
