@@ -1,3 +1,10 @@
+# 🎯 [NEXT] B4: Preserve existing '- Depends on:' and '- Target files:' lines in 'todo_md edit -b'
+
+- In `_apply_depends_to_body_lines()` and `cmd_edit()` in `src/commands.py`, when `body is not None` (`-b` / `--body` or piped `stdin`) and `depends_clauses is None` (`--depends` was not passed), automatically preserve any existing `- Depends on:` lines from the previous task body (`old_sec[1:]`) whenever the new `body` does not already include its own `- Depends on:` lines; clear existing `- Depends on:` lines only when `--depends ""` is explicitly passed.
+- Similarly, when `body is not None` and the new `body` omits a `- Target files:` bullet line that existed in `old_sec[1:]`, preserve the existing `- Target files:` line at the end of the updated task body so body refinements in `role=plan` never silently strip dependency chains or target-file closures.
+- Add unit tests in `tests/test_commands.py` verifying that `todo_md edit <ID> -b ...` preserves existing `- Depends on:` and `- Target files:` lines by default, overrides them when the new body or `--depends` provides replacements, and clears `- Depends on:` when `--depends ""` is passed.
+- Target files: `src/commands.py:_apply_depends_to_body_lines..cmd_edit`, `tests/test_commands.py`.
+
 # 🎯 [NEXT] F64: Share workspace/orchestrator discovery across per-task DAG builds and include inbound blockers in workspace overview
 
 - Depends on: F63
@@ -26,7 +33,7 @@
 
 # 🎯 [NEXT] F62: Decompose monolithic src/parser.py and src/commands.py into focused domain modules
 
-- Depends on: B2, B3, F57, F63 -> F64
+- Depends on: B2, B3, B4, F57, F63 -> F64
 - Refactor `src/parser.py` (3,600+ lines) and `src/commands.py` (1,800+ lines) into cohesive domain modules (~300-800 lines each) with clean layer boundaries:
   - `src/header.py` (`1-353`): imports, constants, regular expressions, `prog_name()`, and `usage_text()`.
   - `src/workspace.py` (from `src/parser.py:1-299` and `src/parser.py:1833-2139`): project and workspace root resolution (`is_todo_project()`, `resolve_target_dir()`, `resolve_workspace_root()`, `discover_projects()`, `project_label()`, `lookup_external_alias()`, `resolve_project_dir()`, `resolve_project_or_dir()`, `resolve_project_task_ref()`, `resolve_filter_task_ref()`, `.todo_projects` and nested orchestrator discovery `read_configured_todo_projects()`, `is_orchestrator_project()`, `discover_orchestrators_for_project()`, `resolve_workspace_chain_projects()`).
