@@ -47,9 +47,9 @@ rules are loaded via `.agents_bundle`.
 
 ## Architecture & Module Boundaries
 
-- `src/header.py` — CLI usage docstring (`-h`/`--help`), standard library
-  imports, version placeholder (`__VERSION__`, injected from `VERSION` by
-  `build.py`), and task heading regexes.
+- `src/header.py` — help tables rendered by `usage_text()` (`-h`/`--help`),
+  standard library imports, version placeholder (`__VERSION__`, injected from
+  `VERSION` by `build.py`), and task heading regexes.
 - `src/parser.py` — `TODO.md` and `TODO_ARCHIVE.md` task parser, ID sequence
   tracking, and structural validator (`todo_md check`).
 - `src/commands.py` — task lifecycle subcommands (`init`, `add`, `edit`,

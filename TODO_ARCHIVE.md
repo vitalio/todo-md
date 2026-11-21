@@ -1,3 +1,11 @@
+# ✅ [DONE] F56: Format and align -h/--help output with structured Usage/Commands/Options sections and <=100-col lines — *2026-11-21, structured --help layout with aligned columns and 100-col wrapping*
+
+- Depends on: F44
+- In `src/header.py`, split the top-level `Usage:` block into a concise `Usage:` summary and a dedicated `Commands:` section followed by `Global options:`, `Quest-Log options:`, `Files:`, and `Environment variables:`.
+- Align all description columns and continuation lines against the rendered binary name (`todo_md`, accounting for `{prog}` length replacement) so continuation lines (`Opts: ...`, multi-line descriptions) start at the exact same column as primary descriptions.
+- Wrap all `--help` lines to at most 100 columns (and prose paragraphs to ~80 columns) and omit the redundant `queue` alias from `--help` (keeping `queue` accepted in `src/cli.py` for backward compatibility).
+- Add a unit test in `tests/test_cli.py` verifying that `todo_md --help` has aligned description columns and no lines exceeding 100 characters, update `README.md` if needed, rebuild via `build.py`, and bump `VERSION` for a PATCH release.
+
 # ❌ [CANCELED] F6: Move exported rules and bundles from src/ to agents/ — *Superseded by F63 and todo_flow:D6 (todo_md.bundle removed; agents/todo_md.md embedded at build time)*
 
 - Depends on: F62

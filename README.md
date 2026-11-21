@@ -85,7 +85,7 @@ Global options accepted before subcommands:
 | `todo_md update [--force]` | Self-update `todo_md` from GitHub (`vitalio/todo_md`) |
 | `todo_md check-update` | Check GitHub for a newer version |
 | `todo_md -V`, `--version` | Print version and exit `0` |
-| `todo_md -h`, `--help` | Print usage help and exit `0` |
+| `todo_md -h`, `--help` | Print structured help (`Usage:`, `Commands:`, option sections; lines at most 100 columns, aligned description columns) and exit `0` |
 
 ## Task ID Prefixes and Roles
 

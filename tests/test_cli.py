@@ -4,8 +4,10 @@
 import contextlib
 import io
 import os
+import re
 import sys
 import unittest
+from unittest import mock
 from tests.helpers import INSTALL_SH, ROOT, SCRIPT, TodoMdTestCase
 
 
@@ -13,6 +15,7 @@ class TestCli(TodoMdTestCase):
     def test_help_version_and_agents(self):
         rh = self._run_subprocess([str(SCRIPT), "-h"], check=True)
         self.assertIn("Usage:", rh.stdout)
+        flat = self._flat_text(rh.stdout)
         self.assertNotIn("resume", rh.stdout)
         self.assertNotIn("TODO_PLAN.md", rh.stdout)
         self.assertIn("next <ID>", rh.stdout)
@@ -21,7 +24,7 @@ class TestCli(TodoMdTestCase):
         self.assertIn("-C DIR|PROJ, --project NAME", rh.stdout)
         self.assertIn("add", rh.stdout)
         self.assertIn("--role ROLE", rh.stdout)
-        self.assertIn("opts: --role ROLE, -r/--ready, --limit N, --full", rh.stdout)
+        self.assertIn("Options: --role ROLE, -r/--ready, --limit N, --full", flat)
         self.assertIn("edit", rh.stdout)
         self.assertIn("append", rh.stdout)
 
@@ -52,12 +55,13 @@ class TestCli(TodoMdTestCase):
         self.assertIn("list [active|archive|all|<STATUS>] [<ID>...] [--role <role>] [-r|--ready] [--limit N] [--full]", rule_txt)
         self.assertIn("⏳ [WIP]` / `⏳ [NEXT]", rule_txt)
         self.assertIn("[blocked: A (<STATUS>) -> B (<STATUS>)]", rule_txt)
-        self.assertIn("--max-total-lines N", rh.stdout)
+        self.assertIn("--max-total-lines N", flat)
         self.assertIn("-r, --ready", rh.stdout)
         self.assertIn("`--ready` / `-r`", rule_txt)
         self.assertIn("Chain integration (both directions)", rule_txt)
         self.assertIn("wire every new or refined task into open chains in both directions", bundle_txt)
-        self.assertIn("queue <ID> [--all]", rh.stdout)
+        self.assertNotIn("queue <ID>", rh.stdout)
+        self.assertNotIn("Alias for chain", rh.stdout)
         self.assertIn("chain [<ID>...] [opts]", rh.stdout)
         for help_frag in (
             "overview [--full] [-w]",
@@ -70,7 +74,6 @@ class TestCli(TodoMdTestCase):
             "-H, --highlight [<ID>...]",
             "-s, --search QUERY",
             "show <ID>...",
-            "Alias for chain <ID> [--all]",
         ):
             with self.subTest(help_frag=help_frag):
                 self.assertIn(help_frag, rh.stdout)
@@ -99,7 +102,7 @@ class TestCli(TodoMdTestCase):
         self.assertIn("agents_bundle | run_block", rule_txt)
         self.assertNotIn("role=execute", rule_txt)
         self.assertIn("Task ID prefixes and roles", rh.stdout)
-        self.assertIn("D               Design (role: design in any status)", rh.stdout)
+        self.assertIn("D Design (role: design in any status)", flat)
         self.assertNotIn("--role ROLE, --depends SPEC", rh.stdout)
         self.assertIn("Task ID prefixes: `F` is a feature", rule_txt)
         self.assertIn("rejects `- Role:` lines in active `TODO.md` tasks", rule_txt)
@@ -110,6 +113,54 @@ class TestCli(TodoMdTestCase):
         self.assertNotIn("initialize a new session bundle via todo_md <ID>", bundle_txt)
         self.assertIn("run todo_md done {task:} inside the final commit step", bundle_txt)
         self.assertNotIn("role=audit", rule_txt)
+
+    def _assert_help_aligned(self, text: str) -> None:
+        lines = text.splitlines()
+        width = self.todo_md_mod.help_display_width
+        too_long = [ln for ln in lines if width(ln) > 100]
+        self.assertEqual(too_long, [])
+        titles = (
+            "Commands:",
+            "Global options:",
+            "Quest-Log options",
+            "Task ID prefixes and roles",
+            "Files:",
+            "Environment variables:",
+        )
+        for title in titles:
+            with self.subTest(section=title):
+                heads = [i for i, ln in enumerate(lines) if ln.startswith(title)]
+                self.assertEqual(len(heads), 1)
+                body = []
+                for ln in lines[heads[0] + 1:]:
+                    if not ln.startswith("  "):
+                        break
+                    body.append(ln)
+                self.assertTrue(body)
+                cols = set()
+                for ln in body:
+                    if ln.startswith("   "):
+                        continue
+                    m = re.match(r"^  (\S+(?: \S+)*)( {2,})\S", ln)
+                    self.assertIsNotNone(m, msg=ln)
+                    cols.add(m.end(2))
+                self.assertEqual(len(cols), 1, msg="\n".join(body))
+                col = cols.pop()
+                for ln in body:
+                    if ln.startswith("   "):
+                        self.assertEqual(len(ln) - len(ln.lstrip(" ")), col, msg=ln)
+
+    def test_help_structured_sections_and_alignment(self):
+        rh = self._run_subprocess([str(SCRIPT), "--help"], check=True)
+        self.assertEqual(rh.stderr, "")
+        lines = rh.stdout.splitlines()
+        for section in ("Usage:", "Commands:", "Global options:", "Files:", "Environment variables:"):
+            with self.subTest(section=section):
+                self.assertIn(section, lines)
+        self.assertTrue(any(ln.startswith("Quest-Log options") for ln in lines))
+        self._assert_help_aligned(rh.stdout)
+        with mock.patch.object(self.todo_md_mod, "prog_name", return_value="todo_md_custom"):
+            self._assert_help_aligned(self.todo_md_mod.usage_text())
 
     def test_lazy_urllib_import_and_offline_update(self):
         probe = (
