@@ -1,3 +1,10 @@
+# 🎯 [NEXT] B3: Scope Sub-chain milestone stats and subtree_nodes to rendered subtree tasks in build_chain_milestone_tree
+
+- Fix `build_chain_milestone_tree()` in `src/parser.py` (`src/parser.py:2852-3070`) so that for each `Sub-chain ->` node (`is_root=False`), `done_count`, `open_count`, `total_tasks`, `progress_pct`, and `subtree_nodes` are computed exclusively from the tasks actually rendered inside that sub-chain's subtree rather than the milestone's full unfiltered transitive cone:
+  - When a shared prerequisite branch (such as `D1` or `D6`) has already been emitted in an earlier sibling sub-chain of the same root `Chain`, exclude already-emitted open tasks and their already-claimed `DONE` prerequisites from subsequent sibling `Sub-chain` header stats (`[pct% | done: D, open: O]` / `[open: O]`) so header counts match the tasks displayed under that `Sub-chain` (both with and without `--all`).
+  - Scope `subtree_nodes` on each `Sub-chain` node (`src/parser.py:2943-2990`, used by `_render_chain_tree_children()` in `src/commands.py:1645-1675`) to the tasks actually rendered inside that sub-chain so `--filter` / `-f` and `--highlight` / `-H` do not highlight unrelated sibling `Sub-chain` headers whose only connection to the target task was an already-emitted shared prerequisite above.
+- Add regression tests in `tests/test_chain.py` covering `--tree` and `--tree --all` (plus `-f` highlighting) on a diamond/shared-prerequisite DAG where two sibling sub-chains depend on a common sub-chain with completed tasks.
+
 # 🎯 [NEXT] F17: Add CLI prefix legend (F, B, D), remove in-body - Role: overrides, and document prefix/status role resolution
 
 - Coordinate with `F43` and `todo_flow` `docs/adr/0001-prefix-and-status-task-role-resolution.md`:
@@ -82,7 +89,7 @@
 
 # ⚪ [NEW] F62: Decompose monolithic src/parser.py and src/commands.py into focused domain modules
 
-- Depends on: B2, F57
+- Depends on: B2, B3, F57
 - Refactor `src/parser.py` (3,600+ lines) and `src/commands.py` (1,700+ lines) into cohesive domain modules (~300-800 lines each) with clean layer boundaries:
   - `src/header.py`: imports, constants, regular expressions, `prog_name()`, and `usage_text()`.
   - `src/workspace.py`: project and workspace root resolution (`is_todo_project()`, `resolve_target_dir()`, `resolve_workspace_root()`, `discover_projects()`, `project_label()`, `.todo_projects` and nested orchestrator discovery `read_configured_todo_projects()`, `is_orchestrator_project()`, `discover_orchestrators_for_project()`).
