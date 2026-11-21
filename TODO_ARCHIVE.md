@@ -1,3 +1,8 @@
+# ✅ [DONE] F66: Active backlog tasks reference removed src/rules/todo_md.md and src/bundles/todo_md.bundle — *2026-11-22, Replaced stale src/rules/todo_md.md and src/bundles/todo_md.bundle references with agents/todo_md.md in D3, D2, and F42*
+
+- `D3`, `D2`, `F42`, and `F62` in `TODO.md` still list `src/rules/todo_md.md` and `src/bundles/todo_md.bundle` among their target files, but the rule now lives in `agents/todo_md.md` and the bundle file was removed.
+- Impact: `todo_md files` silently skips the missing paths for these tasks, so planned work sessions will not preload the agent rule file.
+
 # ✅ [DONE] F63: Implement context-bundle-protocol v1 producer, '- Target files:' symbol/line slice preload, and embedded agents/todo_md.md rule — *2026-11-22*
 
 - Depends on: B2
