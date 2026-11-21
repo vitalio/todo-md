@@ -23,7 +23,7 @@
   {prog} cancel <ID> [-m REASON]             Mark task <ID> as CANCELED and move it to TODO_ARCHIVE.md
   {prog} ids                                 Print highest task IDs in use and next available ID per prefix
   {prog} queue <ID> [--all]                  Alias for chain <ID> [--all]: focused Quest-Log with Next actionable (--all includes DONE)
-  {prog} chain [<ID>...] [opts]              Show the Quest-Log: chain finales, root-anchored chains, role queues, ready tasks (see Quest-Log options)
+  {prog} chain [<ID>...] [opts]              Show the Quest-Log: top-ranked work finales, root-anchored chains, role queues, ready tasks (see Quest-Log options)
   {prog} next-id [<ID>] [--role ROLE] | --top  Print top ready WIP/NEXT ID, or first ready ID in <ID>'s queue
   {prog} files [<ID>] | --files [<ID>]       List existing repository file paths referenced in backticks in task <ID>
                                              Opts: --max-lines N, --max-total-lines N, --max-bytes N, --max-total-bytes N
@@ -49,7 +49,7 @@ Quest-Log options ({prog} [opts], {prog} chain [<ID>...] [opts], {prog} queue <I
   -l N, --limit N, -n N         Limit displayed rows to N (-n is a backward-compatible alias)
   --all                         Include archived DONE/CANCELED tasks from TODO_ARCHIVE.md (same as the ALL status keyword)
   -r, --ready                   Show only ready tasks ranked by role ease, Quest Momentum, chain count, done count, and ready unlocks
-                                (rows show [FINAL | STAGE | COMBO | chain: N, done: D, ready: +M, unblocks: K]; also accepted by list)
+                                (rows show [FINAL | STAGE | COMBO | chain: N, ready: +M, unblocks: K]; also accepted by list)
   --by-role                     Partition active tasks into role queues
   --role ROLE                   Show only tasks matching ROLE
   --include-hold                Include HOLD tasks and branches blocked by HOLD
@@ -97,7 +97,7 @@ import unicodedata
 from datetime import date
 from pathlib import Path
 
-VERSION = "0.37.0"
+VERSION = "0.37.1"
 REPO_MARKER = "todo_md-repo: vitalio/todo_md"
 DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/vitalio/todo_md/main/todo_md"
 FENCE = chr(96) * 3
@@ -2928,8 +2928,7 @@ def _prepare_active_plan(
     root_nodes = [
         u
         for u in active_list
-        if u not in finale_set
-        and not any(v in active_set for v in dependents.get(u, []))
+        if not any(v in active_set for v in dependents.get(u, []))
         and (
             any(p in active_set for p in prereqs.get(u, []))
             or bool(done_prereqs.get(u) or done_nodes.get(u))
@@ -3317,7 +3316,6 @@ def plan_execution_chains(
             "is_momentum_next": is_momentum_next,
             "ready_unblocks": ready_unblocks,
             "immediate_ready_targets": immediate_ready_targets,
-            "finales": [],
             "chains": [],
             "chain_stats": [],
             "standalone": [],
@@ -3359,7 +3357,6 @@ def plan_execution_chains(
     }
 
     rank_pos = {u: idx for idx, u in enumerate(ranked_active)}
-    finales: list[tuple[Path, str]] = []
     root_cones: list[tuple[tuple[Path, str], list[tuple[Path, str]]]] = []
     standalone: list[tuple[Path, str]] = []
 
@@ -3369,9 +3366,7 @@ def plan_execution_chains(
         has_done = bool(done_nodes.get(u) or done_prereqs.get(u))
         if out_deg > 0:
             continue
-        if u in finale_set:
-            finales.append(u)
-        elif in_deg > 0 or has_done:
+        if in_deg > 0 or has_done:
             cone_set: set[tuple[Path, str]] = {u}
             stack = [u]
             while stack:
@@ -3387,17 +3382,6 @@ def plan_execution_chains(
             root_cones.append((u, comp_open))
         else:
             standalone.append(u)
-
-    def _finale_sort_key(
-        u: tuple[Path, str],
-    ) -> tuple[int, int, int, int, tuple[str, str, str]]:
-        return (
-            0 if _is_bug_task_node(nodes, u) else 1,
-            ACTIVE_STATUS_ORDER.get(str(nodes[u]["status"]), 99),
-            -len(done_nodes.get(u, set())),
-            order_idx.get(u, 0),
-            _canonical_task_ref_key(nodes, u),
-        )
 
     def _standalone_sort_key(
         u: tuple[Path, str],
@@ -3504,7 +3488,22 @@ def plan_execution_chains(
         root_ref = str(root_nd["ref"])
         root_title = str(root_nd["title"])
 
+        is_work_finale = root in finale_set and len(comp_open) == 1
+        finale_tier = 0 if is_work_finale else 1
+        finale_order_key: tuple[int, int, int, int, tuple[str, str, str]] = (
+            (
+                0 if _is_bug_task_node(nodes, root) else 1,
+                ACTIVE_STATUS_ORDER.get(str(root_nd["status"]), 99),
+                -done_count,
+                order_idx.get(root, 0),
+                canon_ref,
+            )
+            if is_work_finale
+            else (0, 0, 0, 0, ("", "", ""))
+        )
         rank_key = (
+            finale_tier,
+            finale_order_key,
             -(ready_bugs + done_bugs),
             -total_bugs,
             bug_dist_rank,
@@ -3542,7 +3541,6 @@ def plan_execution_chains(
             "rank_key": rank_key,
         }
 
-    finales.sort(key=_finale_sort_key)
     chain_entries = [_build_chain_entry(root, comp_open) for root, comp_open in root_cones]
     chain_entries.sort(key=lambda entry: entry["rank_key"])  # type: ignore[arg-type, return-value]
 
@@ -3571,7 +3569,7 @@ def plan_execution_chains(
         in_any_chain: set[tuple[Path, str]] = set()
         for entry in chain_entries:
             in_any_chain |= set(entry["open_nodes"]) | set(entry["done_nodes"])  # type: ignore[arg-type]
-        already_placed = set(finales) | set(standalone) | in_any_chain | excluded_hold
+        already_placed = set(standalone) | in_any_chain | excluded_hold
         for arch_key in dag.get("archived_tasks", []):  # type: ignore[union-attr]
             if arch_key not in already_placed:
                 already_placed.add(arch_key)
@@ -3579,8 +3577,6 @@ def plan_execution_chains(
 
     if limit is not None:
         rem = limit
-        limited_finales = finales[:rem] if rem > 0 else []
-        rem -= len(limited_finales)
         limited_chains: list[list[tuple[Path, str]]] = []
         limited_stats: list[dict[str, object]] = []
         for comp, entry in zip(chains, chain_entries):
@@ -3591,7 +3587,6 @@ def plan_execution_chains(
             limited_stats.append({**entry, "nodes": take})
             rem -= len(take)
         limited_standalone = standalone[:rem] if rem > 0 else []
-        finales = limited_finales
         chains = limited_chains
         chain_entries = limited_stats
         standalone = limited_standalone
@@ -3606,7 +3601,6 @@ def plan_execution_chains(
         "is_momentum_next": is_momentum_next,
         "ready_unblocks": ready_unblocks,
         "immediate_ready_targets": immediate_ready_targets,
-        "finales": finales,
         "chains": chains,
         "chain_stats": chain_entries,
         "standalone": standalone,
@@ -4997,7 +4991,6 @@ def cmd_chain(
     active_nodes: list[tuple[Path, str]] = plan["active_nodes"]  # type: ignore[assignment]
     active_unblocks: dict[tuple[Path, str], int] = plan["active_unblocks"]  # type: ignore[assignment]
     excluded_hold: set[tuple[Path, str]] = plan["excluded_hold"]  # type: ignore[assignment]
-    finale_set: set[tuple[Path, str]] = plan.get("finale_set", set())  # type: ignore[assignment]
     chain_counts: dict[tuple[Path, str], int] = plan.get("chain_counts", {})  # type: ignore[assignment]
     done_counts: dict[tuple[Path, str], int] = plan.get("done_counts", {})  # type: ignore[assignment]
     is_momentum_next: dict[tuple[Path, str], int] = plan.get("is_momentum_next", {})  # type: ignore[assignment]
@@ -5125,18 +5118,14 @@ def cmd_chain(
                     perks.append("COMBO")
                 kv_stats: list[str] = []
                 if show_downstream:
-                    n_chains = 1 if u in finale_set else chain_counts.get(u, 0)
+                    n_chains = chain_counts.get(u, 0)
                     if n_chains > 0:
                         kv_stats.append(f"chain: {n_chains}")
-                    if done_c > 0:
-                        kv_stats.append(f"done: {done_c}")
                     if impact > 0:
                         imm_count = len(immediate_ready_targets.get(u, []))
                         kv_stats.append(f"ready: +{imm_count}")
                         kv_stats.append(f"unblocks: {impact}")
                 else:
-                    if done_c > 0:
-                        kv_stats.append(f"done: {done_c}")
                     if impact > 0:
                         kv_stats.append(f"unblocks: {impact}")
                 tag_parts = list(perks)
@@ -5261,7 +5250,6 @@ def cmd_chain(
         else:
             sys.stdout.write("Ready tasks: (none)\n")
     else:
-        finales: list[tuple[Path, str]] = plan.get("finales", [])  # type: ignore[assignment]
         chains: list[list[tuple[Path, str]]] = plan["chains"]  # type: ignore[assignment]
         raw_chain_stats: list[dict[str, object]] = plan.get("chain_stats", [])  # type: ignore[assignment]
         if len(raw_chain_stats) == len(chains):
@@ -5295,7 +5283,6 @@ def cmd_chain(
             return any(_is_target_node(u) for u in check_list)
 
         if target_project is not None:
-            finales = [u for u in finales if _is_target_node(u)]
             chains_with_stats = [
                 (comp, st_info)
                 for comp, st_info in chains_with_stats
@@ -5303,7 +5290,6 @@ def cmd_chain(
             ]
             standalone = [u for u in standalone if _is_target_node(u)]
         if wanted_role is not None:
-            finales = [u for u in finales if _matches_role(u)]
             filtered_chains_with_stats: list[tuple[list[tuple[Path, str]], dict[str, object]]] = []
             for comp, st_info in chains_with_stats:
                 f_comp = [u for u in comp if _matches_role(u)]
@@ -5312,7 +5298,6 @@ def cmd_chain(
             chains_with_stats = filtered_chains_with_stats
             standalone = [u for u in standalone if _matches_role(u)]
         if row_scoped:
-            finales = [u for u in finales if _row_ok(u)]
             scoped_chains: list[tuple[list[tuple[Path, str]], dict[str, object]]] = []
             for comp, st_info in chains_with_stats:
                 c_nodes = (
@@ -5330,8 +5315,6 @@ def cmd_chain(
             standalone = [u for u in standalone if _row_ok(u)]
         if (target_project is not None or wanted_role is not None or row_scoped) and limit is not None:
             rem = limit
-            finales = finales[:rem] if rem > 0 else []
-            rem -= len(finales)
             limited_chains_with_stats: list[tuple[list[tuple[Path, str]], dict[str, object]]] = []
             for comp, st_info in chains_with_stats:
                 if rem <= 0:
@@ -5342,7 +5325,7 @@ def cmd_chain(
             standalone = standalone[:rem] if rem > 0 else []
             chains_with_stats = limited_chains_with_stats
         matching_held = [u for u in scoped_excluded_hold if _matches_role(u) and _is_target_node(u) and _row_ok(u)]
-        if finales or chains_with_stats or standalone:
+        if chains_with_stats or standalone:
             row_idx = 1
             wrote_section = False
 
@@ -5377,14 +5360,8 @@ def cmd_chain(
                 return flat
 
             chain_trees = [_build_chain_tree(c_nodes, c_info) for c_nodes, c_info in chains_with_stats]
-            total_rows = len(finales) + len(standalone) + sum(len(_flat_tree_nodes(ct)) for ct in chain_trees)
+            total_rows = len(standalone) + sum(len(_flat_tree_nodes(ct)) for ct in chain_trees)
             num_w_box[0] = len(str(max(1, total_rows)))
-            if finales:
-                sys.stdout.write("Chain finales:\n")
-                for u in finales:
-                    sys.stdout.write(_format_row(row_idx, u))
-                    row_idx += 1
-                wrote_section = True
             for chain_idx, (comp, st_info) in enumerate(chains_with_stats, start=1):
                 if wrote_section:
                     sys.stdout.write("\n")

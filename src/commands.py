@@ -1172,7 +1172,6 @@ def cmd_chain(
     active_nodes: list[tuple[Path, str]] = plan["active_nodes"]  # type: ignore[assignment]
     active_unblocks: dict[tuple[Path, str], int] = plan["active_unblocks"]  # type: ignore[assignment]
     excluded_hold: set[tuple[Path, str]] = plan["excluded_hold"]  # type: ignore[assignment]
-    finale_set: set[tuple[Path, str]] = plan.get("finale_set", set())  # type: ignore[assignment]
     chain_counts: dict[tuple[Path, str], int] = plan.get("chain_counts", {})  # type: ignore[assignment]
     done_counts: dict[tuple[Path, str], int] = plan.get("done_counts", {})  # type: ignore[assignment]
     is_momentum_next: dict[tuple[Path, str], int] = plan.get("is_momentum_next", {})  # type: ignore[assignment]
@@ -1300,18 +1299,14 @@ def cmd_chain(
                     perks.append("COMBO")
                 kv_stats: list[str] = []
                 if show_downstream:
-                    n_chains = 1 if u in finale_set else chain_counts.get(u, 0)
+                    n_chains = chain_counts.get(u, 0)
                     if n_chains > 0:
                         kv_stats.append(f"chain: {n_chains}")
-                    if done_c > 0:
-                        kv_stats.append(f"done: {done_c}")
                     if impact > 0:
                         imm_count = len(immediate_ready_targets.get(u, []))
                         kv_stats.append(f"ready: +{imm_count}")
                         kv_stats.append(f"unblocks: {impact}")
                 else:
-                    if done_c > 0:
-                        kv_stats.append(f"done: {done_c}")
                     if impact > 0:
                         kv_stats.append(f"unblocks: {impact}")
                 tag_parts = list(perks)
@@ -1436,7 +1431,6 @@ def cmd_chain(
         else:
             sys.stdout.write("Ready tasks: (none)\n")
     else:
-        finales: list[tuple[Path, str]] = plan.get("finales", [])  # type: ignore[assignment]
         chains: list[list[tuple[Path, str]]] = plan["chains"]  # type: ignore[assignment]
         raw_chain_stats: list[dict[str, object]] = plan.get("chain_stats", [])  # type: ignore[assignment]
         if len(raw_chain_stats) == len(chains):
@@ -1470,7 +1464,6 @@ def cmd_chain(
             return any(_is_target_node(u) for u in check_list)
 
         if target_project is not None:
-            finales = [u for u in finales if _is_target_node(u)]
             chains_with_stats = [
                 (comp, st_info)
                 for comp, st_info in chains_with_stats
@@ -1478,7 +1471,6 @@ def cmd_chain(
             ]
             standalone = [u for u in standalone if _is_target_node(u)]
         if wanted_role is not None:
-            finales = [u for u in finales if _matches_role(u)]
             filtered_chains_with_stats: list[tuple[list[tuple[Path, str]], dict[str, object]]] = []
             for comp, st_info in chains_with_stats:
                 f_comp = [u for u in comp if _matches_role(u)]
@@ -1487,7 +1479,6 @@ def cmd_chain(
             chains_with_stats = filtered_chains_with_stats
             standalone = [u for u in standalone if _matches_role(u)]
         if row_scoped:
-            finales = [u for u in finales if _row_ok(u)]
             scoped_chains: list[tuple[list[tuple[Path, str]], dict[str, object]]] = []
             for comp, st_info in chains_with_stats:
                 c_nodes = (
@@ -1505,8 +1496,6 @@ def cmd_chain(
             standalone = [u for u in standalone if _row_ok(u)]
         if (target_project is not None or wanted_role is not None or row_scoped) and limit is not None:
             rem = limit
-            finales = finales[:rem] if rem > 0 else []
-            rem -= len(finales)
             limited_chains_with_stats: list[tuple[list[tuple[Path, str]], dict[str, object]]] = []
             for comp, st_info in chains_with_stats:
                 if rem <= 0:
@@ -1517,7 +1506,7 @@ def cmd_chain(
             standalone = standalone[:rem] if rem > 0 else []
             chains_with_stats = limited_chains_with_stats
         matching_held = [u for u in scoped_excluded_hold if _matches_role(u) and _is_target_node(u) and _row_ok(u)]
-        if finales or chains_with_stats or standalone:
+        if chains_with_stats or standalone:
             row_idx = 1
             wrote_section = False
 
@@ -1552,14 +1541,8 @@ def cmd_chain(
                 return flat
 
             chain_trees = [_build_chain_tree(c_nodes, c_info) for c_nodes, c_info in chains_with_stats]
-            total_rows = len(finales) + len(standalone) + sum(len(_flat_tree_nodes(ct)) for ct in chain_trees)
+            total_rows = len(standalone) + sum(len(_flat_tree_nodes(ct)) for ct in chain_trees)
             num_w_box[0] = len(str(max(1, total_rows)))
-            if finales:
-                sys.stdout.write("Chain finales:\n")
-                for u in finales:
-                    sys.stdout.write(_format_row(row_idx, u))
-                    row_idx += 1
-                wrote_section = True
             for chain_idx, (comp, st_info) in enumerate(chains_with_stats, start=1):
                 if wrote_section:
                     sys.stdout.write("\n")

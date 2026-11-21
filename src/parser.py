@@ -2746,8 +2746,7 @@ def _prepare_active_plan(
     root_nodes = [
         u
         for u in active_list
-        if u not in finale_set
-        and not any(v in active_set for v in dependents.get(u, []))
+        if not any(v in active_set for v in dependents.get(u, []))
         and (
             any(p in active_set for p in prereqs.get(u, []))
             or bool(done_prereqs.get(u) or done_nodes.get(u))
@@ -3135,7 +3134,6 @@ def plan_execution_chains(
             "is_momentum_next": is_momentum_next,
             "ready_unblocks": ready_unblocks,
             "immediate_ready_targets": immediate_ready_targets,
-            "finales": [],
             "chains": [],
             "chain_stats": [],
             "standalone": [],
@@ -3177,7 +3175,6 @@ def plan_execution_chains(
     }
 
     rank_pos = {u: idx for idx, u in enumerate(ranked_active)}
-    finales: list[tuple[Path, str]] = []
     root_cones: list[tuple[tuple[Path, str], list[tuple[Path, str]]]] = []
     standalone: list[tuple[Path, str]] = []
 
@@ -3187,9 +3184,7 @@ def plan_execution_chains(
         has_done = bool(done_nodes.get(u) or done_prereqs.get(u))
         if out_deg > 0:
             continue
-        if u in finale_set:
-            finales.append(u)
-        elif in_deg > 0 or has_done:
+        if in_deg > 0 or has_done:
             cone_set: set[tuple[Path, str]] = {u}
             stack = [u]
             while stack:
@@ -3205,17 +3200,6 @@ def plan_execution_chains(
             root_cones.append((u, comp_open))
         else:
             standalone.append(u)
-
-    def _finale_sort_key(
-        u: tuple[Path, str],
-    ) -> tuple[int, int, int, int, tuple[str, str, str]]:
-        return (
-            0 if _is_bug_task_node(nodes, u) else 1,
-            ACTIVE_STATUS_ORDER.get(str(nodes[u]["status"]), 99),
-            -len(done_nodes.get(u, set())),
-            order_idx.get(u, 0),
-            _canonical_task_ref_key(nodes, u),
-        )
 
     def _standalone_sort_key(
         u: tuple[Path, str],
@@ -3322,7 +3306,22 @@ def plan_execution_chains(
         root_ref = str(root_nd["ref"])
         root_title = str(root_nd["title"])
 
+        is_work_finale = root in finale_set and len(comp_open) == 1
+        finale_tier = 0 if is_work_finale else 1
+        finale_order_key: tuple[int, int, int, int, tuple[str, str, str]] = (
+            (
+                0 if _is_bug_task_node(nodes, root) else 1,
+                ACTIVE_STATUS_ORDER.get(str(root_nd["status"]), 99),
+                -done_count,
+                order_idx.get(root, 0),
+                canon_ref,
+            )
+            if is_work_finale
+            else (0, 0, 0, 0, ("", "", ""))
+        )
         rank_key = (
+            finale_tier,
+            finale_order_key,
             -(ready_bugs + done_bugs),
             -total_bugs,
             bug_dist_rank,
@@ -3360,7 +3359,6 @@ def plan_execution_chains(
             "rank_key": rank_key,
         }
 
-    finales.sort(key=_finale_sort_key)
     chain_entries = [_build_chain_entry(root, comp_open) for root, comp_open in root_cones]
     chain_entries.sort(key=lambda entry: entry["rank_key"])  # type: ignore[arg-type, return-value]
 
@@ -3389,7 +3387,7 @@ def plan_execution_chains(
         in_any_chain: set[tuple[Path, str]] = set()
         for entry in chain_entries:
             in_any_chain |= set(entry["open_nodes"]) | set(entry["done_nodes"])  # type: ignore[arg-type]
-        already_placed = set(finales) | set(standalone) | in_any_chain | excluded_hold
+        already_placed = set(standalone) | in_any_chain | excluded_hold
         for arch_key in dag.get("archived_tasks", []):  # type: ignore[union-attr]
             if arch_key not in already_placed:
                 already_placed.add(arch_key)
@@ -3397,8 +3395,6 @@ def plan_execution_chains(
 
     if limit is not None:
         rem = limit
-        limited_finales = finales[:rem] if rem > 0 else []
-        rem -= len(limited_finales)
         limited_chains: list[list[tuple[Path, str]]] = []
         limited_stats: list[dict[str, object]] = []
         for comp, entry in zip(chains, chain_entries):
@@ -3409,7 +3405,6 @@ def plan_execution_chains(
             limited_stats.append({**entry, "nodes": take})
             rem -= len(take)
         limited_standalone = standalone[:rem] if rem > 0 else []
-        finales = limited_finales
         chains = limited_chains
         chain_entries = limited_stats
         standalone = limited_standalone
@@ -3424,7 +3419,6 @@ def plan_execution_chains(
         "is_momentum_next": is_momentum_next,
         "ready_unblocks": ready_unblocks,
         "immediate_ready_targets": immediate_ready_targets,
-        "finales": finales,
         "chains": chains,
         "chain_stats": chain_entries,
         "standalone": standalone,

@@ -23,7 +23,7 @@
   {prog} cancel <ID> [-m REASON]             Mark task <ID> as CANCELED and move it to TODO_ARCHIVE.md
   {prog} ids                                 Print highest task IDs in use and next available ID per prefix
   {prog} queue <ID> [--all]                  Alias for chain <ID> [--all]: focused Quest-Log with Next actionable (--all includes DONE)
-  {prog} chain [<ID>...] [opts]              Show the Quest-Log: chain finales, root-anchored chains, role queues, ready tasks (see Quest-Log options)
+  {prog} chain [<ID>...] [opts]              Show the Quest-Log: top-ranked work finales, root-anchored chains, role queues, ready tasks (see Quest-Log options)
   {prog} next-id [<ID>] [--role ROLE] | --top  Print top ready WIP/NEXT ID, or first ready ID in <ID>'s queue
   {prog} files [<ID>] | --files [<ID>]       List existing repository file paths referenced in backticks in task <ID>
                                              Opts: --max-lines N, --max-total-lines N, --max-bytes N, --max-total-bytes N
@@ -49,7 +49,7 @@ Quest-Log options ({prog} [opts], {prog} chain [<ID>...] [opts], {prog} queue <I
   -l N, --limit N, -n N         Limit displayed rows to N (-n is a backward-compatible alias)
   --all                         Include archived DONE/CANCELED tasks from TODO_ARCHIVE.md (same as the ALL status keyword)
   -r, --ready                   Show only ready tasks ranked by role ease, Quest Momentum, chain count, done count, and ready unlocks
-                                (rows show [FINAL | STAGE | COMBO | chain: N, done: D, ready: +M, unblocks: K]; also accepted by list)
+                                (rows show [FINAL | STAGE | COMBO | chain: N, ready: +M, unblocks: K]; also accepted by list)
   --by-role                     Partition active tasks into role queues
   --role ROLE                   Show only tasks matching ROLE
   --include-hold                Include HOLD tasks and branches blocked by HOLD

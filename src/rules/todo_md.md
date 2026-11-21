@@ -50,10 +50,9 @@
     hides `DONE` unless `--all` is passed; prints `[ready]` / `[blocked by: ...]`
     and `Next actionable: <ref>`),
     `{cmd:todo_md} chain [<ID>...] [--all] [--by-role] [--role <role>] [--ready] [-l N|--limit N] [--include-hold] [--tree] [--numbered[=left|right]] [--status <STATUS>] [-f <ID>...|--filter <ID>...] [-H|--highlight [<ID>...]] [-s <QUERY>|--search <QUERY>]`
-    (local, `.todo_projects` orchestrator, or `-w` workspace work-only chain
-    finales `[ready | FINAL | ... | done: <D>]` with all prerequisites resolved shown first
-    before root-anchored RPG progress chains
-    `Chain <N> -> <root_ref>: <root_title> [<pct>% | done: <D>, open: <O>]:` (or `[open: <O>]:` when `done == 0`)
+    (local, `.todo_projects` orchestrator, or `-w` workspace root-anchored RPG progress chains
+    `Chain <N> -> <root_ref>: <root_title> [<pct>% | done: <D>, open: <O>]:` (or `[open: <O>]:` when `done == 0`),
+    ranking ready `work` chain finales (`[ready | FINAL]`) first as top `Chain 1..K` entries
     as flat topological rows by default (no row numbers; `--numbered[=left|right]` adds period-free numbers), or with `--tree` / `-t`
     nested `├── Sub-chain -> <milestone_ref>: <title> [<pct>% | done: <D>, open: <O>]:`
     milestone trees (4-char connectors `├── `, `└── `, `└─► `, `│   `) and standalone tasks, appending
@@ -63,8 +62,8 @@
     `.todo_projects` orchestrator dependency edges (expanding nested orchestrators transitively and keeping path aliases such as `~/chrome/canary` -> `chrome/canary:<ID>` for external projects) into child project views,
     formatting IDs relative to `cwd`, applying composable TTY styling for
     external-project tasks, `DONE` tasks, and target `<ID>...` highlights,
-    showing padded `[role]` badges and unified `[ready | FINAL | STAGE | COMBO | done: <D>, unblocks: <K>]` / `[blocked by: <refs> | unblocks: <K>]` tags, and enforcing monotonic
-    Quest Momentum ranking by bug priority `B*`, role execution ease, active
+    showing padded `[role]` badges and unified `[ready | FINAL | STAGE | COMBO | unblocks: <K>]` / `[blocked by: <refs> | unblocks: <K>]` tags (keeping `done: <D>` exclusively on chain and sub-chain headers), and enforcing monotonic
+    Quest Momentum ranking by ready `work` finale priority, bug priority `B*`, role execution ease, active
     quest momentum / started-chain status floor, role-weighted velocity
     `work=1, plan=2, design=5`, whole-cone size, and closing root tie-breaker;
     `--by-role`
@@ -76,7 +75,7 @@
     `plan`/`design` [omitted with `--ready`]; `--role <role>` filters displayed
     tasks while preserving DAG validation and unblock context; `--ready` / `-r` filters
     to ready tasks ranked by role ease, Quest Momentum continuation, multi-chain count, completed prerequisite count, and immediate ready unlocks,
-    shown as `[FINAL | STAGE | COMBO | chain: <N>, done: <D>, ready: +<M>, unblocks: <K>]` (omitted on zero-stat standalone tasks); excludes `HOLD` and tasks transitively
+    shown as `[FINAL | STAGE | COMBO | chain: <N>, ready: +<M>, unblocks: <K>]` (omitted on zero-stat standalone tasks); excludes `HOLD` and tasks transitively
     blocked by `HOLD` into `Held branches:` unless `--include-hold` is passed;
     reports diagnostics on cycles, syntax errors, or `MISSING` / `CANCELED`
     blockers; `--filter` / `-f <ID>...` (and positional `<ID>...` under `chain`) filters by task IDs

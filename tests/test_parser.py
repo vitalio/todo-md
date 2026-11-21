@@ -665,10 +665,18 @@ class TestParser(TodoMdTestCase):
         )
         out_hl = r_chain_hl.stdout
         lines_hl = out_hl.splitlines()
-        # Enclosing Chain 1 header is highlighted because todo_flow:D1 belongs to Chain 1
+        # Enclosing Chain 1 (finale F1) and Chain 2 (containing todo_flow:D1) headers are highlighted
         self.assertTrue(
             any(
-                ln.startswith("\033[1;93mChain 1 -> todo_flow:F1: Flow goal [")
+                ln.startswith("\033[1;93mChain 1 -> F1: RB finale task [")
+                and ln.endswith("\033[0m")
+                for ln in lines_hl
+            ),
+            msg=out_hl,
+        )
+        self.assertTrue(
+            any(
+                ln.startswith("\033[1;93mChain 2 -> todo_flow:F1: Flow goal [")
                 and ln.endswith("\033[0m")
                 for ln in lines_hl
             ),
@@ -721,7 +729,11 @@ class TestParser(TodoMdTestCase):
             check=True,
         )
         self.assertTrue(
-            any(ln.startswith("Chain 1 -> todo_flow:F1: Flow goal [") for ln in r_hl_only_f3.stdout.splitlines()),
+            any(ln.startswith("Chain 1 -> F1: RB finale task [") for ln in r_hl_only_f3.stdout.splitlines()),
+            msg=r_hl_only_f3.stdout,
+        )
+        self.assertTrue(
+            any(ln.startswith("Chain 2 -> todo_flow:F1: Flow goal [") for ln in r_hl_only_f3.stdout.splitlines()),
             msg=r_hl_only_f3.stdout,
         )
         self.assertTrue(
