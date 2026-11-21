@@ -10,7 +10,6 @@ rule vitalio/agents-rules:stack/python-stdlib
 rule vitalio/agents-rules:stack/python-annotations py_min=3.9
 
 $ cat AGENTS.md
-bundle vitalio/todo_md
 $ agents_bundle --tree
 $ git status -sb
 $ git branch -vv

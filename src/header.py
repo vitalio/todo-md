@@ -6,10 +6,16 @@ from __future__ import annotations
 if __doc__ is None:
     raise SystemExit("missing usage documentation")
 
+import contextlib
 import heapq
+import io
+import json
 import os
 import re
+import secrets
+import shlex
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -21,6 +27,8 @@ VERSION = "__VERSION__"
 REPO_MARKER = "todo_md-repo: vitalio/todo_md"
 DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/vitalio/todo_md/main/todo_md"
 FENCE = chr(96) * 3
+EMBEDDED_RULE_TODO_MD = "__EMBEDDED_RULE_TODO_MD__"
+RULE_SOURCE_PATH = Path(__file__).resolve().parent.parent / "agents" / "todo_md.md"
 
 VALID_STATUSES: dict[str, str] = {
     "WIP": "🔵",
@@ -56,6 +64,12 @@ LINE_SLICE_RE = re.compile(
 )
 FILE_SPEC_RE = re.compile(r"^(?P<path>.+):(?P<start>\d+)-(?P<end>\d+)$")
 PROJECT_TASK_RE = re.compile(r"^(.+?):([A-Za-z]\d+)$")
+TARGET_FILES_LINE_RE = re.compile(r"^\s*[-*]\s*Target files:", re.IGNORECASE)
+BULLET_LINE_RE = re.compile(r"^\s*[-*]\s")
+SYMBOL_SPEC_RE = re.compile(
+    r"^(?P<path>[^:\s]+):(?P<first>[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)"
+    r"(?:\.\.(?P<last>[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*))?\Z"
+)
 DEPENDS_LINE_RE = re.compile(r"^\s*[-*]\s*Depends on:\s*(.+?)\s*$", re.IGNORECASE)
 ROLE_LINE_RE = re.compile(r"^\s*[-*]\s*Role:\s*(.*?)\s*$", re.IGNORECASE)
 ROLE_NAME_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
@@ -115,6 +129,12 @@ WORKSPACE_SKIP_DIRS = frozenset({
     "DerivedData",
 })
 WORKSPACE_MAX_DEPTH = 3
+
+
+def get_embedded_todo_rule() -> str:
+    if EMBEDDED_RULE_TODO_MD != "__EMBEDDED_RULE_" + "TODO_MD__":
+        return EMBEDDED_RULE_TODO_MD
+    return RULE_SOURCE_PATH.read_text(encoding="utf-8")
 
 
 def prog_name() -> str:
@@ -187,10 +207,11 @@ HELP_COMMANDS: tuple[tuple[str, str], ...] = (
     ("{prog} next-id [<ID>] [--role ROLE] | --top",
      "Print the top ready WIP/NEXT ID, or the first ready ID in <ID>'s queue"),
     ("{prog} files [<ID>] | --files [<ID>]",
-     "List existing repository files referenced in backticks in task <ID>: glob patterns "
-     "expand to matching files and path:START-END slices (also path:LINE, path#LSTART-LEND) "
-     "print as path:START-END. Options: --max-lines N, --max-total-lines N, --max-bytes N, "
-     "--max-total-bytes N (budgets count only the sliced lines)"),
+     "List files named on the '- Target files:' bullet of task <ID>: paths, glob patterns, "
+     "symbol slices (path:SYMBOL, path:SYM1..SYM2) and line slices (path:START-END, path:LINE, "
+     "path#LSTART-LEND), merged per file and printed as path or path:START-END. Options: "
+     "--max-lines N, --max-total-lines N, --max-bytes N, --max-total-bytes N (budgets count "
+     "only the sliced lines)"),
     ("{prog} check", "Validate layout, headings, status badges, and unique IDs"),
     ("{prog} init [TEXT] [--force]",
      "Create starter TODO.md (with optional project idea from TEXT/stdin) and "
@@ -213,6 +234,13 @@ HELP_GLOBAL_OPTIONS: tuple[tuple[str, str], ...] = (
     ("-c, --commit",
      "Git-commit TODO*.md after mutating commands (opt-in; creates a git commit)"),
     ("--no-commit", "Accepted as a no-op alias (commits are disabled by default)"),
+    ("--bundle",
+     "Emit a context-bundle-protocol v1 stream for <ID> (show), last, the default view and "
+     "overview; auto-enabled when stdout is a pipe other than the run_block step output. "
+     "With <ID> it moves a NEXT work/design task to WIP"),
+    ("--plain", "Disable bundle auto-detection (--bundle takes precedence)"),
+    ("--no-files", "Bundle mode: do not preload the '- Target files:' of the task"),
+    ("--no-wip", "Bundle mode: do not move the task to WIP on session start"),
 )
 
 HELP_QUEST_OPTIONS: tuple[tuple[str, str], ...] = (
@@ -289,6 +317,8 @@ HELP_ENV: tuple[tuple[str, str], ...] = (
      "Set to 1 to suppress git commits even when --commit / TODO_MD_COMMIT is set"),
     ("TODO_MD_NO_GIT_PULL",
      "Set to 1 to skip git pull --ff-only upstream sync before mutating commands"),
+    ("TODO_MD_BUNDLE", "Set to 1 to emit bundle streams (same as --bundle)"),
+    ("TODO_MD_PLAIN", "Set to 1 to disable bundle auto-detection (same as --plain)"),
     ("TODO_MD_UPDATE_URL", "Override raw script URL for update / check-update"),
 )
 

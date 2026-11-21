@@ -54,15 +54,25 @@ rules are loaded via `.agents_bundle`.
   tracking, and structural validator (`todo_md check`).
 - `src/commands.py` — task lifecycle subcommands (`init`, `add`, `edit`,
   `append`, `status`, `next`, `done`, `cancel`, `list`, `archive`, `ids`,
-  `check`). Keep `src/rules/todo_md.md`, `-h`/`--help`, and `README.md` in sync
+  `check`). Keep `agents/todo_md.md`, `-h`/`--help`, and `README.md` in sync
   in the same commit whenever commands or flags change.
-- `src/rules/todo_md.md` & `src/bundles/todo_md.bundle` — agent instructions
-  and role/task workflow prompts for `bundle vitalio/todo_md`.
+- `agents/todo_md.md` — agent rule embedded into the compiled `todo_md` by
+  `build.py` (`EMBEDDED_RULE_TODO_MD`, `get_embedded_todo_rule()`) and emitted
+  as `todo_md:todo_md` in bundle mode; it holds no role-specific prompts
+  (roles belong to `agents-rules`).
+- `src/bundle.py` — `context-bundle-protocol` v1 producer (`BundleOptions`,
+  `bundle_mode_enabled()`, `emit_task_bundle()`, `emit_context_bundle()`):
+  FIFO auto-detection, session-start `WIP` transition for `work`/`design`
+  tasks, and rule/include/task/context fragments. Target files come only from
+  `select_task_files()` and `extract_task_files()` in `src/commands.py`
+  (`- Target files:` bullets); keep the stream shape aligned with `todo_flow`
+  `docs/adr/0002-context-bundle-protocol-and-self-contained-producers.md`.
 - `src/cli.py` — CLI argument routing and self-update (`update`,
   `check-update`).
 - `tests/helpers.py` & `tests/test_*.py` — shared in-process/subprocess test
   harness (`TodoMdTestCase`) and modular unit test suites (`test_cli.py`,
-  `test_parser.py`, `test_commands.py`, `test_deps.py`, `test_chain.py`).
+  `test_parser.py`, `test_commands.py`, `test_deps.py`, `test_chain.py`,
+  `test_bundle.py`).
 
 ## Task Roles & Prefixes
 
@@ -72,7 +82,7 @@ rules are loaded via `.agents_bundle`.
 - Prefix metadata (`PREFIX_INFO`, `DEFAULT_TASK_PREFIX`) and status roles
   (`STATUS_ROLES`) live in `src/header.py`; `todo_md ids` renders the legend
   from them via `prefix_legend_lines()`, so keep `--help`, `README.md`, and
-  `src/rules/todo_md.md` aligned with those tables.
+  `agents/todo_md.md` aligned with those tables.
 
 ## Dependency Graph & Sequencing Contract
 

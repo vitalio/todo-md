@@ -71,10 +71,6 @@ class TestDeps(TodoMdTestCase):
         self.assertIn("parent_proj/sub_proj:F1", r_ws_list.stdout)
         self._run([str(SCRIPT), "-w", "check"], cwd=str(proj_b), check=True)
 
-        # todo_md.bundle runs todo_md -w when workspace=1
-        bundle_txt = (ROOT / "src/bundles/todo_md.bundle").read_text(encoding="utf-8")
-        self.assertIn("[if workspace=1] $ todo_md -w", bundle_txt)
-
     def test_dependency_sequencing_queue_next_id_and_cycles(self):
         ws = self.tmp / "ws"
         orch = ws / "orch"

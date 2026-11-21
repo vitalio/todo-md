@@ -6,10 +6,16 @@ from __future__ import annotations
 if __doc__ is None:
     raise SystemExit("missing usage documentation")
 
+import contextlib
 import heapq
+import io
+import json
 import os
 import re
+import secrets
+import shlex
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -17,10 +23,12 @@ import unicodedata
 from datetime import date
 from pathlib import Path
 
-VERSION = "0.40.2"
+VERSION = "0.41.0"
 REPO_MARKER = "todo_md-repo: vitalio/todo_md"
 DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/vitalio/todo_md/main/todo_md"
 FENCE = chr(96) * 3
+EMBEDDED_RULE_TODO_MD = '# Description: Structured Markdown task management (TODO.md and TODO_ARCHIVE.md) via todo_md\n- Task management (`todo_md`: `TODO.md`, `TODO_ARCHIVE.md`): Always\n  inspect and modify `TODO.md` and `TODO_ARCHIVE.md` via `todo_md` (never\n  via `cat` or manual file edits). Repository scope only: record each task in\n  the `TODO.md` of the repository it belongs to, never in an unrelated\n  repository\'s backlog.\n  - Status lifecycle, role fallback & pipe launch: `TODO.md` keeps active tasks\n    ordered by status (`🔵 [WIP]` -> `🎯 [NEXT]` -> `❓ [QUESTION]` ->\n    `⚪ [NEW]` -> `⏸️ [HOLD]`), and `TODO_ARCHIVE.md` keeps closed tasks\n    (`✅ [DONE]`, `❌ [CANCELED]`) newest-first. `NEW` is the default backlog\n    status (rendered in compact view by `todo_md`), `NEXT` is promoted in\n    `role=plan` for prioritized ready tasks (expanded view), `WIP` is set\n    automatically when `todo_md <ID>` starts a `work` or `design` task session\n    in bundle mode (`--no-wip` opts out), and `done` is run\n    inside the final commit step in `role=work` (after the edit-and-diff step\n    is verified clean, immediately before staging and `git commit`, never\n    during the edit step) so backlog updates are committed atomically with\n    code changes. Task roles are never stored in task bodies and are derived\n    from the ID prefix and status: `D*` resolves to `design` in any status\n    and any non-`D` prefix (`F`, `B`, or custom `A-Z`) resolves to `plan` in\n    `NEW`/`QUESTION`/`HOLD` and to `work` in `WIP`/`NEXT`; `todo_md check`\n    rejects `- Role:` lines in active `TODO.md` tasks (use a `D*` prefix for\n    design, or `todo_md next <ID>` to promote to work).\n    Promoting a task via `todo_md next <ID>` (or\n    `todo_md status <ID> NEXT`) strips an existing `- Role: plan` line so\n    promoted non-`D` tasks transition to `work` automatically, and\n    `todo_md <ID>` always emits `Role: <role>` in its preamble for\n    role-agnostic pipe auto-consumption\n    (`todo_md <ID> | agents_bundle | run_block`).\n  - Task ID prefixes: `F` is a feature (default prefix on `add`), `B` is a\n    bugfix (ranked ahead of other tasks in `chain`), and `D` is a design task\n    (role `design`); any other single `A-Z` letter is a custom domain prefix\n    whose role follows the status rule above. `todo_md ids` prints the\n    IDs in use together with this legend. Close design tasks via\n    `todo_md done <ID>` once their invariants are persisted in\n    `AGENTS.md` (and `docs/adr/`) and follow-up implementation tasks exist.\n  - Target selection: pass `-C <dir|project>` or `--project <name>` before\n    any `todo_md` subcommand (`ids`, `list`, `archive`, `last`, `last-id`,\n    `next-id`, `files`, `check`, `add`, `edit`, `append`, `status`, `next`,\n    `done`, `cancel`, `show`) to target a repository directory or discovered\n    workspace project from any working directory (keep `-p` in `add` for ID\n    prefix and `<project>:<ID>` strictly for task-level references; precedence:\n    `-C`/`--project` > `TODO_MD_CWD` > `<project>:<ID>` > current directory).\n  - Inspect: `todo_md [opts] [-w]` (default Quest-Log view of the repository or workspace, see `chain` below;\n    `todo_md overview [--full] [-w]` or `todo_md --full` prints the Markdown overview or cross-project workspace\n    overview: full `WIP`/`NEXT`/`QUESTION`, or first `NEW`/`HOLD` task when none\n    exist, + compact backlog; supports `<project>:<ID>` and `<project>` addressing),\n    `todo_md projects` (list workspace projects and open counts), `todo_md <ID>[,<ID>...] [<ID>...]` /\n    `todo_md show <ID>[,<ID>...] [<ID>...]` / `todo_md show last [<STATUS|archive>]` (multiple IDs, including\n    `<project>:<ID>`, are shown sequentially separated by a blank line; prints `Task:`, `Title:`, `Role:`,\n    and `Workdir:` headers before `# TODO*.md:<line>`),\n    `todo_md last [<STATUS|archive>]` (default: `NEW`),\n    `todo_md last-id [<STATUS|archive>]` (default: `NEW`),\n    `todo_md list [active|archive|all|<STATUS>] [<ID>...] [--role <role>] [-r|--ready] [--limit N] [--full]`\n    (orders each status bucket with ready tasks first and prerequisites before dependents;\n    renders blocked `WIP`/`NEXT` items as `⏳ [WIP]` / `⏳ [NEXT]` and multi-step chains as full\n    ordered paths `[blocked: A (<STATUS>) -> B (<STATUS>)]`; highlights any target `<ID>...`\n    and dims `DONE` rows in TTY views;\n    `--ready` filters active tasks to those with no unresolved dependencies),\n    `todo_md archive`, `todo_md ids`,\n    `todo_md queue <ID> [--all]` (alias for `todo_md chain <ID> [--all]`: focused Quest-Log of the chain containing `<ID>`;\n    hides `DONE` unless `--all` is passed; prints `[ready]` / `[blocked by: ...]`\n    and `Next actionable: <ref>`),\n    `todo_md chain [<ID>...] [--all] [--by-role] [--role <role>] [--ready] [-l N|--limit N] [--include-hold] [--tree] [--numbered[=left|right]] [--status <STATUS>] [-f <ID>...|--filter <ID>...] [-H|--highlight [<ID>...]] [-s <QUERY>|--search <QUERY>]`\n    (local, `.todo_projects` orchestrator, or `-w` workspace root-anchored RPG progress chains\n    `Chain <N> -> <root_ref>: <root_title> [<pct>% | done: <D>, open: <O>]:` (or `[open: <O>]:` when `done == 0`),\n    ranking ready `work` chain finales (`[ready | FINAL]`) first as top `Chain 1..K` entries\n    as flat topological rows by default (no row numbers; `--numbered[=left|right]` adds period-free numbers), or with `--tree` / `-t`\n    nested `├── Sub-chain -> <milestone_ref>: <title> [<pct>% | done: <D>, open: <O>]:`\n    milestone trees (4-char connectors `├── `, `└── `, `└─► `, `│   `) and standalone tasks, appending\n    `[also in: <other_root_ref>, ...]` to\n    prerequisite rows shared across multiple root chains, including resolved\n    `DONE` prerequisites in topological order when `--all` is passed, merging\n    `.todo_projects` orchestrator dependency edges (expanding nested orchestrators transitively and keeping path aliases such as `~/chrome/canary` -> `chrome/canary:<ID>` for external projects) into child project views,\n    formatting IDs relative to `cwd`, applying composable TTY styling for\n    external-project tasks, `DONE` tasks, and target `<ID>...` highlights,\n    showing padded `[role]` badges and unified `[ready | FINAL | STAGE | COMBO | unblocks: <K>]` / `[blocked by: <refs> | unblocks: <K>]` tags (keeping `done: <D>` exclusively on chain and sub-chain headers), and enforcing monotonic\n    Quest Momentum ranking by ready `work` finale priority, bug priority `B*`, role execution ease, active\n    quest momentum / started-chain status floor, role-weighted velocity\n    `work=1, plan=2, design=5`, whole-cone size, and closing root tie-breaker;\n    `--by-role`\n    partitions active\n    tasks into\n    topologically sorted role queues: `Queue 1 (work)` with only `work`\n    transitive deps, `Queue 2 (plan)` with `work`/`plan` transitive deps,\n    `Queue 3 (design)`, and `Queue 4 (deferred work)` for `work` blocked by\n    `plan`/`design` [omitted with `--ready`]; `--role <role>` filters displayed\n    tasks while preserving DAG validation and unblock context; `--ready` / `-r` filters\n    to ready tasks ranked by role ease, Quest Momentum continuation, best parent chain rank (tasks advancing `Chain 1` first), multi-chain count, completed prerequisite count, and immediate ready unlocks,\n    shown as `[FINAL | STAGE | COMBO | chain: <N>, ready: +<M>, unblocks: <K>]` (`chain: <N>` only when `N > 1`, `ready: +<M>` only when `M > 0`; tag omitted on zero-stat standalone tasks); excludes `HOLD` and tasks transitively\n    blocked by `HOLD` into `Held branches:` unless `--include-hold` is passed;\n    reports diagnostics on cycles, syntax errors, or `MISSING` / `CANCELED`\n    blockers; `--filter` / `-f <ID>...` (and positional `<ID>...` under `chain`) filters by task IDs\n    (bare `<ID>` matches across all projects in the active view, while `<project>:<ID>` matches only that\n    project), scopes output to chains/tasks containing `<ID>...`, highlights them, and prints\n    `Next actionable: <ref>` for a single ID; `--search` / `-s <QUERY>` (or `todo_md search <QUERY>`)\n    searches task IDs (`<ID>` and `<project>:<ID>`), titles, and bodies across all projects in the active\n    view (including `.todo_projects` child projects; `TODO.md` only unless `--all` or an archive status is\n    set) and focuses the Quest-Log on matches, or prints full sections with `--full`; `--highlight` / `-H`\n    is a boolean focus-disabling toggle that renders the full Quest-Log with matched `-f` / `-s` tasks\n    highlighted (and accepts `-H <ID>...` as shorthand for `-f <ID>... -H`); `--all` includes both active\n    `TODO.md` and archived `TODO_ARCHIVE.md` tasks across Quest-Log, `-s`, and `-f`; status filters work as\n    `--status <STATUS>` or a bare `WIP|NEXT|QUESTION|NEW|HOLD|ACTIVE|ALL` keyword (`DONE|CANCELED|archive`\n    render the list view) on `todo_md [opts]` and `todo_md chain [opts]`),\n    `todo_md next-id [<ID>] [--role <role>]` (`--top`, top ready `WIP`/`NEXT`\n    ID matching optional `--role`, or with `<ID>`/`<project>:<ID>` prints the\n    first unblocked actionable ID in `<ID>`\'s queue, exiting non-zero on cycles,\n    missing/canceled blockers, or closed targets),\n    `todo_md files [<ID>] [--max-lines N] [--max-total-lines N] [--max-bytes N] [--max-total-bytes N]`\n    (files listed on the `- Target files:` bullet of the task: backticked\n    paths, glob patterns such as `src/*.py`, symbol slices `path:symbol` and\n    `path:sym1..sym2` resolved to current `path:start-end` ranges at run time,\n    and `path:start-end` line slices, merged per file and printed within\n    optional size budgets evaluated against the sliced lines only; backticked\n    mentions elsewhere in the task body are ignored)\n  - Create: `todo_md add [<PROJECT>] [<PREFIX>] "<title>" [-p <PREFIX>] [--next] [--status WIP|NEXT|NEW|HOLD|QUESTION] [-m "<note>"] [-b "<body_md>"|-] [--depends <spec>] [-c|--commit]`\n    (auto-assigns `<ID>`, default prefix `F`; pass body via `-b`, `-b -` for `stdin`, or piped `stdin`;\n    `todo_md init "<idea>"` bootstraps a new `TODO.md`)\n  - Update: `todo_md edit <ID> [-t "<title>"] [-m "<note>"] [-b "<body_md>"|-] [--depends <spec>] [-c|--commit]`,\n    `todo_md append <ID> [-b "<text>"|-] [-c|--commit]`\n  - Dependencies (`--depends` and `- Depends on:`): use `,` for parallel items\n    within a stage (`A,B`) and `->` for sequential stages (`"A -> B -> C"`,\n    with `,` binding tighter than `->` as in `"A, B -> C"`); repeat\n    `--depends` or add multiple `- Depends on:` lines for independent branches\n    combined with AND; do not introduce a separate `- Order:` field;\n    cross-project orchestrator dependencies (`<project>:<ID>`) preserve one-way\n    repo boundaries without modifying child repos (inbound orchestrator stage edges also block\n    child tasks in `queue`, `next-id <ID>`, `list`, and `show`)\n  - Chain integration (both directions): whenever adding or refining a task,\n    check existing open chains upstream (`--depends` on the new task) and\n    downstream (`todo_md edit <ID> --depends ...` on existing open tasks,\n    doc/help alignment tasks, or orchestrator waves that touch the same files\n    or build on the new capability) so new tasks are wired into chains rather\n    than left as unintended standalone tasks\n  - Transition: `todo_md status <ID> <WIP|NEXT|NEW|HOLD|QUESTION> [-m "<note>"] [--reopen] [-c|--commit]`,\n    `todo_md next <ID> [-m "<note>"] [--reopen] [-c|--commit]` (promote to `🎯 [NEXT]` and strip `- Role: plan`),\n    `todo_md reopen <ID> [--status <STATUS>] [-m "<note>"] [-c|--commit]` (reopen archived task to `TODO.md`, default `NEW`; transitions from `TODO_ARCHIVE.md` without `--reopen` or `reopen` are rejected)\n  - Close (prepends to `TODO_ARCHIVE.md`): `todo_md done <ID> [-m "<note>"] [-c|--commit]`\n    (prints `Unblocked: ...` when closing `<ID>` completes all prerequisites for\n    open tasks in the current repo or workspace orchestrator),\n    `todo_md cancel <ID> [-m "<reason>"] [-c|--commit]`\n  - Upstream sync: when the repository has a configured git upstream,\n    mutating commands (`init`, `add`, `edit`, `append`, `status`, `next`,\n    `reopen`, `done`, `cancel`) first run `git pull --ff-only --quiet` so task\n    IDs are never assigned from a stale `HEAD`; the sync is skipped when\n    `TODO_MD_NO_GIT_PULL=1`, outside a git repository, without an upstream, or\n    (unless `-c` / `--commit` is enabled) when tracked files other than\n    `TODO*.md` have uncommitted changes, and aborts with an error when the\n    branch has diverged or the pull fails.\n  - Validation & commits: mutating commands automatically validate and reorder\n    `TODO.md` without git-committing by default (run `todo_md check` to\n    validate manually; rejects stale completion date notes `— *YYYY-MM-DD...*`\n    on active tasks in `TODO.md` so they are moved back to `TODO_ARCHIVE.md`\n    or cleared):\n    - `role=work`: do not pass `-c` / `--commit`; stage `TODO.md` and\n      `TODO_ARCHIVE.md` into the final code commit so `done` is atomic with\n      implementation. Record out-of-scope findings via `todo_md add` as\n      problem/impact descriptions in default `NEW` status without `--depends`;\n      they are staged into the final code commit, or committed immediately\n      with `-c` / `--commit` when recorded after the code commit is already\n      pushed or when no code commit follows.\n    - `role=plan`, `role=design`, and `role=review`: batch `todo_md`\n      mutations without `-c` and commit `TODO*.md` in a single commit once\n      backlog updates are finished (via `-c` / `--commit` on the final\n      `todo_md` command or `git add TODO*.md && git commit`) before\n      starting `role=work`.\n  - Target files contract: record the files a task touches on one explicit\n    `- Target files:` bullet (backticked, excluding `TODO*.md` and\n    `AGENTS.md`): plain paths for files up to 400 lines, and for larger files\n    `path:symbol`, `path:sym1..sym2`, or `path:start-end` slices inspected\n    during planning (prefer symbols: they never drift when other tasks edit\n    the file). Record the bullet when promoting a task to `NEXT`.\n  - Session start: `todo_md <ID>` in bundle mode (`--bundle`, or stdout piped\n    into `agents_bundle`) moves a `work` or `design` task that is `NEXT` (or\n    `D*` in `NEW`) to `WIP` automatically unless `--no-wip` is passed, and\n    preloads the target files unless `--no-files` is passed. Run\n    `todo_md done <ID>` inside the final commit step.\n'
+RULE_SOURCE_PATH = Path(__file__).resolve().parent.parent / "agents" / "todo_md.md"
 
 VALID_STATUSES: dict[str, str] = {
     "WIP": "🔵",
@@ -56,6 +64,12 @@ LINE_SLICE_RE = re.compile(
 )
 FILE_SPEC_RE = re.compile(r"^(?P<path>.+):(?P<start>\d+)-(?P<end>\d+)$")
 PROJECT_TASK_RE = re.compile(r"^(.+?):([A-Za-z]\d+)$")
+TARGET_FILES_LINE_RE = re.compile(r"^\s*[-*]\s*Target files:", re.IGNORECASE)
+BULLET_LINE_RE = re.compile(r"^\s*[-*]\s")
+SYMBOL_SPEC_RE = re.compile(
+    r"^(?P<path>[^:\s]+):(?P<first>[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)"
+    r"(?:\.\.(?P<last>[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*))?\Z"
+)
 DEPENDS_LINE_RE = re.compile(r"^\s*[-*]\s*Depends on:\s*(.+?)\s*$", re.IGNORECASE)
 ROLE_LINE_RE = re.compile(r"^\s*[-*]\s*Role:\s*(.*?)\s*$", re.IGNORECASE)
 ROLE_NAME_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
@@ -115,6 +129,12 @@ WORKSPACE_SKIP_DIRS = frozenset({
     "DerivedData",
 })
 WORKSPACE_MAX_DEPTH = 3
+
+
+def get_embedded_todo_rule() -> str:
+    if EMBEDDED_RULE_TODO_MD != "__EMBEDDED_RULE_" + "TODO_MD__":
+        return EMBEDDED_RULE_TODO_MD
+    return RULE_SOURCE_PATH.read_text(encoding="utf-8")
 
 
 def prog_name() -> str:
@@ -187,10 +207,11 @@ HELP_COMMANDS: tuple[tuple[str, str], ...] = (
     ("{prog} next-id [<ID>] [--role ROLE] | --top",
      "Print the top ready WIP/NEXT ID, or the first ready ID in <ID>'s queue"),
     ("{prog} files [<ID>] | --files [<ID>]",
-     "List existing repository files referenced in backticks in task <ID>: glob patterns "
-     "expand to matching files and path:START-END slices (also path:LINE, path#LSTART-LEND) "
-     "print as path:START-END. Options: --max-lines N, --max-total-lines N, --max-bytes N, "
-     "--max-total-bytes N (budgets count only the sliced lines)"),
+     "List files named on the '- Target files:' bullet of task <ID>: paths, glob patterns, "
+     "symbol slices (path:SYMBOL, path:SYM1..SYM2) and line slices (path:START-END, path:LINE, "
+     "path#LSTART-LEND), merged per file and printed as path or path:START-END. Options: "
+     "--max-lines N, --max-total-lines N, --max-bytes N, --max-total-bytes N (budgets count "
+     "only the sliced lines)"),
     ("{prog} check", "Validate layout, headings, status badges, and unique IDs"),
     ("{prog} init [TEXT] [--force]",
      "Create starter TODO.md (with optional project idea from TEXT/stdin) and "
@@ -213,6 +234,13 @@ HELP_GLOBAL_OPTIONS: tuple[tuple[str, str], ...] = (
     ("-c, --commit",
      "Git-commit TODO*.md after mutating commands (opt-in; creates a git commit)"),
     ("--no-commit", "Accepted as a no-op alias (commits are disabled by default)"),
+    ("--bundle",
+     "Emit a context-bundle-protocol v1 stream for <ID> (show), last, the default view and "
+     "overview; auto-enabled when stdout is a pipe other than the run_block step output. "
+     "With <ID> it moves a NEXT work/design task to WIP"),
+    ("--plain", "Disable bundle auto-detection (--bundle takes precedence)"),
+    ("--no-files", "Bundle mode: do not preload the '- Target files:' of the task"),
+    ("--no-wip", "Bundle mode: do not move the task to WIP on session start"),
 )
 
 HELP_QUEST_OPTIONS: tuple[tuple[str, str], ...] = (
@@ -289,6 +317,8 @@ HELP_ENV: tuple[tuple[str, str], ...] = (
      "Set to 1 to suppress git commits even when --commit / TODO_MD_COMMIT is set"),
     ("TODO_MD_NO_GIT_PULL",
      "Set to 1 to skip git pull --ff-only upstream sync before mutating commands"),
+    ("TODO_MD_BUNDLE", "Set to 1 to emit bundle streams (same as --bundle)"),
+    ("TODO_MD_PLAIN", "Set to 1 to disable bundle auto-detection (same as --plain)"),
     ("TODO_MD_UPDATE_URL", "Override raw script URL for update / check-update"),
 )
 
@@ -5175,47 +5205,212 @@ def _expand_task_glob(repo_root: Path, pattern: str) -> list[str]:
     return out
 
 
-def extract_task_files(base_dir: Path, section_text: str) -> list[str]:
-    repo_root = base_dir.resolve()
-    found: list[str] = []
-    seen: set[str] = set()
-
-    def add(spec: str) -> None:
-        if spec not in seen:
-            seen.add(spec)
-            found.append(spec)
-
+def _target_file_tokens(section_text: str) -> list[str]:
+    tokens: list[str] = []
     in_fence = False
+    in_target = False
     for line in section_text.splitlines():
         if line.lstrip().startswith(FENCE):
             in_fence = not in_fence
+            in_target = False
             continue
         if in_fence:
             continue
-        for raw in BACKTICK_TOKEN_RE.findall(line):
-            cand = raw.strip()
-            if not cand or any(ch.isspace() for ch in cand) or "://" in cand:
+        if TARGET_FILES_LINE_RE.match(line):
+            in_target = True
+        elif not (in_target and line[:1].isspace() and line.strip() and not BULLET_LINE_RE.match(line)):
+            in_target = False
+        if in_target:
+            tokens.extend(BACKTICK_TOKEN_RE.findall(line))
+    return tokens
+
+
+def _line_indent(line: str) -> int:
+    return len(line) - len(line.lstrip())
+
+
+def _symbol_span_end(lines: list[str], start: int, indent: int) -> int:
+    end = start
+    for idx in range(start + 1, len(lines)):
+        line = lines[idx]
+        if not line.strip():
+            continue
+        if _line_indent(line) <= indent and not line.lstrip().startswith((")", "]", "}")):
+            break
+        end = idx
+    return end
+
+
+def _find_symbol_span(lines: list[str], name: str, lo: int, hi: int) -> tuple[int, int] | None:
+    esc = re.escape(name)
+    patterns = (
+        re.compile(rf"^(\s*)(?:async\s+def|def|class)\s+{esc}\b"),
+        re.compile(rf"^(\s*){esc}\s*(?::[^=\n]+)?=(?!=)"),
+    )
+    for pat in patterns:
+        best: tuple[int, int] | None = None
+        for idx in range(lo, hi + 1):
+            m = pat.match(lines[idx])
+            if m and (best is None or len(m.group(1)) < best[0]):
+                best = (len(m.group(1)), idx)
+        if best is None:
+            continue
+        indent, idx = best
+        start = idx
+        while (
+            start > lo
+            and lines[start - 1].lstrip().startswith("@")
+            and _line_indent(lines[start - 1]) == indent
+        ):
+            start -= 1
+        return start, min(_symbol_span_end(lines, idx, indent), hi)
+    return None
+
+
+def _resolve_symbol(lines: list[str], dotted: str) -> tuple[int, int] | None:
+    lo, hi = 0, len(lines) - 1
+    span: tuple[int, int] | None = None
+    for part in dotted.split("."):
+        if lo > hi:
+            return None
+        span = _find_symbol_span(lines, part, lo, hi)
+        if span is None:
+            return None
+        lo, hi = span
+    return span
+
+
+def _resolve_symbol_range(lines: list[str], first: str, last: str | None) -> tuple[int, int] | None:
+    a = _resolve_symbol(lines, first)
+    if a is None:
+        return None
+    if last is None:
+        return a[0] + 1, a[1] + 1
+    b = _resolve_symbol(lines, last)
+    if b is None or b[1] < a[0]:
+        return None
+    return a[0] + 1, b[1] + 1
+
+
+def _normalize_file_entries(entries: list[tuple[str, tuple[int, int] | None]]) -> list[str]:
+    order: list[str] = []
+    whole: set[str] = set()
+    spans: dict[str, list[tuple[int, int]]] = {}
+    for rel, span in entries:
+        if rel not in spans:
+            order.append(rel)
+            spans[rel] = []
+        if span is None:
+            whole.add(rel)
+        else:
+            spans[rel].append(span)
+    out: list[str] = []
+    for rel in order:
+        if rel in whole:
+            out.append(rel)
+            continue
+        merged: list[tuple[int, int]] = []
+        for s, e in sorted(spans[rel]):
+            if merged and s <= merged[-1][1]:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], e))
+            else:
+                merged.append((s, e))
+        out.extend(f"{rel}:{s}-{e}" for s, e in merged)
+    return out
+
+
+def extract_task_files(base_dir: Path, section_text: str) -> list[str]:
+    repo_root = base_dir.resolve()
+    entries: list[tuple[str, tuple[int, int] | None]] = []
+    cache: dict[str, list[str]] = {}
+
+    def file_lines(rel: str) -> list[str]:
+        if rel not in cache:
+            data = (repo_root / rel).read_bytes()
+            cache[rel] = [ln.decode("utf-8", "replace") for ln in data.splitlines()]
+        return cache[rel]
+
+    for raw in _target_file_tokens(section_text):
+        cand = raw.strip()
+        if not cand or any(ch.isspace() for ch in cand) or "://" in cand:
+            continue
+        if cand.startswith("-") or any(ch in cand for ch in "<>{}"):
+            continue
+        path_part, span = split_line_slice(cand)
+        sym = SYMBOL_SPEC_RE.match(cand) if span is None else None
+        if sym is not None:
+            rel_sym = _resolve_repo_file(repo_root, sym.group("path"))
+            if rel_sym is None:
                 continue
-            if cand.startswith("-") or any(ch in cand for ch in "<>{}"):
+            sym_span = _resolve_symbol_range(file_lines(rel_sym), sym.group("first"), sym.group("last"))
+            if sym_span is None:
+                sys.stderr.write(f"{prog_name()}: warning: symbol slice {cand!r} not found in {rel_sym}\n")
                 continue
-            path_part, span = split_line_slice(cand)
-            if span is not None and (span[0] < 1 or span[1] < span[0]):
-                continue
-            if any(ch in path_part for ch in "*?["):
-                if span is None:
-                    for rel_glob in _expand_task_glob(repo_root, path_part):
-                        add(rel_glob)
-                continue
-            rel = _resolve_repo_file(repo_root, path_part)
-            if rel is None:
-                continue
-            if span is not None:
-                n_total = len((repo_root / rel).read_bytes().splitlines())
-                if span[0] > n_total:
+            entries.append((rel_sym, sym_span))
+            continue
+        if span is not None and (span[0] < 1 or span[1] < span[0]):
+            continue
+        if any(ch in path_part for ch in "*?["):
+            if span is None:
+                entries.extend((g, None) for g in _expand_task_glob(repo_root, path_part))
+            continue
+        rel = _resolve_repo_file(repo_root, path_part)
+        if rel is None:
+            continue
+        if span is None:
+            entries.append((rel, None))
+            continue
+        n_total = len(file_lines(rel))
+        if span[0] > n_total:
+            continue
+        entries.append((rel, (span[0], min(span[1], n_total))))
+    return _normalize_file_entries(entries)
+
+
+def select_task_files(
+    base_dir: Path,
+    task_id: str | None = None,
+    max_lines: int | None = None,
+    max_total_lines: int | None = None,
+    max_bytes: int | None = None,
+    max_total_bytes: int | None = None,
+) -> list[str] | None:
+    target = task_id.strip().upper() if task_id else resolve_top_task_id(base_dir)
+    if not target:
+        sys.stderr.write(f"{prog_name()}: no active WIP or NEXT task found in TODO.md under {base_dir}\n")
+        return None
+    has_budget = any(
+        cap is not None for cap in (max_lines, max_total_lines, max_bytes, max_total_bytes)
+    )
+    repo_root = base_dir.resolve()
+    total_lines = 0
+    total_bytes = 0
+    for t in collect_all_tasks(base_dir):
+        if str(t["id"]).upper() != target:
+            continue
+        selected: list[str] = []
+        for spec in extract_task_files(base_dir, str(t["section"])):
+            if has_budget:
+                rel_path, span = split_file_spec(spec)
+                chunks = (repo_root / rel_path).read_bytes().splitlines(keepends=True)
+                if span is not None:
+                    chunks = chunks[span[0] - 1 : span[1]]
+                n_bytes = sum(len(c) for c in chunks)
+                n_lines = len(chunks)
+                if max_bytes is not None and n_bytes > max_bytes:
                     continue
-                rel = f"{rel}:{span[0]}-{min(span[1], n_total)}"
-            add(rel)
-    return found
+                if max_total_bytes is not None and total_bytes + n_bytes > max_total_bytes:
+                    continue
+                if max_lines is not None and n_lines > max_lines:
+                    continue
+                if max_total_lines is not None and total_lines + n_lines > max_total_lines:
+                    continue
+                total_bytes += n_bytes
+                total_lines += n_lines
+            selected.append(spec)
+        return selected
+    sys.stderr.write(f"{prog_name()}: task {target!r} not found in TODO*.md under {base_dir}\n")
+    return None
 
 
 def cmd_files(
@@ -5226,40 +5421,12 @@ def cmd_files(
     max_bytes: int | None = None,
     max_total_bytes: int | None = None,
 ) -> int:
-    target = task_id.strip().upper() if task_id else resolve_top_task_id(base_dir)
-    if not target:
-        sys.stderr.write(f"{prog_name()}: no active WIP or NEXT task found in TODO.md under {base_dir}\n")
+    specs = select_task_files(base_dir, task_id, max_lines, max_total_lines, max_bytes, max_total_bytes)
+    if specs is None:
         return 1
-    has_budget = any(
-        cap is not None for cap in (max_lines, max_total_lines, max_bytes, max_total_bytes)
-    )
-    repo_root = base_dir.resolve()
-    total_lines = 0
-    total_bytes = 0
-    for t in collect_all_tasks(base_dir):
-        if str(t["id"]).upper() == target:
-            for spec in extract_task_files(base_dir, str(t["section"])):
-                if has_budget:
-                    rel_path, span = split_file_spec(spec)
-                    chunks = (repo_root / rel_path).read_bytes().splitlines(keepends=True)
-                    if span is not None:
-                        chunks = chunks[span[0] - 1 : span[1]]
-                    n_bytes = sum(len(c) for c in chunks)
-                    n_lines = len(chunks)
-                    if max_bytes is not None and n_bytes > max_bytes:
-                        continue
-                    if max_total_bytes is not None and total_bytes + n_bytes > max_total_bytes:
-                        continue
-                    if max_lines is not None and n_lines > max_lines:
-                        continue
-                    if max_total_lines is not None and total_lines + n_lines > max_total_lines:
-                        continue
-                    total_bytes += n_bytes
-                    total_lines += n_lines
-                sys.stdout.write(f"{spec}\n")
-            return 0
-    sys.stderr.write(f"{prog_name()}: task {target!r} not found in TODO*.md under {base_dir}\n")
-    return 1
+    for spec in specs:
+        sys.stdout.write(f"{spec}\n")
+    return 0
 
 
 def cmd_chain(
@@ -5957,6 +6124,152 @@ def cmd_chain(
     return 1 if had_blocker_error else 0
 
 
+BUNDLE_PROTOCOL_VERSION = "1"
+BUNDLE_FLAGS = ("--bundle", "--plain", "--no-files", "--no-wip")
+BUNDLE_CHAIN = ["todo_md"]
+BUNDLE_RULE_ID = "todo_md:todo_md"
+BUNDLE_MAX_LINES = 400
+BUNDLE_MAX_TOTAL_LINES = 1200
+BUNDLE_MAX_BYTES = 32768
+CONTEXT_HEADER_RE = re.compile(r"^[A-Za-z][A-Za-z-]*: ")
+TASK_SOURCE_RE = re.compile(r"^# (TODO(?:_ARCHIVE)?\.md):\d+", re.MULTILINE)
+
+
+class BundleOptions:
+    def __init__(self, enabled: bool, no_files: bool = False, no_wip: bool = False,
+                 argv: list[str] | None = None) -> None:
+        self.enabled = enabled
+        self.no_files = no_files
+        self.no_wip = no_wip
+        self.argv = list(argv or [])
+
+
+def bundle_mode_enabled(bundle_flag: bool, plain_flag: bool) -> bool:
+    env = os.environ
+    if bundle_flag:
+        return True
+    if plain_flag:
+        return False
+    if env.get("TODO_MD_BUNDLE") == "1":
+        return True
+    if env.get("TODO_MD_PLAIN") == "1":
+        return False
+    try:
+        st = os.fstat(sys.stdout.fileno())
+    except (AttributeError, OSError, ValueError):
+        return False
+    if not stat.S_ISFIFO(st.st_mode):
+        return False
+    step_ino = env.get("RUN_BLOCK_STEP_STDOUT_INO")
+    if step_ino:
+        return step_ino != f"{st.st_dev}:{st.st_ino}"
+    return env.get("IN_RUN_BLOCK") != "1"
+
+
+def _capture(render) -> tuple[int, str]:
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = int(render())
+    return rc, buf.getvalue()
+
+
+def _fragment(nonce: str, meta: dict[str, object], body: str) -> str:
+    marker = json.dumps(meta, ensure_ascii=False)
+    return f"<!-- bundle:{nonce}:part {marker} -->\n{body.rstrip(chr(10))}\n<!-- bundle:{nonce}:end -->\n"
+
+
+def _include_fragments(nonce: str, base_dir: Path, specs: list[str]) -> list[str]:
+    root = base_dir.resolve()
+    out: list[str] = []
+    for spec in specs:
+        rel, span = split_file_spec(spec)
+        raw_lines = (root / rel).read_bytes().splitlines(keepends=True)
+        if span is None:
+            header = f"===== $ cat {rel} ====="
+        else:
+            raw_lines = raw_lines[span[0] - 1 : span[1]]
+            header = f"===== $ sed -n '{span[0]},{span[1]}p' {rel} ====="
+        text = b"".join(raw_lines).decode("utf-8", "replace")
+        meta = {"kind": "include", "name": spec, "chain": BUNDLE_CHAIN}
+        out.append(_fragment(nonce, meta, f"{header}\n{text}"))
+    return out
+
+
+def _write_stream(
+    opts: BundleOptions,
+    headers: list[str],
+    base_dir: Path,
+    specs: list[str],
+    prompt_meta: dict[str, object],
+    prompt_body: str,
+) -> None:
+    nonce = secrets.token_hex(16)
+    preamble = [
+        f"Bundle-Protocol: {BUNDLE_PROTOCOL_VERSION}",
+        f"Bundle-Command: {shlex.join([prog_name(), *opts.argv])}",
+        f"Bundle-Boundary: {nonce}",
+        "Bundle-Expose: Role, Task, Title",
+        *headers,
+    ]
+    rule_meta = {"kind": "rule", "id": BUNDLE_RULE_ID, "chain": BUNDLE_CHAIN}
+    parts = [
+        _fragment(nonce, rule_meta, get_embedded_todo_rule()),
+        *_include_fragments(nonce, base_dir, specs),
+        _fragment(nonce, prompt_meta, "===== Prompt =====\n" + prompt_body),
+    ]
+    sys.stdout.write("\n".join(preamble) + "\n\n===== Rules =====\n" + "\n".join(parts))
+
+
+def _start_session_wip(base_dir: Path, task_id: str) -> None:
+    target = task_id.strip().upper()
+    for t in parse_tasks_in_text(read_if_exists(base_dir / "TODO.md"), "TODO.md"):
+        if str(t["id"]).upper() != target:
+            continue
+        status = str(t["status"])
+        role = resolve_task_role(target, str(t["section"]), status=status)
+        if status in ("NEXT", "NEW") and role in ("work", "design"):
+            _capture(lambda: cmd_transition(
+                base_dir, target, new_status="WIP", promote_top=True, no_commit=True
+            ))
+        return
+
+
+def emit_context_bundle(opts: BundleOptions, base_dir: Path, render) -> int:
+    rc, out = _capture(render)
+    if rc != 0 or not out.strip():
+        sys.stdout.write(out)
+        return rc
+    meta = {"kind": "context", "name": "todo_md", "chain": BUNDLE_CHAIN}
+    _write_stream(opts, [f"Workdir: {base_dir.resolve()}"], base_dir, [], meta, out)
+    return 0
+
+
+def emit_task_bundle(opts: BundleOptions, task_dir: Path, task_id: str | None, render) -> int:
+    if task_id is not None and not opts.no_wip:
+        _start_session_wip(task_dir, task_id)
+    rc, out = _capture(render)
+    head, sep, body = out.partition("\n\n")
+    headers = head.splitlines()
+    if rc != 0 or not sep or not headers or not all(CONTEXT_HEADER_RE.match(h) for h in headers):
+        sys.stdout.write(out)
+        return rc
+    tid = next((h.split(": ", 1)[1] for h in headers if h.startswith("Task: ")), task_id or "")
+    src = TASK_SOURCE_RE.search(body)
+    specs: list[str] = []
+    if not opts.no_files:
+        specs = select_task_files(
+            task_dir, tid, BUNDLE_MAX_LINES, BUNDLE_MAX_TOTAL_LINES, BUNDLE_MAX_BYTES
+        ) or []
+    meta = {
+        "kind": "task",
+        "id": tid,
+        "name": f"{src.group(1) if src else 'TODO.md'}:{tid}",
+        "chain": BUNDLE_CHAIN,
+    }
+    _write_stream(opts, headers, task_dir, specs, meta, body)
+    return 0
+
+
 def parse_version_from_source(source: str) -> str | None:
     m = re.search(r'^VERSION\s*=\s*["\x27]([^"\x27]+)["\x27]', source, flags=re.MULTILINE)
     return m.group(1) if m else None
@@ -6335,7 +6648,18 @@ def _quest_log(
     )
 
 
-def _overview(base_dir: Path, explicit_dir: str | None, workspace: bool, full: bool) -> int:
+def _overview(
+    base_dir: Path, explicit_dir: str | None, workspace: bool, full: bool, bundle: BundleOptions
+) -> int:
+    def render() -> int:
+        return _render_overview(base_dir, explicit_dir, workspace, full)
+
+    if bundle.enabled:
+        return emit_context_bundle(bundle, base_dir, render)
+    return render()
+
+
+def _render_overview(base_dir: Path, explicit_dir: str | None, workspace: bool, full: bool) -> int:
     if workspace:
         return cmd_workspace_summary(resolve_workspace_root(base_dir, explicit_dir=explicit_dir), full=full)
     if not is_todo_project(base_dir) and not (base_dir / "TODO.md").is_file():
@@ -6345,7 +6669,10 @@ def _overview(base_dir: Path, explicit_dir: str | None, workspace: bool, full: b
     return cmd_summary(base_dir, full=full)
 
 
-def _show_tasks(base_dir: Path, refs: list[str], explicit_dir: str | None) -> int:
+def _show_tasks(base_dir: Path, refs: list[str], explicit_dir: str | None, bundle: BundleOptions) -> int:
+    if bundle.enabled and len(refs) == 1:
+        tdir, tid = resolve_project_task_ref(base_dir, refs[0], explicit_dir=explicit_dir)
+        return emit_task_bundle(bundle, tdir, tid, lambda: cmd_show(tdir, tid))
     rc = 0
     for n, ref in enumerate(refs):
         tdir, tid = resolve_project_task_ref(base_dir, ref, explicit_dir=explicit_dir)
@@ -6355,8 +6682,15 @@ def _show_tasks(base_dir: Path, refs: list[str], explicit_dir: str | None) -> in
     return rc
 
 
+def _last(base_dir: Path, filt: str | None, bundle: BundleOptions) -> int:
+    if bundle.enabled:
+        return emit_task_bundle(bundle, base_dir, None, lambda: cmd_last(base_dir, filt))
+    return cmd_last(base_dir, filt)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
+    orig_args = list(args)
     prog = prog_name()
     if "-h" in args or "--help" in args or (args and args[0] == "help"):
         sys.stdout.write(usage_text())
@@ -6374,6 +6708,7 @@ def main(argv: list[str] | None = None) -> int:
     commit = False
     no_commit = False
     workspace = False
+    bundle_flags: set[str] = set()
     project_selector: str | None = None
     i = 0
     while i < len(args):
@@ -6401,6 +6736,9 @@ def main(argv: list[str] | None = None) -> int:
         elif a in ("--workspace", "-w"):
             workspace = True
             i += 1
+        elif a in BUNDLE_FLAGS:
+            bundle_flags.add(a)
+            i += 1
         else:
             break
     args = args[i:]
@@ -6417,6 +6755,14 @@ def main(argv: list[str] | None = None) -> int:
     if "--workspace" in args or "-w" in args:
         workspace = True
         args = [a for a in args if a not in ("--workspace", "-w")]
+    bundle_flags.update(a for a in args if a in BUNDLE_FLAGS)
+    args = [a for a in args if a not in BUNDLE_FLAGS]
+    bundle = BundleOptions(
+        bundle_mode_enabled("--bundle" in bundle_flags, "--plain" in bundle_flags),
+        no_files="--no-files" in bundle_flags,
+        no_wip="--no-wip" in bundle_flags,
+        argv=orig_args,
+    )
 
     explicit_dir: str | None = resolve_project_or_dir(project_selector) if project_selector is not None else None
     if explicit_dir is None and args and args[0] not in KNOWN_SUBCOMMANDS and not args[0].startswith("-"):
@@ -6438,10 +6784,15 @@ def main(argv: list[str] | None = None) -> int:
     if args and args[0] in ("overview", "--overview"):
         if len(args) > 1:
             raise SystemExit(f"{prog}: usage: {prog} overview [--full] [-w]")
-        return _overview(base_dir, explicit_dir, workspace, full)
+        return _overview(base_dir, explicit_dir, workspace, full, bundle)
     if not args:
         if full:
-            return _overview(base_dir, explicit_dir, workspace, True)
+            return _overview(base_dir, explicit_dir, workspace, True, bundle)
+        if bundle.enabled:
+            return emit_context_bundle(
+                bundle, base_dir,
+                lambda: _quest_log(prog, base_dir, explicit_dir, workspace, full, []),
+            )
         return _quest_log(prog, base_dir, explicit_dir, workspace, full, [])
     if args[0] in ("archive", "--archive", "-a"):
         pos, note = _parse_note_arg(args[1:])
@@ -6540,7 +6891,7 @@ def main(argv: list[str] | None = None) -> int:
     if args[0] in ("last", "--last"):
         if len(args) > 2:
             raise SystemExit(f"{prog}: usage: {prog} last [<STATUS|archive>]")
-        return cmd_last(base_dir, args[1] if len(args) == 2 else None)
+        return _last(base_dir, args[1] if len(args) == 2 else None, bundle)
     if args[0] in ("files", "--files"):
         budgets: dict[str, int | None] = {
             "--max-lines": None,
@@ -6699,14 +7050,14 @@ def main(argv: list[str] | None = None) -> int:
         if args[1].lower() == "last":
             if len(args) > 3:
                 raise SystemExit(show_usage)
-            return cmd_last(base_dir, args[2] if len(args) == 3 else None)
+            return _last(base_dir, args[2] if len(args) == 3 else None, bundle)
         show_refs = _collect_task_refs(args[1:])
         if show_refs is None:
             raise SystemExit(show_usage)
-        return _show_tasks(base_dir, show_refs, explicit_dir)
+        return _show_tasks(base_dir, show_refs, explicit_dir, bundle)
     bare_refs = _collect_task_refs(args)
     if bare_refs is not None:
-        return _show_tasks(base_dir, bare_refs, explicit_dir)
+        return _show_tasks(base_dir, bare_refs, explicit_dir, bundle)
     if len(args) == 1 and Path(args[0]).is_dir():
         return cmd_summary(resolve_target_dir(args[0]), full=full)
     if args[0].startswith("-") or _is_status_keyword(args[0]):

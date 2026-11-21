@@ -376,7 +376,18 @@ def _quest_log(
     )
 
 
-def _overview(base_dir: Path, explicit_dir: str | None, workspace: bool, full: bool) -> int:
+def _overview(
+    base_dir: Path, explicit_dir: str | None, workspace: bool, full: bool, bundle: BundleOptions
+) -> int:
+    def render() -> int:
+        return _render_overview(base_dir, explicit_dir, workspace, full)
+
+    if bundle.enabled:
+        return emit_context_bundle(bundle, base_dir, render)
+    return render()
+
+
+def _render_overview(base_dir: Path, explicit_dir: str | None, workspace: bool, full: bool) -> int:
     if workspace:
         return cmd_workspace_summary(resolve_workspace_root(base_dir, explicit_dir=explicit_dir), full=full)
     if not is_todo_project(base_dir) and not (base_dir / "TODO.md").is_file():
@@ -386,7 +397,10 @@ def _overview(base_dir: Path, explicit_dir: str | None, workspace: bool, full: b
     return cmd_summary(base_dir, full=full)
 
 
-def _show_tasks(base_dir: Path, refs: list[str], explicit_dir: str | None) -> int:
+def _show_tasks(base_dir: Path, refs: list[str], explicit_dir: str | None, bundle: BundleOptions) -> int:
+    if bundle.enabled and len(refs) == 1:
+        tdir, tid = resolve_project_task_ref(base_dir, refs[0], explicit_dir=explicit_dir)
+        return emit_task_bundle(bundle, tdir, tid, lambda: cmd_show(tdir, tid))
     rc = 0
     for n, ref in enumerate(refs):
         tdir, tid = resolve_project_task_ref(base_dir, ref, explicit_dir=explicit_dir)
@@ -396,8 +410,15 @@ def _show_tasks(base_dir: Path, refs: list[str], explicit_dir: str | None) -> in
     return rc
 
 
+def _last(base_dir: Path, filt: str | None, bundle: BundleOptions) -> int:
+    if bundle.enabled:
+        return emit_task_bundle(bundle, base_dir, None, lambda: cmd_last(base_dir, filt))
+    return cmd_last(base_dir, filt)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
+    orig_args = list(args)
     prog = prog_name()
     if "-h" in args or "--help" in args or (args and args[0] == "help"):
         sys.stdout.write(usage_text())
@@ -415,6 +436,7 @@ def main(argv: list[str] | None = None) -> int:
     commit = False
     no_commit = False
     workspace = False
+    bundle_flags: set[str] = set()
     project_selector: str | None = None
     i = 0
     while i < len(args):
@@ -442,6 +464,9 @@ def main(argv: list[str] | None = None) -> int:
         elif a in ("--workspace", "-w"):
             workspace = True
             i += 1
+        elif a in BUNDLE_FLAGS:
+            bundle_flags.add(a)
+            i += 1
         else:
             break
     args = args[i:]
@@ -458,6 +483,14 @@ def main(argv: list[str] | None = None) -> int:
     if "--workspace" in args or "-w" in args:
         workspace = True
         args = [a for a in args if a not in ("--workspace", "-w")]
+    bundle_flags.update(a for a in args if a in BUNDLE_FLAGS)
+    args = [a for a in args if a not in BUNDLE_FLAGS]
+    bundle = BundleOptions(
+        bundle_mode_enabled("--bundle" in bundle_flags, "--plain" in bundle_flags),
+        no_files="--no-files" in bundle_flags,
+        no_wip="--no-wip" in bundle_flags,
+        argv=orig_args,
+    )
 
     explicit_dir: str | None = resolve_project_or_dir(project_selector) if project_selector is not None else None
     if explicit_dir is None and args and args[0] not in KNOWN_SUBCOMMANDS and not args[0].startswith("-"):
@@ -479,10 +512,15 @@ def main(argv: list[str] | None = None) -> int:
     if args and args[0] in ("overview", "--overview"):
         if len(args) > 1:
             raise SystemExit(f"{prog}: usage: {prog} overview [--full] [-w]")
-        return _overview(base_dir, explicit_dir, workspace, full)
+        return _overview(base_dir, explicit_dir, workspace, full, bundle)
     if not args:
         if full:
-            return _overview(base_dir, explicit_dir, workspace, True)
+            return _overview(base_dir, explicit_dir, workspace, True, bundle)
+        if bundle.enabled:
+            return emit_context_bundle(
+                bundle, base_dir,
+                lambda: _quest_log(prog, base_dir, explicit_dir, workspace, full, []),
+            )
         return _quest_log(prog, base_dir, explicit_dir, workspace, full, [])
     if args[0] in ("archive", "--archive", "-a"):
         pos, note = _parse_note_arg(args[1:])
@@ -581,7 +619,7 @@ def main(argv: list[str] | None = None) -> int:
     if args[0] in ("last", "--last"):
         if len(args) > 2:
             raise SystemExit(f"{prog}: usage: {prog} last [<STATUS|archive>]")
-        return cmd_last(base_dir, args[1] if len(args) == 2 else None)
+        return _last(base_dir, args[1] if len(args) == 2 else None, bundle)
     if args[0] in ("files", "--files"):
         budgets: dict[str, int | None] = {
             "--max-lines": None,
@@ -740,14 +778,14 @@ def main(argv: list[str] | None = None) -> int:
         if args[1].lower() == "last":
             if len(args) > 3:
                 raise SystemExit(show_usage)
-            return cmd_last(base_dir, args[2] if len(args) == 3 else None)
+            return _last(base_dir, args[2] if len(args) == 3 else None, bundle)
         show_refs = _collect_task_refs(args[1:])
         if show_refs is None:
             raise SystemExit(show_usage)
-        return _show_tasks(base_dir, show_refs, explicit_dir)
+        return _show_tasks(base_dir, show_refs, explicit_dir, bundle)
     bare_refs = _collect_task_refs(args)
     if bare_refs is not None:
-        return _show_tasks(base_dir, bare_refs, explicit_dir)
+        return _show_tasks(base_dir, bare_refs, explicit_dir, bundle)
     if len(args) == 1 and Path(args[0]).is_dir():
         return cmd_summary(resolve_target_dir(args[0]), full=full)
     if args[0].startswith("-") or _is_status_keyword(args[0]):

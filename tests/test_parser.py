@@ -256,7 +256,7 @@ class TestParser(TodoMdTestCase):
         (proj / "small_b.py").write_text("\n".join(f"c{i}" for i in range(4)) + "\n", encoding="utf-8")
         (proj / "wide.txt").write_text("x" * 200 + "\n", encoding="utf-8")
 
-        body = "Inspect `small_a.py`, `big.py`, `small_b.py`, and `wide.txt`."
+        body = "- Target files: `small_a.py`, `big.py`, `small_b.py`, `wide.txt`."
         self._run([str(SCRIPT), "add", "Budget test", "--next", "-b", body], cwd=str(proj), check=True)
 
         # Bare files remains uncapped

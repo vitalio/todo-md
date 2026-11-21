@@ -1,6 +1,6 @@
 # Description: Structured Markdown task management (TODO.md and TODO_ARCHIVE.md) via todo_md
-- Task management (`{cmd:todo_md}`: `TODO.md`, `TODO_ARCHIVE.md`): Always
-  inspect and modify `TODO.md` and `TODO_ARCHIVE.md` via `{cmd:todo_md}` (never
+- Task management (`todo_md`: `TODO.md`, `TODO_ARCHIVE.md`): Always
+  inspect and modify `TODO.md` and `TODO_ARCHIVE.md` via `todo_md` (never
   via `cat` or manual file edits). Repository scope only: record each task in
   the `TODO.md` of the repository it belongs to, never in an unrelated
   repository's backlog.
@@ -8,59 +8,60 @@
     ordered by status (`🔵 [WIP]` -> `🎯 [NEXT]` -> `❓ [QUESTION]` ->
     `⚪ [NEW]` -> `⏸️ [HOLD]`), and `TODO_ARCHIVE.md` keeps closed tasks
     (`✅ [DONE]`, `❌ [CANCELED]`) newest-first. `NEW` is the default backlog
-    status (rendered in compact view by `{cmd:todo_md}`), `NEXT` is promoted in
+    status (rendered in compact view by `todo_md`), `NEXT` is promoted in
     `role=plan` for prioritized ready tasks (expanded view), `WIP` is set
-    automatically when starting `role=work task=<ID>`, and `done` is run
+    automatically when `todo_md <ID>` starts a `work` or `design` task session
+    in bundle mode (`--no-wip` opts out), and `done` is run
     inside the final commit step in `role=work` (after the edit-and-diff step
     is verified clean, immediately before staging and `git commit`, never
     during the edit step) so backlog updates are committed atomically with
     code changes. Task roles are never stored in task bodies and are derived
     from the ID prefix and status: `D*` resolves to `design` in any status
     and any non-`D` prefix (`F`, `B`, or custom `A-Z`) resolves to `plan` in
-    `NEW`/`QUESTION`/`HOLD` and to `work` in `WIP`/`NEXT`; `{cmd:todo_md} check`
+    `NEW`/`QUESTION`/`HOLD` and to `work` in `WIP`/`NEXT`; `todo_md check`
     rejects `- Role:` lines in active `TODO.md` tasks (use a `D*` prefix for
-    design, or `{cmd:todo_md} next <ID>` to promote to work).
-    Promoting a task via `{cmd:todo_md} next <ID>` (or
-    `{cmd:todo_md} status <ID> NEXT`) strips an existing `- Role: plan` line so
+    design, or `todo_md next <ID>` to promote to work).
+    Promoting a task via `todo_md next <ID>` (or
+    `todo_md status <ID> NEXT`) strips an existing `- Role: plan` line so
     promoted non-`D` tasks transition to `work` automatically, and
-    `{cmd:todo_md} <ID>` always emits `Role: <role>` in its preamble for
+    `todo_md <ID>` always emits `Role: <role>` in its preamble for
     role-agnostic pipe auto-consumption
-    (`{cmd:todo_md} <ID> | agents_bundle | run_block`).
+    (`todo_md <ID> | agents_bundle | run_block`).
   - Task ID prefixes: `F` is a feature (default prefix on `add`), `B` is a
     bugfix (ranked ahead of other tasks in `chain`), and `D` is a design task
     (role `design`); any other single `A-Z` letter is a custom domain prefix
-    whose role follows the status rule above. `{cmd:todo_md} ids` prints the
+    whose role follows the status rule above. `todo_md ids` prints the
     IDs in use together with this legend. Close design tasks via
-    `{cmd:todo_md} done <ID>` once their invariants are persisted in
+    `todo_md done <ID>` once their invariants are persisted in
     `AGENTS.md` (and `docs/adr/`) and follow-up implementation tasks exist.
   - Target selection: pass `-C <dir|project>` or `--project <name>` before
-    any `{cmd:todo_md}` subcommand (`ids`, `list`, `archive`, `last`, `last-id`,
+    any `todo_md` subcommand (`ids`, `list`, `archive`, `last`, `last-id`,
     `next-id`, `files`, `check`, `add`, `edit`, `append`, `status`, `next`,
     `done`, `cancel`, `show`) to target a repository directory or discovered
     workspace project from any working directory (keep `-p` in `add` for ID
     prefix and `<project>:<ID>` strictly for task-level references; precedence:
     `-C`/`--project` > `TODO_MD_CWD` > `<project>:<ID>` > current directory).
-  - Inspect: `{cmd:todo_md} [opts] [-w]` (default Quest-Log view of the repository or workspace, see `chain` below;
-    `{cmd:todo_md} overview [--full] [-w]` or `{cmd:todo_md} --full` prints the Markdown overview or cross-project workspace
+  - Inspect: `todo_md [opts] [-w]` (default Quest-Log view of the repository or workspace, see `chain` below;
+    `todo_md overview [--full] [-w]` or `todo_md --full` prints the Markdown overview or cross-project workspace
     overview: full `WIP`/`NEXT`/`QUESTION`, or first `NEW`/`HOLD` task when none
     exist, + compact backlog; supports `<project>:<ID>` and `<project>` addressing),
-    `{cmd:todo_md} projects` (list workspace projects and open counts), `{cmd:todo_md} <ID>[,<ID>...] [<ID>...]` /
-    `{cmd:todo_md} show <ID>[,<ID>...] [<ID>...]` / `{cmd:todo_md} show last [<STATUS|archive>]` (multiple IDs, including
+    `todo_md projects` (list workspace projects and open counts), `todo_md <ID>[,<ID>...] [<ID>...]` /
+    `todo_md show <ID>[,<ID>...] [<ID>...]` / `todo_md show last [<STATUS|archive>]` (multiple IDs, including
     `<project>:<ID>`, are shown sequentially separated by a blank line; prints `Task:`, `Title:`, `Role:`,
     and `Workdir:` headers before `# TODO*.md:<line>`),
-    `{cmd:todo_md} last [<STATUS|archive>]` (default: `NEW`),
-    `{cmd:todo_md} last-id [<STATUS|archive>]` (default: `NEW`),
-    `{cmd:todo_md} list [active|archive|all|<STATUS>] [<ID>...] [--role <role>] [-r|--ready] [--limit N] [--full]`
+    `todo_md last [<STATUS|archive>]` (default: `NEW`),
+    `todo_md last-id [<STATUS|archive>]` (default: `NEW`),
+    `todo_md list [active|archive|all|<STATUS>] [<ID>...] [--role <role>] [-r|--ready] [--limit N] [--full]`
     (orders each status bucket with ready tasks first and prerequisites before dependents;
     renders blocked `WIP`/`NEXT` items as `⏳ [WIP]` / `⏳ [NEXT]` and multi-step chains as full
     ordered paths `[blocked: A (<STATUS>) -> B (<STATUS>)]`; highlights any target `<ID>...`
     and dims `DONE` rows in TTY views;
     `--ready` filters active tasks to those with no unresolved dependencies),
-    `{cmd:todo_md} archive`, `{cmd:todo_md} ids`,
-    `{cmd:todo_md} queue <ID> [--all]` (alias for `{cmd:todo_md} chain <ID> [--all]`: focused Quest-Log of the chain containing `<ID>`;
+    `todo_md archive`, `todo_md ids`,
+    `todo_md queue <ID> [--all]` (alias for `todo_md chain <ID> [--all]`: focused Quest-Log of the chain containing `<ID>`;
     hides `DONE` unless `--all` is passed; prints `[ready]` / `[blocked by: ...]`
     and `Next actionable: <ref>`),
-    `{cmd:todo_md} chain [<ID>...] [--all] [--by-role] [--role <role>] [--ready] [-l N|--limit N] [--include-hold] [--tree] [--numbered[=left|right]] [--status <STATUS>] [-f <ID>...|--filter <ID>...] [-H|--highlight [<ID>...]] [-s <QUERY>|--search <QUERY>]`
+    `todo_md chain [<ID>...] [--all] [--by-role] [--role <role>] [--ready] [-l N|--limit N] [--include-hold] [--tree] [--numbered[=left|right]] [--status <STATUS>] [-f <ID>...|--filter <ID>...] [-H|--highlight [<ID>...]] [-s <QUERY>|--search <QUERY>]`
     (local, `.todo_projects` orchestrator, or `-w` workspace root-anchored RPG progress chains
     `Chain <N> -> <root_ref>: <root_title> [<pct>% | done: <D>, open: <O>]:` (or `[open: <O>]:` when `done == 0`),
     ranking ready `work` chain finales (`[ready | FINAL]`) first as top `Chain 1..K` entries
@@ -92,7 +93,7 @@
     blockers; `--filter` / `-f <ID>...` (and positional `<ID>...` under `chain`) filters by task IDs
     (bare `<ID>` matches across all projects in the active view, while `<project>:<ID>` matches only that
     project), scopes output to chains/tasks containing `<ID>...`, highlights them, and prints
-    `Next actionable: <ref>` for a single ID; `--search` / `-s <QUERY>` (or `{cmd:todo_md} search <QUERY>`)
+    `Next actionable: <ref>` for a single ID; `--search` / `-s <QUERY>` (or `todo_md search <QUERY>`)
     searches task IDs (`<ID>` and `<project>:<ID>`), titles, and bodies across all projects in the active
     view (including `.todo_projects` child projects; `TODO.md` only unless `--all` or an archive status is
     set) and focuses the Quest-Log on matches, or prints full sections with `--full`; `--highlight` / `-H`
@@ -100,23 +101,23 @@
     highlighted (and accepts `-H <ID>...` as shorthand for `-f <ID>... -H`); `--all` includes both active
     `TODO.md` and archived `TODO_ARCHIVE.md` tasks across Quest-Log, `-s`, and `-f`; status filters work as
     `--status <STATUS>` or a bare `WIP|NEXT|QUESTION|NEW|HOLD|ACTIVE|ALL` keyword (`DONE|CANCELED|archive`
-    render the list view) on `{cmd:todo_md} [opts]` and `{cmd:todo_md} chain [opts]`),
-    `{cmd:todo_md} next-id [<ID>] [--role <role>]` (`--top`, top ready `WIP`/`NEXT`
+    render the list view) on `todo_md [opts]` and `todo_md chain [opts]`),
+    `todo_md next-id [<ID>] [--role <role>]` (`--top`, top ready `WIP`/`NEXT`
     ID matching optional `--role`, or with `<ID>`/`<project>:<ID>` prints the
     first unblocked actionable ID in `<ID>`'s queue, exiting non-zero on cycles,
     missing/canceled blockers, or closed targets),
-    `{cmd:todo_md} files [<ID>] [--max-lines N] [--max-total-lines N] [--max-bytes N] [--max-total-bytes N]`
-    (existing backtick-referenced repo files, glob patterns such as `src/*.py`,
-    and `path:start-end` line slices within optional size budgets, evaluated
-    against the sliced lines only; reference target file paths and
-    key symbol names in backticks in task bodies, and when promoting a task to
-    `NEXT` for `role=work`, record `path:start-end` line ranges for large files
-    whose sections were already inspected)
-  - Create: `{cmd:todo_md} add [<PROJECT>] [<PREFIX>] "<title>" [-p <PREFIX>] [--next] [--status WIP|NEXT|NEW|HOLD|QUESTION] [-m "<note>"] [-b "<body_md>"|-] [--depends <spec>] [-c|--commit]`
+    `todo_md files [<ID>] [--max-lines N] [--max-total-lines N] [--max-bytes N] [--max-total-bytes N]`
+    (files listed on the `- Target files:` bullet of the task: backticked
+    paths, glob patterns such as `src/*.py`, symbol slices `path:symbol` and
+    `path:sym1..sym2` resolved to current `path:start-end` ranges at run time,
+    and `path:start-end` line slices, merged per file and printed within
+    optional size budgets evaluated against the sliced lines only; backticked
+    mentions elsewhere in the task body are ignored)
+  - Create: `todo_md add [<PROJECT>] [<PREFIX>] "<title>" [-p <PREFIX>] [--next] [--status WIP|NEXT|NEW|HOLD|QUESTION] [-m "<note>"] [-b "<body_md>"|-] [--depends <spec>] [-c|--commit]`
     (auto-assigns `<ID>`, default prefix `F`; pass body via `-b`, `-b -` for `stdin`, or piped `stdin`;
-    `{cmd:todo_md} init "<idea>"` bootstraps a new `TODO.md`)
-  - Update: `{cmd:todo_md} edit <ID> [-t "<title>"] [-m "<note>"] [-b "<body_md>"|-] [--depends <spec>] [-c|--commit]`,
-    `{cmd:todo_md} append <ID> [-b "<text>"|-] [-c|--commit]`
+    `todo_md init "<idea>"` bootstraps a new `TODO.md`)
+  - Update: `todo_md edit <ID> [-t "<title>"] [-m "<note>"] [-b "<body_md>"|-] [--depends <spec>] [-c|--commit]`,
+    `todo_md append <ID> [-b "<text>"|-] [-c|--commit]`
   - Dependencies (`--depends` and `- Depends on:`): use `,` for parallel items
     within a stage (`A,B`) and `->` for sequential stages (`"A -> B -> C"`,
     with `,` binding tighter than `->` as in `"A, B -> C"`); repeat
@@ -127,17 +128,17 @@
     child tasks in `queue`, `next-id <ID>`, `list`, and `show`)
   - Chain integration (both directions): whenever adding or refining a task,
     check existing open chains upstream (`--depends` on the new task) and
-    downstream (`{cmd:todo_md} edit <ID> --depends ...` on existing open tasks,
+    downstream (`todo_md edit <ID> --depends ...` on existing open tasks,
     doc/help alignment tasks, or orchestrator waves that touch the same files
     or build on the new capability) so new tasks are wired into chains rather
     than left as unintended standalone tasks
-  - Transition: `{cmd:todo_md} status <ID> <WIP|NEXT|NEW|HOLD|QUESTION> [-m "<note>"] [--reopen] [-c|--commit]`,
-    `{cmd:todo_md} next <ID> [-m "<note>"] [--reopen] [-c|--commit]` (promote to `🎯 [NEXT]` and strip `- Role: plan`),
-    `{cmd:todo_md} reopen <ID> [--status <STATUS>] [-m "<note>"] [-c|--commit]` (reopen archived task to `TODO.md`, default `NEW`; transitions from `TODO_ARCHIVE.md` without `--reopen` or `reopen` are rejected)
-  - Close (prepends to `TODO_ARCHIVE.md`): `{cmd:todo_md} done <ID> [-m "<note>"] [-c|--commit]`
+  - Transition: `todo_md status <ID> <WIP|NEXT|NEW|HOLD|QUESTION> [-m "<note>"] [--reopen] [-c|--commit]`,
+    `todo_md next <ID> [-m "<note>"] [--reopen] [-c|--commit]` (promote to `🎯 [NEXT]` and strip `- Role: plan`),
+    `todo_md reopen <ID> [--status <STATUS>] [-m "<note>"] [-c|--commit]` (reopen archived task to `TODO.md`, default `NEW`; transitions from `TODO_ARCHIVE.md` without `--reopen` or `reopen` are rejected)
+  - Close (prepends to `TODO_ARCHIVE.md`): `todo_md done <ID> [-m "<note>"] [-c|--commit]`
     (prints `Unblocked: ...` when closing `<ID>` completes all prerequisites for
     open tasks in the current repo or workspace orchestrator),
-    `{cmd:todo_md} cancel <ID> [-m "<reason>"] [-c|--commit]`
+    `todo_md cancel <ID> [-m "<reason>"] [-c|--commit]`
   - Upstream sync: when the repository has a configured git upstream,
     mutating commands (`init`, `add`, `edit`, `append`, `status`, `next`,
     `reopen`, `done`, `cancel`) first run `git pull --ff-only --quiet` so task
@@ -147,19 +148,30 @@
     `TODO*.md` have uncommitted changes, and aborts with an error when the
     branch has diverged or the pull fails.
   - Validation & commits: mutating commands automatically validate and reorder
-    `TODO.md` without git-committing by default (run `{cmd:todo_md} check` to
+    `TODO.md` without git-committing by default (run `todo_md check` to
     validate manually; rejects stale completion date notes `— *YYYY-MM-DD...*`
     on active tasks in `TODO.md` so they are moved back to `TODO_ARCHIVE.md`
     or cleared):
     - `role=work`: do not pass `-c` / `--commit`; stage `TODO.md` and
       `TODO_ARCHIVE.md` into the final code commit so `done` is atomic with
-      implementation. Record out-of-scope findings via `{cmd:todo_md} add` as
+      implementation. Record out-of-scope findings via `todo_md add` as
       problem/impact descriptions in default `NEW` status without `--depends`;
       they are staged into the final code commit, or committed immediately
       with `-c` / `--commit` when recorded after the code commit is already
       pushed or when no code commit follows.
-    - `role=plan`, `role=design`, and `role=review`: batch `{cmd:todo_md}`
+    - `role=plan`, `role=design`, and `role=review`: batch `todo_md`
       mutations without `-c` and commit `TODO*.md` in a single commit once
       backlog updates are finished (via `-c` / `--commit` on the final
-      `{cmd:todo_md}` command or `git add TODO*.md && git commit`) before
+      `todo_md` command or `git add TODO*.md && git commit`) before
       starting `role=work`.
+  - Target files contract: record the files a task touches on one explicit
+    `- Target files:` bullet (backticked, excluding `TODO*.md` and
+    `AGENTS.md`): plain paths for files up to 400 lines, and for larger files
+    `path:symbol`, `path:sym1..sym2`, or `path:start-end` slices inspected
+    during planning (prefer symbols: they never drift when other tasks edit
+    the file). Record the bullet when promoting a task to `NEXT`.
+  - Session start: `todo_md <ID>` in bundle mode (`--bundle`, or stdout piped
+    into `agents_bundle`) moves a `work` or `design` task that is `NEXT` (or
+    `D*` in `NEW`) to `WIP` automatically unless `--no-wip` is passed, and
+    preloads the target files unless `--no-files` is passed. Run
+    `todo_md done <ID>` inside the final commit step.

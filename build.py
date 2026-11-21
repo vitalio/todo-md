@@ -16,11 +16,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 SRC_DIR = ROOT / "src"
 OUT_FILE = ROOT / "todo_md"
+RULE_FILE = ROOT / "agents" / "todo_md.md"
 
 MODULE_ORDER = [
     "header.py",
     "parser.py",
     "commands.py",
+    "bundle.py",
     "cli.py",
 ]
 
@@ -33,6 +35,11 @@ def assemble_source() -> str:
         txt = mod_path.read_text(encoding="utf-8").rstrip()
         if item == "header.py":
             txt = txt.replace('VERSION = "__VERSION__"', f'VERSION = "{ver}"')
+            placeholder = 'EMBEDDED_RULE_TODO_MD = "__EMBEDDED_RULE_TODO_MD__"'
+            if txt.count(placeholder) != 1:
+                raise SystemExit("build.py: EMBEDDED_RULE_TODO_MD placeholder missing in src/header.py")
+            rule_text = RULE_FILE.read_text(encoding="utf-8")
+            txt = txt.replace(placeholder, f"EMBEDDED_RULE_TODO_MD = {rule_text!r}")
         chunks.append(txt)
     source = "\n\n\n".join(chunks) + "\n"
     ast.parse(source)

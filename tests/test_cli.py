@@ -33,24 +33,15 @@ class TestCli(TodoMdTestCase):
         self.assertEqual(rv.stdout.strip(), f"todo_md {ver}")
 
         self.assertNotIn("--agents", rh.stdout)
-        rule_txt = (ROOT / "src/rules/todo_md.md").read_text(encoding="utf-8")
+        rule_txt = (ROOT / "agents/todo_md.md").read_text(encoding="utf-8")
         self.assertIn("Repository scope only", rule_txt)
         self.assertIn("🎯 [NEXT]", rule_txt)
         self.assertIn("TODO_ARCHIVE.md", rule_txt)
         self.assertIn("reopen <ID>", rule_txt)
         self.assertIn("--reopen", rule_txt)
-        bundle_txt = (ROOT / "src/bundles/todo_md.bundle").read_text(encoding="utf-8")
-        self.assertIn("rule vitalio/todo_md:todo_md", bundle_txt)
-        self.assertNotIn("task=next", bundle_txt)
-        self.assertIn("$ todo_md status {task:} WIP", bundle_txt)
-        self.assertIn("todo_md next-id", bundle_txt)
-        self.assertIn("[if task=] var task=$(todo_md next-id --role work)", bundle_txt)
-        self.assertIn("Emit your first run_block in this very first reply", bundle_txt)
-        self.assertIn("propose the top task shown in the todo_md overview above", bundle_txt)
-        self.assertIn("include $(todo_md files {task:} --max-lines 400 --max-total-lines 1200 --max-bytes 32768)", bundle_txt)
-        self.assertIn("key symbol names (functions/classes) in backticks", bundle_txt)
         self.assertIn("--max-total-bytes N", rule_txt)
-        self.assertIn("key symbol names in backticks", rule_txt)
+        self.assertIn("- Target files:", rule_txt)
+        self.assertNotIn("Mode: ", rule_txt)
         self.assertIn("-C <dir|project>` or `--project <name>`", rule_txt)
         self.assertIn("list [active|archive|all|<STATUS>] [<ID>...] [--role <role>] [-r|--ready] [--limit N] [--full]", rule_txt)
         self.assertIn("⏳ [WIP]` / `⏳ [NEXT]", rule_txt)
@@ -59,7 +50,6 @@ class TestCli(TodoMdTestCase):
         self.assertIn("-r, --ready", rh.stdout)
         self.assertIn("`--ready` / `-r`", rule_txt)
         self.assertIn("Chain integration (both directions)", rule_txt)
-        self.assertIn("wire every new or refined task into open chains in both directions", bundle_txt)
         self.assertNotIn("queue <ID>", rh.stdout)
         self.assertNotIn("Alias for chain", rh.stdout)
         self.assertIn("chain [<ID>...] [opts]", rh.stdout)
@@ -83,19 +73,11 @@ class TestCli(TodoMdTestCase):
             "chain [<ID>...] [--all] [--by-role] [--role <role>] [--ready] [-l N|--limit N] [--include-hold] [--tree] [--numbered[=left|right]]",
             rule_txt,
         )
-        self.assertIn("alias for `{cmd:todo_md} chain <ID> [--all]`", rule_txt)
+        self.assertIn("alias for `todo_md chain <ID> [--all]`", rule_txt)
         self.assertIn("4-char connectors", rule_txt)
-        self.assertIn("Decompose or compose (consolidate) work", bundle_txt)
         self.assertIn("next-id [<ID>] [--role <role>]", rule_txt)
         self.assertIn("A -> B -> C", rule_txt)
         self.assertIn("do not introduce a separate `- Order:` field", rule_txt)
-        self.assertIn("[if task=last] var task=$(todo_md last-id DONE)", bundle_txt)
-        self.assertIn("[if task=DONE] var task=$(todo_md last-id DONE)", bundle_txt)
-        self.assertIn("[if role=work]", bundle_txt)
-        self.assertIn("[if role=review]", bundle_txt)
-        self.assertEqual(bundle_txt.count("[if piped!=1] $ todo_md {task:}"), 4)
-        self.assertNotIn("role=execute", bundle_txt)
-        self.assertNotIn("role=audit", bundle_txt)
         self.assertIn("role=work", rule_txt)
         self.assertIn("role=review", rule_txt)
         self.assertIn("strips an existing `- Role: plan` line", rule_txt)
@@ -108,10 +90,6 @@ class TestCli(TodoMdTestCase):
         self.assertIn("rejects `- Role:` lines in active `TODO.md` tasks", rule_txt)
         self.assertIn("inside the final commit step", rule_txt)
         self.assertNotIn("--role <role>] [--depends <spec>]", rule_txt)
-        self.assertIn("close the design task (D*) via todo_md done <ID>", bundle_txt)
-        self.assertIn("do not spawn a new session unless the user explicitly requests it", bundle_txt)
-        self.assertNotIn("initialize a new session bundle via todo_md <ID>", bundle_txt)
-        self.assertIn("run todo_md done {task:} inside the final commit step", bundle_txt)
         self.assertNotIn("role=audit", rule_txt)
 
     def _assert_help_aligned(self, text: str) -> None:
@@ -224,7 +202,7 @@ class TestCli(TodoMdTestCase):
 
         # -C <dir> and --project <name> across mutating and read-only subcommands from outside
         self._run(
-            [str(SCRIPT), "-C", str(proj_a), "add", "-p", "B", "Bug from -C", "-b", "See `mod.py`."],
+            [str(SCRIPT), "-C", str(proj_a), "add", "-p", "B", "Bug from -C", "-b", "- Target files: `mod.py`."],
             cwd=str(outside),
             check=True,
         )

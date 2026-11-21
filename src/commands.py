@@ -1057,47 +1057,212 @@ def _expand_task_glob(repo_root: Path, pattern: str) -> list[str]:
     return out
 
 
-def extract_task_files(base_dir: Path, section_text: str) -> list[str]:
-    repo_root = base_dir.resolve()
-    found: list[str] = []
-    seen: set[str] = set()
-
-    def add(spec: str) -> None:
-        if spec not in seen:
-            seen.add(spec)
-            found.append(spec)
-
+def _target_file_tokens(section_text: str) -> list[str]:
+    tokens: list[str] = []
     in_fence = False
+    in_target = False
     for line in section_text.splitlines():
         if line.lstrip().startswith(FENCE):
             in_fence = not in_fence
+            in_target = False
             continue
         if in_fence:
             continue
-        for raw in BACKTICK_TOKEN_RE.findall(line):
-            cand = raw.strip()
-            if not cand or any(ch.isspace() for ch in cand) or "://" in cand:
+        if TARGET_FILES_LINE_RE.match(line):
+            in_target = True
+        elif not (in_target and line[:1].isspace() and line.strip() and not BULLET_LINE_RE.match(line)):
+            in_target = False
+        if in_target:
+            tokens.extend(BACKTICK_TOKEN_RE.findall(line))
+    return tokens
+
+
+def _line_indent(line: str) -> int:
+    return len(line) - len(line.lstrip())
+
+
+def _symbol_span_end(lines: list[str], start: int, indent: int) -> int:
+    end = start
+    for idx in range(start + 1, len(lines)):
+        line = lines[idx]
+        if not line.strip():
+            continue
+        if _line_indent(line) <= indent and not line.lstrip().startswith((")", "]", "}")):
+            break
+        end = idx
+    return end
+
+
+def _find_symbol_span(lines: list[str], name: str, lo: int, hi: int) -> tuple[int, int] | None:
+    esc = re.escape(name)
+    patterns = (
+        re.compile(rf"^(\s*)(?:async\s+def|def|class)\s+{esc}\b"),
+        re.compile(rf"^(\s*){esc}\s*(?::[^=\n]+)?=(?!=)"),
+    )
+    for pat in patterns:
+        best: tuple[int, int] | None = None
+        for idx in range(lo, hi + 1):
+            m = pat.match(lines[idx])
+            if m and (best is None or len(m.group(1)) < best[0]):
+                best = (len(m.group(1)), idx)
+        if best is None:
+            continue
+        indent, idx = best
+        start = idx
+        while (
+            start > lo
+            and lines[start - 1].lstrip().startswith("@")
+            and _line_indent(lines[start - 1]) == indent
+        ):
+            start -= 1
+        return start, min(_symbol_span_end(lines, idx, indent), hi)
+    return None
+
+
+def _resolve_symbol(lines: list[str], dotted: str) -> tuple[int, int] | None:
+    lo, hi = 0, len(lines) - 1
+    span: tuple[int, int] | None = None
+    for part in dotted.split("."):
+        if lo > hi:
+            return None
+        span = _find_symbol_span(lines, part, lo, hi)
+        if span is None:
+            return None
+        lo, hi = span
+    return span
+
+
+def _resolve_symbol_range(lines: list[str], first: str, last: str | None) -> tuple[int, int] | None:
+    a = _resolve_symbol(lines, first)
+    if a is None:
+        return None
+    if last is None:
+        return a[0] + 1, a[1] + 1
+    b = _resolve_symbol(lines, last)
+    if b is None or b[1] < a[0]:
+        return None
+    return a[0] + 1, b[1] + 1
+
+
+def _normalize_file_entries(entries: list[tuple[str, tuple[int, int] | None]]) -> list[str]:
+    order: list[str] = []
+    whole: set[str] = set()
+    spans: dict[str, list[tuple[int, int]]] = {}
+    for rel, span in entries:
+        if rel not in spans:
+            order.append(rel)
+            spans[rel] = []
+        if span is None:
+            whole.add(rel)
+        else:
+            spans[rel].append(span)
+    out: list[str] = []
+    for rel in order:
+        if rel in whole:
+            out.append(rel)
+            continue
+        merged: list[tuple[int, int]] = []
+        for s, e in sorted(spans[rel]):
+            if merged and s <= merged[-1][1]:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], e))
+            else:
+                merged.append((s, e))
+        out.extend(f"{rel}:{s}-{e}" for s, e in merged)
+    return out
+
+
+def extract_task_files(base_dir: Path, section_text: str) -> list[str]:
+    repo_root = base_dir.resolve()
+    entries: list[tuple[str, tuple[int, int] | None]] = []
+    cache: dict[str, list[str]] = {}
+
+    def file_lines(rel: str) -> list[str]:
+        if rel not in cache:
+            data = (repo_root / rel).read_bytes()
+            cache[rel] = [ln.decode("utf-8", "replace") for ln in data.splitlines()]
+        return cache[rel]
+
+    for raw in _target_file_tokens(section_text):
+        cand = raw.strip()
+        if not cand or any(ch.isspace() for ch in cand) or "://" in cand:
+            continue
+        if cand.startswith("-") or any(ch in cand for ch in "<>{}"):
+            continue
+        path_part, span = split_line_slice(cand)
+        sym = SYMBOL_SPEC_RE.match(cand) if span is None else None
+        if sym is not None:
+            rel_sym = _resolve_repo_file(repo_root, sym.group("path"))
+            if rel_sym is None:
                 continue
-            if cand.startswith("-") or any(ch in cand for ch in "<>{}"):
+            sym_span = _resolve_symbol_range(file_lines(rel_sym), sym.group("first"), sym.group("last"))
+            if sym_span is None:
+                sys.stderr.write(f"{prog_name()}: warning: symbol slice {cand!r} not found in {rel_sym}\n")
                 continue
-            path_part, span = split_line_slice(cand)
-            if span is not None and (span[0] < 1 or span[1] < span[0]):
-                continue
-            if any(ch in path_part for ch in "*?["):
-                if span is None:
-                    for rel_glob in _expand_task_glob(repo_root, path_part):
-                        add(rel_glob)
-                continue
-            rel = _resolve_repo_file(repo_root, path_part)
-            if rel is None:
-                continue
-            if span is not None:
-                n_total = len((repo_root / rel).read_bytes().splitlines())
-                if span[0] > n_total:
+            entries.append((rel_sym, sym_span))
+            continue
+        if span is not None and (span[0] < 1 or span[1] < span[0]):
+            continue
+        if any(ch in path_part for ch in "*?["):
+            if span is None:
+                entries.extend((g, None) for g in _expand_task_glob(repo_root, path_part))
+            continue
+        rel = _resolve_repo_file(repo_root, path_part)
+        if rel is None:
+            continue
+        if span is None:
+            entries.append((rel, None))
+            continue
+        n_total = len(file_lines(rel))
+        if span[0] > n_total:
+            continue
+        entries.append((rel, (span[0], min(span[1], n_total))))
+    return _normalize_file_entries(entries)
+
+
+def select_task_files(
+    base_dir: Path,
+    task_id: str | None = None,
+    max_lines: int | None = None,
+    max_total_lines: int | None = None,
+    max_bytes: int | None = None,
+    max_total_bytes: int | None = None,
+) -> list[str] | None:
+    target = task_id.strip().upper() if task_id else resolve_top_task_id(base_dir)
+    if not target:
+        sys.stderr.write(f"{prog_name()}: no active WIP or NEXT task found in TODO.md under {base_dir}\n")
+        return None
+    has_budget = any(
+        cap is not None for cap in (max_lines, max_total_lines, max_bytes, max_total_bytes)
+    )
+    repo_root = base_dir.resolve()
+    total_lines = 0
+    total_bytes = 0
+    for t in collect_all_tasks(base_dir):
+        if str(t["id"]).upper() != target:
+            continue
+        selected: list[str] = []
+        for spec in extract_task_files(base_dir, str(t["section"])):
+            if has_budget:
+                rel_path, span = split_file_spec(spec)
+                chunks = (repo_root / rel_path).read_bytes().splitlines(keepends=True)
+                if span is not None:
+                    chunks = chunks[span[0] - 1 : span[1]]
+                n_bytes = sum(len(c) for c in chunks)
+                n_lines = len(chunks)
+                if max_bytes is not None and n_bytes > max_bytes:
                     continue
-                rel = f"{rel}:{span[0]}-{min(span[1], n_total)}"
-            add(rel)
-    return found
+                if max_total_bytes is not None and total_bytes + n_bytes > max_total_bytes:
+                    continue
+                if max_lines is not None and n_lines > max_lines:
+                    continue
+                if max_total_lines is not None and total_lines + n_lines > max_total_lines:
+                    continue
+                total_bytes += n_bytes
+                total_lines += n_lines
+            selected.append(spec)
+        return selected
+    sys.stderr.write(f"{prog_name()}: task {target!r} not found in TODO*.md under {base_dir}\n")
+    return None
 
 
 def cmd_files(
@@ -1108,40 +1273,12 @@ def cmd_files(
     max_bytes: int | None = None,
     max_total_bytes: int | None = None,
 ) -> int:
-    target = task_id.strip().upper() if task_id else resolve_top_task_id(base_dir)
-    if not target:
-        sys.stderr.write(f"{prog_name()}: no active WIP or NEXT task found in TODO.md under {base_dir}\n")
+    specs = select_task_files(base_dir, task_id, max_lines, max_total_lines, max_bytes, max_total_bytes)
+    if specs is None:
         return 1
-    has_budget = any(
-        cap is not None for cap in (max_lines, max_total_lines, max_bytes, max_total_bytes)
-    )
-    repo_root = base_dir.resolve()
-    total_lines = 0
-    total_bytes = 0
-    for t in collect_all_tasks(base_dir):
-        if str(t["id"]).upper() == target:
-            for spec in extract_task_files(base_dir, str(t["section"])):
-                if has_budget:
-                    rel_path, span = split_file_spec(spec)
-                    chunks = (repo_root / rel_path).read_bytes().splitlines(keepends=True)
-                    if span is not None:
-                        chunks = chunks[span[0] - 1 : span[1]]
-                    n_bytes = sum(len(c) for c in chunks)
-                    n_lines = len(chunks)
-                    if max_bytes is not None and n_bytes > max_bytes:
-                        continue
-                    if max_total_bytes is not None and total_bytes + n_bytes > max_total_bytes:
-                        continue
-                    if max_lines is not None and n_lines > max_lines:
-                        continue
-                    if max_total_lines is not None and total_lines + n_lines > max_total_lines:
-                        continue
-                    total_bytes += n_bytes
-                    total_lines += n_lines
-                sys.stdout.write(f"{spec}\n")
-            return 0
-    sys.stderr.write(f"{prog_name()}: task {target!r} not found in TODO*.md under {base_dir}\n")
-    return 1
+    for spec in specs:
+        sys.stdout.write(f"{spec}\n")
+    return 0
 
 
 def cmd_chain(
