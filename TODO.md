@@ -1,3 +1,15 @@
+# 🎯 [NEXT] F60: Render work chain finales as top-ranked Chain <N> entries and keep done: <D> exclusively on chain headers
+
+- Depends on: F59
+- In `_prepare_active_plan()` and `plan_execution_chains()` (`src/parser.py`):
+  - Include `finale_set` roots in `root_nodes` and `root_cones` so single-remaining-task `work` finales render as regular `Chain <N> -> <root_ref>: <root_title> [<pct>% | done: <D>, open: 1]:` entries (naturally receiving `chain_counts[u] == 1` and expanding completed `DONE` prerequisites under the chain header when `--all` is passed) instead of a separate `Chain finales:` section.
+  - Prioritize ready `work` chain finales (`root in finale_set and len(comp_open) == 1`) at the top of chain `rank_key` in `_build_chain_entry()` (ordered among work finales by bug priority `B*`, task status `ACTIVE_STATUS_ORDER`, `-done_count`, `order_idx`, and `canon_ref`) so ready `work` finales always appear first as `Chain 1..K`.
+  - Keep `finale_set` and `is_fin = 0` in `_node_rank()` so `-r` / `--ready` and `--by-role` continue to rank ready `work` finales first within their status tier while still ranking nodes internally by `-done_counts.get(u, 0)`.
+- In `cmd_chain()` and `_format_row()` (`src/commands.py`):
+  - Remove the standalone `Chain finales:` rendering section and `finales` list handling.
+  - Omit `done: <D>` from per-task `kv_stats` in both default and `-r` / `--ready` views so `done: <D>` remains exclusively a chain/sub-chain header stat (`[<pct>% | done: <D>, open: <O>]:`), leaving task row tags with perks and task-level stats only (`[ready | FINAL]`, `[ready | FINAL | COMBO]`, `[ready | STAGE | unblocks: <K>]`, `[FINAL | chain: <N>]`, `[STAGE | chain: <N>, ready: +<M>, unblocks: <K>]`).
+- Update `src/header.py`, `src/rules/todo_md.md`, `README.md`, and unit tests in `tests/test_chain.py`, rebuild `./todo_md` via `build.py`, and bump `VERSION`.
+
 # 🎯 [NEXT] F57: Support glob path patterns and line-range slices (path:start-end) in todo_md files (extract_task_files and cmd_files)
 
 - In `extract_task_files()` (`src/commands.py:1005-1095`), support both glob patterns and line-range suffixes on backticked repository file references:
@@ -68,6 +80,6 @@ Allow exporting parsed tasks as JSON for scripting.
 
 # ⚪ [NEW] D5: Design cohesive Quest-Log ANSI color palette and typography for RPG perks (FINAL, STAGE, COMBO), stats, roles, and statuses
 
-- Depends on: F59
+- Depends on: F59 -> F60
 - Inspect `_style_task_row()` (`src/commands.py:1170-1340`) and design a composable ANSI styling scheme for TTY output (`use_color=True`) covering uppercase RPG perks (`FINAL`, `STAGE`, `COMBO`), numeric stats (`chain: N, done: D, ready: +M, unblocks: K` and chain header `[<pct>% | done: D, open: O]`), role badges (`[work]`, `[plan]`, `[design]`), and status badges.
 - Render live ANSI terminal previews comparing candidate color/bold palettes and verify how token-level styling composes with existing row-level styles (`DONE` dimming, external-project dimming, and `-H` / `--highlight` emphasis) without disturbing `_wrap_table_row()` display-width calculations.
