@@ -1,3 +1,10 @@
+# 🎯 [NEXT] B2: Include inbound .todo_projects orchestrator dependencies in build_dependency_dag (Next actionable, next-id, list, and show)
+
+- Fix `build_dependency_dag()` in `src/parser.py:433-645` so that when resolving dependencies for a task in a child project managed by one or more `.todo_projects` orchestrators (discovered via `discover_orchestrators_for_project()` in `src/parser.py:2029-2290`), inbound cross-project prerequisite edges declared in orchestrator `TODO.md` files (such as `todo_flow:D4 -> todo_md:D6` inside `todo_flow:D2`) are merged into the task's dependency DAG just as `build_execution_chain_dag()` does.
+- Ensure `todo_md chain -f <ID>` / `todo_md queue <ID>` (`Next actionable:` in `cmd_chain()` in `src/commands.py:1380-1560`), `todo_md next-id <ID>` (`cmd_next_id()` in `src/commands.py:944-1010`), `_task_dependency_info()` (`cmd_list()` in `src/parser.py:641-792`), and `format_dependency_summary()` (`cmd_show()` in `src/parser.py:641-792`) all report consistent orchestrator-aware blockers and the true first unblocked actionable prerequisite (e.g., `todo_flow:D6` instead of blocked `todo_md:D6`).
+- Add regression tests in `tests/test_chain.py:1750-2087` and `tests/test_deps.py:1-260` covering `Next actionable:`, `next-id <ID>`, `list`, and `show` for child tasks blocked exclusively via an orchestrator's sequential `- Depends on: <orch_task> -> <child>:<ID>` clause.
+- Target files: `src/parser.py:433-645`, `src/parser.py:641-792`, `src/parser.py:2029-2290`, `src/commands.py:944-1010`, `src/commands.py:1380-1560`, `tests/test_deps.py:1-260`, `tests/test_chain.py:1750-2087`, `AGENTS.md`.
+
 # 🎯 [NEXT] D3: Design explicit HOLD task review workflow and reverse dependency visibility
 
 - Specify how `HOLD` tasks expose downstream blocked dependents (`Blocks: ...` in `show` / `list HOLD`, including cross-project references under `-w`) so reviewers see what unblocks when a `HOLD` condition is met.
@@ -16,6 +23,31 @@
 - Target files for downstream implementation: `src/cli.py`, `src/parser.py`, `src/commands.py`, `src/header.py`, `src/rules/todo_md.md`, `README.md`, `tests/test_cli.py`, `tests/test_parser.py`, `tests/test_commands.py`.
 
 - Shortlist/chain export workflow: evaluate supporting an exported or agent-generated shortlist Markdown file (e.g. a custom prioritized sequence or `chain` snapshot) that users can inspect, filter, and step through with `todo_md -F <path>` while resolving `<project>:<ID>` references against `TODO_MD_WORKSPACE`.
+
+# 🎯 [NEXT] F62: Decompose monolithic src/parser.py and src/commands.py into focused domain modules
+
+- Depends on: B2, B3, F57
+- Refactor `src/parser.py` (3,600+ lines) and `src/commands.py` (1,800+ lines) into cohesive domain modules (~300-800 lines each) with clean layer boundaries:
+  - `src/header.py` (`1-353`): imports, constants, regular expressions, `prog_name()`, and `usage_text()`.
+  - `src/workspace.py` (from `src/parser.py:1-299` and `src/parser.py:1833-2139`): project and workspace root resolution (`is_todo_project()`, `resolve_target_dir()`, `resolve_workspace_root()`, `discover_projects()`, `project_label()`, `lookup_external_alias()`, `resolve_project_dir()`, `resolve_project_or_dir()`, `resolve_project_task_ref()`, `resolve_filter_task_ref()`, `.todo_projects` and nested orchestrator discovery `read_configured_todo_projects()`, `is_orchestrator_project()`, `discover_orchestrators_for_project()`, `resolve_workspace_chain_projects()`).
+  - `src/parser.py` (from `src/parser.py:300-432`, `730-1043`, `1511-1629`, and `src/commands.py:1011-1102`): Markdown section parsing (`parse_tasks_in_text()`, `collect_all_tasks()`), dependency clause syntax parsing (`parse_depends_clause()`, `parse_dependency_clauses()`), role resolution (`resolve_task_role()`), file extraction (`split_line_slice()`, `split_file_spec()`, `extract_task_files()`), ID tracking (`highest_ids_in_use()`, `next_free_id()`), search (`search_tasks()`), and file validation (`validate_all()`).
+  - `src/dag.py` (from `src/parser.py:433-729` and `src/parser.py:2140-3626`): unified dependency DAG construction and chain planning/ranking (`build_dependency_dag()`, `_first_actionable_in_dag()`, `_task_dependency_info()`, `build_execution_chain_dag()`, `compute_unblock_counts()`, `build_chain_milestone_tree()`, `plan_execution_chains()`, `plan_execution_chains_by_role()`, `find_newly_unblocked_tasks()`).
+  - `src/render.py` (from `src/parser.py:749-792`, `921-1510`, `1630-1832`, and `src/commands.py:294-302`, `1147-1839`): terminal display width, ANSI styling, table wrapping (`_display_width()`, `_style_task_row()`, `_wrap_table_row()`), and read-only view renderers (`format_dependency_summary()`, `cmd_chain()`, `cmd_list()`, `cmd_show()`, `cmd_summary()`, `cmd_ids()`, `cmd_last()`, `cmd_last_id()`, `cmd_archive_view()`, `cmd_projects()`, `cmd_workspace_summary()`, `cmd_workspace_list()`, `cmd_workspace_check()`).
+  - `src/commands.py` (from `src/commands.py:1-293`, `303-1010`, `1103-1146`): backlog file sorting, Git auto-commit helpers, and mutating/query CLI commands (`cmd_check()`, `cmd_init()`, `cmd_add()`, `cmd_edit()`, `cmd_append()`, `cmd_transition()`, `cmd_reopen()`, `resolve_top_task_id()`, `cmd_next_id()`, `cmd_files()`).
+  - `src/cli.py` (`src/cli.py:1-399` and `src/cli.py:399-759`): self-update commands (`cmd_check_update()`, `cmd_update()`), CLI argument parsing (`_parse_quest_log_args()`), and `main()`.
+- Update `MODULE_ORDER` in `build.py`, regenerate standalone `./todo_md`, align `AGENTS.md` module descriptions, and verify all unit tests in `tests/test_*.py` pass without behavioral regressions.
+- Target files: `build.py`, `AGENTS.md`, `src/header.py`, `src/parser.py:1-360`, `src/commands.py:1-310`, `src/cli.py:1-399`.
+
+# 🎯 [NEXT] F63: Implement context-bundle-protocol v1 producer, embedded agents/todo_md.md rule, and curated file/slice includes
+
+- Depends on: F62
+- Implement the Producer side of `context-bundle-protocol` v1 per `todo_flow` `docs/adr/0002-context-bundle-protocol-and-self-contained-producers.md`:
+  - Move `src/rules/todo_md.md` to `agents/todo_md.md`, delete `src/bundles/todo_md.bundle`, remove all role-specific prompts (`Mode: DESIGN/PLANNING/WORK/REVIEW`), and embed `agents/todo_md.md` into `src/header.py` (`EMBEDDED_RULE_TODO_MD`) via `build.py` (with source-tree fallback to `agents/todo_md.md` in `get_embedded_todo_rule()`).
+  - Add `--bundle` (`TODO_MD_BUNDLE=1`), `--plain` (`TODO_MD_PLAIN=1`), `--no-files`, and `--no-wip` flags; auto-detect bundle protocol emission on `todo_md <ID>` (`show <ID>`, `last`), `todo_md [-w]`, and `todo_md overview [--full] [-w]` when `sys.stdout` is a FIFO pipe (`stat.S_ISFIFO`) and its `st_dev:st_ino` does not match `RUN_BLOCK_STEP_STDOUT_INO` (and when `IN_RUN_BLOCK=1` is set without `RUN_BLOCK_STEP_STDOUT_INO`, emit plain step output unless `--bundle` is passed).
+  - Session start `WIP` transition in bundle mode: when `todo_md <ID>` emits a `context-bundle-protocol` stream for a single active task in `TODO.md` whose resolved role is `work` or `design` (`NEXT` tasks and `D*` tasks in `NEW` or `NEXT`) and whose status is not yet `WIP` (unless `--no-wip` is passed), automatically transition that task to `🔵 [WIP]` on disk before rendering the `"task"` fragment so the active session is immediately visible as `WIP`. Plain TTY/step calls, `--no-wip`, archived tasks, and `NEW` non-`D` tasks (`role=plan`) do not mutate status on disk.
+  - In bundle mode, emit `Bundle-Protocol: 1`, `Bundle-Command`, `Bundle-Boundary: <nonce>`, `Bundle-Expose: Role, Task, Title`, context headers (`Task`, `Title`, `Role`, `Workdir`), `===== Rules =====` containing `{"kind": "rule", "id": "todo_md:todo_md", "chain": ["todo_md"]}`, preloaded `{"kind": "include", "name": "<rel_path>[:<start>-<end>]", "chain": ["todo_md"]}` fragments for backticked files and `path:start-end` slices within default size budgets (`<= 400` lines per file/slice, `<= 1200` total lines, `<= 32768` bytes; skipped when `--no-files` is passed), and `===== Prompt =====` containing `{"kind": "task", "id": "<ID>", "name": "<file>:<ID>", "chain": ["todo_md"]}` (or `{"kind": "context", "name": "todo_md", "chain": ["todo_md"]}`).
+  - Update `agents/todo_md.md` to document the two-tier task-detail contract (`NEW` backlog tasks use file paths and symbol names in backticks; `NEXT` tasks promoted by `role=plan` include `path:start-end` slices for files `> 400` lines), automatic `WIP` transition on bundle session start for `work` and `design` tasks, and running `todo_md done <ID>` inside the final commit step.
+  - Target files: `src/header.py`, `src/parser.py`, `src/render.py`, `src/commands.py`, `src/cli.py:379-759`, `agents/todo_md.md`, `build.py`, `AGENTS.md`, `README.md`, `tests/helpers.py`, `tests/test_cli.py:1-260`, `tests/test_commands.py:1-260`.
 
 # ⚪ [NEW] F42: Rename project to todo-markdown and CLI utility to tmd
 
@@ -36,36 +68,7 @@
   - Compute parallel critical-path steps for chains and orchestrator waves as `max(dag_depth, max_repo_open_count)` and surface parallelism metrics on chain headers and `todo_md -r` (`--ready`).
   - Detect target-file overlaps via `extract_task_files()` across unlinked open tasks within the same repository in `src/commands.py` to assist planners in consolidating or sequencing tasks that touch the same files.
 
-# ⚪ [NEW] B2: Include inbound .todo_projects orchestrator dependencies in build_dependency_dag (Next actionable, next-id, list, and show)
-
-- Fix `build_dependency_dag()` in `src/parser.py` so that when resolving dependencies for a task in a child project managed by one or more `.todo_projects` orchestrators (discovered via `discover_orchestrators_for_project()`), inbound cross-project prerequisite edges declared in orchestrator `TODO.md` files (such as `todo_flow:D4 -> todo_md:D6` inside `todo_flow:D2`) are merged into the task's dependency DAG just as `build_execution_chain_dag()` does.
-- Ensure `todo_md chain -f <ID>` / `todo_md queue <ID>` (`Next actionable:` in `cmd_chain()` in `src/commands.py`), `todo_md next-id <ID>` (`cmd_next_id()` in `src/commands.py`), `_task_dependency_info()` (`cmd_list()` in `src/parser.py`), and `format_dependency_summary()` (`cmd_show()` in `src/parser.py`) all report consistent orchestrator-aware blockers and the true first unblocked actionable prerequisite (e.g., `todo_flow:D6` instead of blocked `todo_md:D6`).
-- Add regression tests in `tests/test_chain.py` and `tests/test_deps.py` covering `Next actionable:`, `next-id <ID>`, `list`, and `show` for child tasks blocked exclusively via an orchestrator's sequential `- Depends on: <orch_task> -> <child>:<ID>` clause.
-
-# ⚪ [NEW] F62: Decompose monolithic src/parser.py and src/commands.py into focused domain modules
-
-- Depends on: B2, B3, F57
-- Refactor `src/parser.py` (3,600+ lines) and `src/commands.py` (1,700+ lines) into cohesive domain modules (~300-800 lines each) with clean layer boundaries:
-  - `src/header.py`: imports, constants, regular expressions, `prog_name()`, and `usage_text()`.
-  - `src/workspace.py`: project and workspace root resolution (`is_todo_project()`, `resolve_target_dir()`, `resolve_workspace_root()`, `discover_projects()`, `project_label()`, `.todo_projects` and nested orchestrator discovery `read_configured_todo_projects()`, `is_orchestrator_project()`, `discover_orchestrators_for_project()`).
-  - `src/parser.py`: Markdown section parsing (`parse_tasks_in_text()`, `collect_all_tasks()`), dependency clause syntax parsing (`parse_depends_clause()`, `parse_dependency_clauses()`), role resolution (`resolve_task_role()`), file extraction (`extract_task_files()`), search (`search_tasks()`), and file validation (`validate_all()`).
-  - `src/dag.py`: unified dependency DAG construction and chain planning/ranking (`build_dependency_dag()`, `build_execution_chain_dag()`, `compute_unblock_counts()`, `build_chain_milestone_tree()`, `plan_execution_chains()`, `plan_execution_chains_by_role()`, `find_newly_unblocked_tasks()`).
-  - `src/render.py`: terminal display width, ANSI styling, table wrapping (`_display_width()`, `_style_task_row()`, `_wrap_table_row()`), and read-only view renderers (`cmd_chain()`, `cmd_list()`, `cmd_show()`, `cmd_summary()`, `cmd_projects()`, `cmd_workspace_summary()`, `cmd_workspace_list()`, `cmd_workspace_check()`).
-  - `src/commands.py`: backlog file sorting, Git auto-commit helpers, and mutating/query CLI commands (`cmd_check()`, `cmd_init()`, `cmd_add()`, `cmd_edit()`, `cmd_append()`, `cmd_transition()`, `cmd_reopen()`, `cmd_next_id()`, `cmd_files()`).
-  - `src/cli.py`: self-update commands (`cmd_check_update()`, `cmd_update()`), CLI argument parsing (`_parse_quest_log_args()`), and `main()`.
-- Update `MODULE_ORDER` in `build.py`, regenerate standalone `./todo_md`, align `AGENTS.md` module descriptions, and verify all unit tests in `tests/test_*.py` pass without behavioral regressions.
-
 # ⚪ [NEW] P1: JSON output mode (`--json`)
 
 - Depends on: F62
 Allow exporting parsed tasks as JSON for scripting.
-
-# ⚪ [NEW] F63: Implement context-bundle-protocol v1 producer, embedded agents/todo_md.md rule, and curated file/slice includes
-
-- Depends on: F62
-- Implement the Producer side of `context-bundle-protocol` v1 per `todo_flow` `docs/adr/0002-context-bundle-protocol-and-self-contained-producers.md`:
-  - Move `src/rules/todo_md.md` to `agents/todo_md.md`, delete `src/bundles/todo_md.bundle`, remove all role-specific prompts (`Mode: DESIGN/PLANNING/WORK/REVIEW`), and embed `agents/todo_md.md` into `src/header.py` (`EMBEDDED_RULE_TODO_MD`) via `build.py` (with source-tree fallback to `agents/todo_md.md` in `get_embedded_todo_rule()`).
-  - Add `--bundle` (`TODO_MD_BUNDLE=1`), `--plain` (`TODO_MD_PLAIN=1`), and `--no-files` flags; auto-detect bundle protocol emission on `todo_md <ID>` (`show <ID>`, `last`), `todo_md [-w]`, and `todo_md overview [--full] [-w]` when `sys.stdout` is a FIFO pipe (`stat.S_ISFIFO`) and its `st_dev:st_ino` does not match `RUN_BLOCK_STEP_STDOUT_INO` (and when `IN_RUN_BLOCK=1` is set without `RUN_BLOCK_STEP_STDOUT_INO`, emit plain step output unless `--bundle` is passed).
-  - In bundle mode, emit `Bundle-Protocol: 1`, `Bundle-Command`, `Bundle-Boundary: <nonce>`, `Bundle-Expose: Role, Task, Title`, context headers (`Task`, `Title`, `Role`, `Workdir`), `===== Rules =====` containing `{"kind": "rule", "id": "todo_md:todo_md", "chain": ["todo_md"]}`, preloaded `{"kind": "include", "name": "<rel_path>[:<start>-<end>]", "chain": ["todo_md"]}` fragments for backticked files and `path:start-end` slices within default size budgets (`<= 400` lines per file/slice, `<= 1200` total lines, `<= 32768` bytes; skipped when `--no-files` is passed), and `===== Prompt =====` containing `{"kind": "task", "id": "<ID>", "name": "<file>:<ID>", "chain": ["todo_md"]}` (or `{"kind": "context", "name": "todo_md", "chain": ["todo_md"]}`).
-  - Update `agents/todo_md.md` to document the two-tier task-detail contract (`NEW` backlog tasks use file paths and symbol names in backticks; `NEXT` tasks promoted by `role=plan` include `path:start-end` slices for files `> 400` lines) and instruct `role=work` to run `todo_md status <ID> WIP` in step 1 when starting a `NEXT` task and `todo_md done <ID>` inside the final commit step.
-  - Target files: `src/header.py`, `src/parser.py`, `src/render.py`, `src/commands.py`, `src/cli.py`, `agents/todo_md.md`, `build.py`, `AGENTS.md`, `README.md`, `tests/helpers.py`, `tests/test_cli.py`, `tests/test_commands.py`.
