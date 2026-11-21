@@ -55,16 +55,6 @@
 - In `cmd_files()` (`src/commands.py:1040-1095`), when an item specifies `:start-end`, evaluate `--max-lines`, `--max-total-lines`, `--max-bytes`, and `--max-total-bytes` against the sliced lines (`lines[start - 1 : end]`) rather than the entire file so inspected sections of large files fit within bundle size budgets, and print `rel_path:start-end` to `stdout`.
 - Update `src/header.py`, `src/rules/todo_md.md` (documenting that planners record `path:start-end` line ranges for large inspected files when promoting a task to `NEXT` for `role=work`), `README.md`, and unit tests in `tests/test_commands.py`, rebuild via `build.py`, and bump `VERSION` for a MINOR release.
 
-# ⚪ [NEW] P1: JSON output mode (`--json`)
-
-- Depends on: F54, F55, F58
-Allow exporting parsed tasks as JSON for scripting.
-
-# ⚪ [NEW] F6: Move exported rules and bundles from src/ to agents/
-
-- Move `src/rules/todo_md.md` and `src/bundles/todo_md.bundle` to `agents/` using the unified logical bundle/rule layout once `agents_bundle` supports the root `agents/` directory (coordinated in `todo_flow`).
-- Update `AGENTS.md`, `README.md`, and tests to reference the new paths under `agents/`.
-
 # ⚪ [NEW] F42: Rename project to todo-markdown and CLI utility to tmd
 
 - Rename project/repository references from `todo_md` to `todo-markdown` and CLI entrypoint from `todo_md` to `tmd` (preserving `TODO.md`/`TODO_ARCHIVE.md` task-file conventions and applying agreed env-var/alias decisions from the ecosystem rename design).
@@ -83,3 +73,33 @@ Allow exporting parsed tasks as JSON for scripting.
   - Compute parallel wavefront width (`threads: <K>`) across ready tasks by grouping ready tasks by repository and selecting the top-ranked actionable task per repository as a parallel execution lane (`Lane 1..K`).
   - Compute parallel critical-path steps for chains and orchestrator waves as `max(dag_depth, max_repo_open_count)` and surface parallelism metrics on chain headers and `todo_md -r` (`--ready`).
   - Detect target-file overlaps via `extract_task_files()` across unlinked open tasks within the same repository in `src/commands.py` to assist planners in consolidating or sequencing tasks that touch the same files.
+
+# ⚪ [NEW] B2: Include inbound .todo_projects orchestrator dependencies in build_dependency_dag (Next actionable, next-id, list, and show)
+
+- Fix `build_dependency_dag()` in `src/parser.py` so that when resolving dependencies for a task in a child project managed by one or more `.todo_projects` orchestrators (discovered via `discover_orchestrators_for_project()`), inbound cross-project prerequisite edges declared in orchestrator `TODO.md` files (such as `todo_flow:D4 -> todo_md:D6` inside `todo_flow:D2`) are merged into the task's dependency DAG just as `build_execution_chain_dag()` does.
+- Ensure `todo_md chain -f <ID>` / `todo_md queue <ID>` (`Next actionable:` in `cmd_chain()` in `src/commands.py`), `todo_md next-id <ID>` (`cmd_next_id()` in `src/commands.py`), `_task_dependency_info()` (`cmd_list()` in `src/parser.py`), and `format_dependency_summary()` (`cmd_show()` in `src/parser.py`) all report consistent orchestrator-aware blockers and the true first unblocked actionable prerequisite (e.g., `todo_flow:D6` instead of blocked `todo_md:D6`).
+- Add regression tests in `tests/test_chain.py` and `tests/test_deps.py` covering `Next actionable:`, `next-id <ID>`, `list`, and `show` for child tasks blocked exclusively via an orchestrator's sequential `- Depends on: <orch_task> -> <child>:<ID>` clause.
+
+# ⚪ [NEW] F62: Decompose monolithic src/parser.py and src/commands.py into focused domain modules
+
+- Depends on: B2, F57
+- Refactor `src/parser.py` (3,600+ lines) and `src/commands.py` (1,700+ lines) into cohesive domain modules (~300-800 lines each) with clean layer boundaries:
+  - `src/header.py`: imports, constants, regular expressions, `prog_name()`, and `usage_text()`.
+  - `src/workspace.py`: project and workspace root resolution (`is_todo_project()`, `resolve_target_dir()`, `resolve_workspace_root()`, `discover_projects()`, `project_label()`, `.todo_projects` and nested orchestrator discovery `read_configured_todo_projects()`, `is_orchestrator_project()`, `discover_orchestrators_for_project()`).
+  - `src/parser.py`: Markdown section parsing (`parse_tasks_in_text()`, `collect_all_tasks()`), dependency clause syntax parsing (`parse_depends_clause()`, `parse_dependency_clauses()`), role resolution (`resolve_task_role()`), file extraction (`extract_task_files()`), search (`search_tasks()`), and file validation (`validate_all()`).
+  - `src/dag.py`: unified dependency DAG construction and chain planning/ranking (`build_dependency_dag()`, `build_execution_chain_dag()`, `compute_unblock_counts()`, `build_chain_milestone_tree()`, `plan_execution_chains()`, `plan_execution_chains_by_role()`, `find_newly_unblocked_tasks()`).
+  - `src/render.py`: terminal display width, ANSI styling, table wrapping (`_display_width()`, `_style_task_row()`, `_wrap_table_row()`), and read-only view renderers (`cmd_chain()`, `cmd_list()`, `cmd_show()`, `cmd_summary()`, `cmd_projects()`, `cmd_workspace_summary()`, `cmd_workspace_list()`, `cmd_workspace_check()`).
+  - `src/commands.py`: backlog file sorting, Git auto-commit helpers, and mutating/query CLI commands (`cmd_check()`, `cmd_init()`, `cmd_add()`, `cmd_edit()`, `cmd_append()`, `cmd_transition()`, `cmd_reopen()`, `cmd_next_id()`, `cmd_files()`).
+  - `src/cli.py`: self-update commands (`cmd_check_update()`, `cmd_update()`), CLI argument parsing (`_parse_quest_log_args()`), and `main()`.
+- Update `MODULE_ORDER` in `build.py`, regenerate standalone `./todo_md`, align `AGENTS.md` module descriptions, and verify all unit tests in `tests/test_*.py` pass without behavioral regressions.
+
+# ⚪ [NEW] F6: Move exported rules and bundles from src/ to agents/
+
+- Depends on: F62
+- Move `src/rules/todo_md.md` and `src/bundles/todo_md.bundle` to `agents/` using the unified logical bundle/rule layout once `agents_bundle` supports the root `agents/` directory (coordinated in `todo_flow`).
+- Update `AGENTS.md`, `README.md`, and tests to reference the new paths under `agents/`.
+
+# ⚪ [NEW] P1: JSON output mode (`--json`)
+
+- Depends on: F62
+Allow exporting parsed tasks as JSON for scripting.
