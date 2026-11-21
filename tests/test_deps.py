@@ -119,8 +119,8 @@ class TestDeps(TodoMdTestCase):
         self.assertLess(q1_refs.index("F1"), q1_refs.index("F3"))
         self.assertLess(q1_refs.index("F2"), q1_refs.index("F3"))
         self.assertLess(q1_refs.index("F3"), q1_refs.index("F5"))
-        self.assertIn("[ready]", q1_flat)
-        self.assertIn("[blocked by: F1, F2]", q1_flat)
+        self.assertIn("[ready | unblocks: 2]", q1_flat)
+        self.assertIn("[blocked by: F1, F2 | unblocks: 1]", q1_flat)
         self.assertIn("Next actionable: F1", r_q1.stdout)
 
         r_nid1 = self._run([str(SCRIPT), "next-id", "F5"], cwd=str(proj_a), check=True)
@@ -165,7 +165,7 @@ class TestDeps(TodoMdTestCase):
         orch_refs = self._row_refs(r_orch_q.stdout)
         self.assertLess(orch_refs.index("proj_a:F6"), orch_refs.index("proj_b:F2"))
         self.assertLess(orch_refs.index("proj_b:F1"), orch_refs.index("proj_b:F2"))
-        self.assertIn("[blocked by: proj_a:F6, proj_b:F1]", self._flat_text(r_orch_q.stdout))
+        self.assertIn("[blocked by: proj_a:F6, proj_b:F1 | unblocks: 1]", self._flat_text(r_orch_q.stdout))
         self.assertEqual(self._run([str(SCRIPT), "next-id", "F1"], cwd=str(orch), check=True).stdout.strip(), "proj_a:F6")
         self.assertEqual(
             self._run([str(SCRIPT), "next-id", "orch:F1"], cwd=str(ws), check=True).stdout.strip(),

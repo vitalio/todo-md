@@ -29,7 +29,7 @@ class TestChain(TodoMdTestCase):
         self._run([str(SCRIPT), "add", "Blocked by hold", "--depends", "F5"], cwd=str(proj_a), check=True)
 
         r_local = self._run([str(SCRIPT), "chain", "--numbered=right"], cwd=str(proj_a), check=True)
-        self.assertIn("Chain 1 -> F4: Step C (4 tasks, 25% | 1 done, 3 open):", r_local.stdout)
+        self.assertIn("Chain 1 -> F4: Step C [25% | done: 1, open: 3]:", r_local.stdout)
         self.assertNotIn("F1", r_local.stdout)
         self.assertIn("Held branches:", r_local.stdout)
         self.assertIn("F5 (HOLD) -> F6 (NEW)", r_local.stdout)
@@ -38,7 +38,7 @@ class TestChain(TodoMdTestCase):
 
         # --limit N truncates displayed chain rows while preserving RPG progress header
         r_lim = self._run([str(SCRIPT), "chain", "--numbered=right", "--limit", "2"], cwd=str(proj_a), check=True)
-        self.assertIn("Chain 1 -> F4: Step C (4 tasks, 25% | 1 done, 3 open):", r_lim.stdout)
+        self.assertIn("Chain 1 -> F4: Step C [25% | done: 1, open: 3]:", r_lim.stdout)
         self.assertIn("1 F2", r_lim.stdout)
         self.assertIn("2 F3", r_lim.stdout)
         self.assertNotIn("1 F4", r_lim.stdout)
@@ -47,8 +47,8 @@ class TestChain(TodoMdTestCase):
 
         # --include-hold brings HOLD tasks and their dependents into the main chain view
         r_inc = self._run([str(SCRIPT), "chain", "--numbered=right", "--include-hold"], cwd=str(proj_a), check=True)
-        self.assertIn("Chain 1 -> F4: Step C (4 tasks, 25% | 1 done, 3 open):", r_inc.stdout)
-        self.assertIn("Chain 2 -> F6: Blocked by hold (2 tasks, 0% | 0 done, 2 open):", r_inc.stdout)
+        self.assertIn("Chain 1 -> F4: Step C [25% | done: 1, open: 3]:", r_inc.stdout)
+        self.assertIn("Chain 2 -> F6: Blocked by hold [open: 2]:", r_inc.stdout)
         self.assertIn("F5", r_inc.stdout)
         self.assertIn("F6", r_inc.stdout)
         self.assertNotIn("Held branches:", r_inc.stdout)
@@ -65,13 +65,13 @@ class TestChain(TodoMdTestCase):
             check=True,
         )
         r_b_local = self._run([str(SCRIPT), "chain", "--numbered=right"], cwd=str(proj_b), check=True)
-        self.assertIn("Chain 1 -> F2: Cross leaf (5 tasks, 20% | 1 done, 4 open):", r_b_local.stdout)
+        self.assertIn("Chain 1 -> F2: Cross leaf [20% | done: 1, open: 4]:", r_b_local.stdout)
         self.assertIn("proj_a:F2", r_b_local.stdout)
         self.assertIn("proj_a:F3", r_b_local.stdout)
 
         r_ws = self._run([str(SCRIPT), "chain", "--numbered=right", "-w"], cwd=str(proj_a), check=True)
-        self.assertIn("Chain 1 -> proj_a:F4: Step C (4 tasks, 25% | 1 done, 3 open):", r_ws.stdout)
-        self.assertIn("Chain 2 -> proj_b:F2: Cross leaf (5 tasks, 20% | 1 done, 4 open):", r_ws.stdout)
+        self.assertIn("Chain 1 -> proj_a:F4: Step C [25% | done: 1, open: 3]:", r_ws.stdout)
+        self.assertIn("Chain 2 -> proj_b:F2: Cross leaf [20% | done: 1, open: 4]:", r_ws.stdout)
         self.assertIn("[also in: proj_b:F2]", r_ws.stdout)
         self.assertIn("[also in: proj_a:F4]", r_ws.stdout)
         self.assertIn("proj_a:F2", r_ws.stdout)
@@ -81,12 +81,12 @@ class TestChain(TodoMdTestCase):
 
         # Auto-workspace from workspace root and -C selector
         r_ws_root = self._run([str(SCRIPT), "chain", "--numbered=right"], cwd=str(ws), check=True)
-        self.assertIn("Chain 1 -> proj_a:F4: Step C (4 tasks, 25% | 1 done, 3 open):", r_ws_root.stdout)
-        self.assertIn("Chain 2 -> proj_b:F2: Cross leaf (5 tasks, 20% | 1 done, 4 open):", r_ws_root.stdout)
+        self.assertIn("Chain 1 -> proj_a:F4: Step C [25% | done: 1, open: 3]:", r_ws_root.stdout)
+        self.assertIn("Chain 2 -> proj_b:F2: Cross leaf [20% | done: 1, open: 4]:", r_ws_root.stdout)
         self.assertIn("proj_b:F1", r_ws_root.stdout)
         self.assertIn("proj_b:F2", r_ws_root.stdout)
         r_c = self._run([str(SCRIPT), "-C", "proj_b", "chain"], cwd=str(ws), check=True)
-        self.assertIn("Chain 1 -> proj_b:F2: Cross leaf (5 tasks, 20% | 1 done, 4 open):", r_c.stdout)
+        self.assertIn("Chain 1 -> proj_b:F2: Cross leaf [20% | done: 1, open: 4]:", r_c.stdout)
 
         # Diagnostics on CANCELED blocker
         can_dir = ws / "can_chain"
@@ -163,41 +163,41 @@ class TestChain(TodoMdTestCase):
         r_chain = self._run([str(SCRIPT), "chain", "--numbered=right"], cwd=str(proj), check=True)
         out = r_chain.stdout
         # Deep chain (3 total tasks) ranks before medium chain (2 total tasks), both before Standalone tasks
-        self.assertIn("Chain 1 -> F7: Deep leaf (3 tasks, 0% | 0 done, 3 open):", out)
-        self.assertIn("Chain 2 -> F4: Med leaf (2 tasks, 0% | 0 done, 2 open):", out)
+        self.assertIn("Chain 1 -> F7: Deep leaf [open: 3]:", out)
+        self.assertIn("Chain 2 -> F4: Med leaf [open: 2]:", out)
         self.assertIn("Standalone tasks:", out)
         self.assertLess(
-            out.index("Chain 1 -> F7: Deep leaf (3 tasks, 0% | 0 done, 3 open):"),
-            out.index("Chain 2 -> F4: Med leaf (2 tasks, 0% | 0 done, 2 open):"),
+            out.index("Chain 1 -> F7: Deep leaf [open: 3]:"),
+            out.index("Chain 2 -> F4: Med leaf [open: 2]:"),
         )
         self.assertLess(out.index("1 F5"), out.index("4 F3"))
         self.assertLess(
-            out.index("Chain 2 -> F4: Med leaf (2 tasks, 0% | 0 done, 2 open):"),
+            out.index("Chain 2 -> F4: Med leaf [open: 2]:"),
             out.index("Standalone tasks:"),
         )
         self.assertNotIn("F7 -> F3", out)
         self.assertNotIn("F4 -> F1", out)
         self.assertNotIn("F1 -> F2", out)
-        self.assertIn("[unblocks 2]", out)
-        self.assertIn("[unblocks 1]", out)
+        self.assertIn("[ready | unblocks: 2]", out)
+        self.assertIn("[ready | unblocks: 1]", out)
 
         # --ready filters to ready tasks only, ranks highest-leverage ready tasks first,
-        # and shows immediate unblocked targets inline for chain continuation context
+        # and shows unified RPG stat tags (omitting the tag on zero-stat standalone tasks)
         r_ready = self._run([str(SCRIPT), "chain", "--numbered=right", "--ready"], cwd=str(proj), check=True)
         r_out = r_ready.stdout
         self.assertIn("Ready tasks:", r_out)
         ready_rows = self._table_rows(r_out)
         self.assertEqual(sorted(ready_rows), ["1.", "2.", "3.", "4."], msg=r_out)
         self.assertIn("F5", ready_rows["1."])
-        self.assertIn("[ready | 1 chain | +1 ready | unblocks 2 -> F6]", ready_rows["1."])
+        self.assertIn("[chain: 1, ready: +1, unblocks: 2]", ready_rows["1."])
         self.assertNotIn("F7", r_out)
         self.assertIn("F3", ready_rows["2."])
-        self.assertIn("[ready | 1 chain | +1 ready | unblocks 1 -> F4]", ready_rows["2."])
+        self.assertIn("[chain: 1, ready: +1, unblocks: 1]", ready_rows["2."])
         self.assertIn("F1", ready_rows["3."])
-        self.assertIn("[ready]", ready_rows["3."])
+        self.assertTrue(ready_rows["3."].endswith("Solo A"), msg=ready_rows["3."])
         self.assertNotIn("unblocks", ready_rows["3."])
         self.assertIn("F2", ready_rows["4."])
-        self.assertIn("[ready]", ready_rows["4."])
+        self.assertTrue(ready_rows["4."].endswith("Solo B"), msg=ready_rows["4."])
         self.assertNotIn("unblocks", ready_rows["4."])
 
     def test_ready_short_flag_multi_chain_role_ease_and_stat_counters(self):
@@ -224,12 +224,13 @@ class TestChain(TodoMdTestCase):
         self.assertEqual(sorted(rows), ["1.", "2.", "3."], msg=r_long.stdout)
         # Multi-chain leverage beats a larger single-chain cone: F1 (2 chains) ahead of F4 (1 chain, unblocks 3)
         self.assertIn("F1", rows["1."])
-        self.assertIn("[ready | 2 chains | +2 ready | unblocks 2 -> F2, F3]", rows["1."])
+        self.assertIn("[chain: 2, ready: +2, unblocks: 2]", rows["1."])
         self.assertIn("F4", rows["2."])
-        self.assertIn("[ready | 1 chain | +1 ready | unblocks 3 -> F5]", rows["2."])
+        self.assertIn("[chain: 1, ready: +1, unblocks: 3]", rows["2."])
         # Role ease: work tasks rank ahead of the design root within the same status tier
         self.assertIn("D1", rows["3."])
         self.assertIn("[design]", rows["3."])
+        self.assertTrue(rows["3."].endswith("Design root"), msg=rows["3."])
 
         r_list = self._run([str(SCRIPT), "list", "-r"], cwd=str(proj), check=True)
         self.assertIn("F1", r_list.stdout)
@@ -254,9 +255,9 @@ class TestChain(TodoMdTestCase):
         self.assertEqual(sorted(rows), ["1.", "2."], msg=r_ready.stdout)
         # F2 continues the branch of the task that was just completed, ahead of the wider F3 chain set
         self.assertIn("F2", rows["1."])
-        self.assertIn("[ready | 1 chain | +1 ready | unblocks 1 -> F6]", rows["1."])
+        self.assertIn("[STAGE | COMBO | chain: 1, done: 1, ready: +1, unblocks: 1]", rows["1."])
         self.assertIn("F3", rows["2."])
-        self.assertIn("[ready | 2 chains | +2 ready | unblocks 2 -> F4, F5]", rows["2."])
+        self.assertIn("[chain: 2, ready: +2, unblocks: 2]", rows["2."])
 
     def test_chain_role_badges_and_role_filter(self):
         ws = self.tmp / "ws_chain_role"
@@ -312,11 +313,10 @@ class TestChain(TodoMdTestCase):
 
         # 2. --role work filters Chain <N>, Standalone tasks:, and preserves unblock/blocker context & Held branches
         r_work = self._run([str(SCRIPT), "chain", "--numbered=right", "--role", "WORK"], cwd=str(proj_a), check=True)
-        self.assertIn("Chain 1 -> F2: Plan rollout (3 tasks, 0% | 0 done, 3 open):", r_work.stdout)
+        self.assertIn("Chain 1 -> F2: Plan rollout [open: 3]:", r_work.stdout)
         self.assertIn("1 F1", r_work.stdout)
         self.assertIn("[work]", r_work.stdout)
-        self.assertIn("[blocked by: D1]", r_work.stdout)
-        self.assertIn("[unblocks 1]", r_work.stdout)
+        self.assertIn("[blocked by: D1 | unblocks: 1]", " ".join(r_work.stdout.split()))
         self.assertIn("Standalone tasks:", r_work.stdout)
         self.assertIn("B1", r_work.stdout)
         self.assertNotIn("D1: Design schema", r_work.stdout)
@@ -327,7 +327,7 @@ class TestChain(TodoMdTestCase):
 
         # 3. --role plan hides unrelated held branches and standalone tasks
         r_plan = self._run([str(SCRIPT), "chain", "--numbered=right", "--role=plan"], cwd=str(proj_a), check=True)
-        self.assertIn("Chain 1 -> F2: Plan rollout (3 tasks, 0% | 0 done, 3 open):", r_plan.stdout)
+        self.assertIn("Chain 1 -> F2: Plan rollout [open: 3]:", r_plan.stdout)
         self.assertIn("1 F2", r_plan.stdout)
         self.assertIn("[plan]", r_plan.stdout)
         self.assertIn("[blocked by: F1]", r_plan.stdout)
@@ -454,7 +454,7 @@ class TestChain(TodoMdTestCase):
         self.assertIn("D4 (HOLD) -> F9 (NEW)", out)
         self.assertNotIn("Done design prereq", out)
         self.assertNotIn("[blocked by: D1]", out)
-        self.assertIn("[ready | after: D1]", out)
+        self.assertIn("[ready | FINAL | COMBO | done: 1]", out)
 
         # Order between queues
         self.assertLess(out.index("Queue 1 (work):"), out.index("Queue 2 (plan):"))
@@ -472,8 +472,8 @@ class TestChain(TodoMdTestCase):
         self.assertIn("B1", q1_sec)
         self.assertLess(q1_sec.index("F1"), q1_sec.index("F2"))
         self.assertIn("[ready]", q1_sec)
-        self.assertIn("[blocked by: F1]", q1_sec)
-        self.assertIn("[unblocks 3]", q1_sec)
+        self.assertIn("[ready | STAGE | COMBO | done: 1, unblocks: 4]", q1_sec)
+        self.assertIn("[blocked by: F1 | unblocks: 3]", q1_sec)
         self.assertNotIn("F6", q1_sec)
         self.assertNotIn("F7", q1_sec)
 
@@ -482,7 +482,7 @@ class TestChain(TodoMdTestCase):
         self.assertIn("F5", q2_sec)
         self.assertLess(q2_sec.index("F4"), q2_sec.index("F5"))
         self.assertIn("[plan]", q2_sec)
-        self.assertIn("[blocked by: F2]", q2_sec)
+        self.assertIn("[blocked by: F2 | unblocks: 2]", q2_sec)
 
         self.assertIn("D2", q3_sec)
         self.assertIn("D3", q3_sec)
@@ -494,7 +494,7 @@ class TestChain(TodoMdTestCase):
         self.assertIn("F8", q4_sec)
         self.assertLess(q4_sec.index("F7"), q4_sec.index("F8"))
         self.assertIn("[blocked by: F4]", q4_sec)
-        self.assertIn("[blocked by: D2]", q4_sec)
+        self.assertIn("[blocked by: D2 | unblocks: 1]", q4_sec)
         self.assertIn("[blocked by: F7]", q4_sec)
 
         # 2. --by-role --ready filters to ready tasks and omits Queue 4 (deferred work)
@@ -558,7 +558,7 @@ class TestChain(TodoMdTestCase):
         ws_q4 = r_ws.stdout[r_ws.stdout.index("Queue 4 (deferred work):"):r_ws.stdout.index("Held branches:")]
         self.assertIn("proj_b:F2", ws_q1)
         self.assertIn("proj_b:F1", ws_q4)
-        self.assertIn("[blocked by: proj_a:D2]", ws_q4)
+        self.assertIn("[blocked by: proj_a:D2]", " ".join(ws_q4.split()))
 
         # 6. Plan blocked by design and custom role tasks go to Other tasks without failing
         other_dir = ws / "other_roles"
@@ -611,18 +611,17 @@ class TestChain(TodoMdTestCase):
         )
         rows = {k: v for k, v in self._table_rows(r_local.stdout).items() if k.endswith(".")}
         self.assertEqual(sorted(rows), ["1.", "2."], msg=r_local.stdout)
-        # D1 has 5 active downstream tasks (F3, F2, F1, F4, F5) and 4 immediate dependents -> top 3 + ...
         # B1 (work) ranks ahead of D1 (design); its only local dependent is HOLD,
-        # so without --include-hold it shows plain [ready]
+        # so without --include-hold it has zero stats and omits the trailing bracket tag
         self.assertIn("B1", rows["1."])
-        self.assertIn("[ready]", rows["1."])
+        self.assertTrue(rows["1."].endswith("Ready bugfix"), msg=rows["1."])
         self.assertNotIn("unblocks", rows["1."])
         # D1 has 5 active downstream tasks (F3, F2, F1, F4, F5), 4 immediate ready dependents,
-        # and sits in 4 root chains (F1, F3, F4, F5) -> top 3 targets + ...
+        # and sits in 4 root chains (F1, F3, F4, F5)
         self.assertIn("D1", rows["2."])
-        self.assertIn("[ready | 4 chains | +4 ready | unblocks 5 -> F3, F2, F1, ...]", rows["2."])
+        self.assertIn("[chain: 4, ready: +4, unblocks: 5]", rows["2."])
 
-        # --role design --ready keeps downstream targets of mixed roles visible on D1
+        # --role design --ready keeps downstream unblock stats of mixed roles visible on D1
         r_role = self._run(
             [str(SCRIPT), "chain", "--numbered=right", "--ready", "--role", "design"],
             cwd=str(proj_a),
@@ -631,9 +630,9 @@ class TestChain(TodoMdTestCase):
         )
         role_rows = {k: v for k, v in self._table_rows(r_role.stdout).items() if k.endswith(".")}
         self.assertEqual(sorted(role_rows), ["1."], msg=r_role.stdout)
-        self.assertIn("[ready | 4 chains | +4 ready | unblocks 5 -> F3, F2, F1, ...]", role_rows["1."])
+        self.assertIn("[chain: 4, ready: +4, unblocks: 5]", role_rows["1."])
 
-        # --include-hold includes the held dependent in --ready downstream targets
+        # --include-hold includes the held dependent in --ready downstream stats
         r_hold = self._run(
             [str(SCRIPT), "chain", "--numbered=right", "--ready", "--include-hold"],
             cwd=str(proj_a),
@@ -642,9 +641,9 @@ class TestChain(TodoMdTestCase):
         )
         hold_rows = {k: v for k, v in self._table_rows(r_hold.stdout).items() if k.endswith(".")}
         self.assertIn("B1", hold_rows["1."])
-        self.assertIn("[ready | 1 chain | +1 ready | unblocks 1 -> F6]", hold_rows["1."])
+        self.assertIn("[chain: 1, ready: +1, unblocks: 1]", hold_rows["1."])
 
-        # Workspace -w --ready renders cross-project downstream target refs
+        # Workspace -w --ready includes cross-project downstream unblock stats
         r_ws = self._run(
             [str(SCRIPT), "chain", "--numbered=right", "-w", "--ready"],
             cwd=str(ws),
@@ -653,9 +652,9 @@ class TestChain(TodoMdTestCase):
         )
         ws_rows = {k: v for k, v in self._table_rows(r_ws.stdout).items() if k.endswith(".")}
         self.assertIn("proj_a:B1", ws_rows["1."])
-        self.assertIn("[ready | 1 chain | +1 ready | unblocks 1 -> proj_b:F1]", ws_rows["1."])
+        self.assertIn("[chain: 1, ready: +1, unblocks: 1]", ws_rows["1."])
         self.assertIn("proj_a:D1", ws_rows["2."])
-        self.assertIn("[ready | 4 chains | +4 ready | unblocks 5 -> proj_a:F3, proj_a:F2, proj_a:F1, ...]", ws_rows["2."])
+        self.assertIn("[chain: 4, ready: +4, unblocks: 5]", ws_rows["2."])
 
     def test_chain_finales_section_ranking_and_after_tags(self):
         ws = self.tmp / "ws_finales"
@@ -728,9 +727,9 @@ class TestChain(TodoMdTestCase):
             check=True,
         )
         out = r_chain.stdout
-        c1_hdr = "Chain 1 -> F5: Chain leaf (2 tasks, 0% | 0 done, 2 open):"
-        c2_hdr = "Chain 2 -> F9: New chain leaf (2 tasks, 0% | 0 done, 2 open):"
-        c3_hdr = "Chain 3 -> F7: Plan after done (2 tasks, 50% | 1 done, 1 open):"
+        c1_hdr = "Chain 1 -> F5: Chain leaf [open: 2]:"
+        c2_hdr = "Chain 2 -> F9: New chain leaf [open: 2]:"
+        c3_hdr = "Chain 3 -> F7: Plan after done [50% | done: 1, open: 1]:"
         self.assertIn("Chain finales:", out)
         self.assertIn(c1_hdr, out)
         self.assertIn(c2_hdr, out)
@@ -748,16 +747,16 @@ class TestChain(TodoMdTestCase):
         self.assertNotIn("F7", fin_sec)
         self.assertLess(fin_sec.index("F6"), fin_sec.index("F11"))
         self.assertLess(fin_sec.index("F11"), fin_sec.index("F10"))
-        self.assertIn("[ready | after: D1, F1, F2, ...]", fin_sec)
-        self.assertIn("[ready | after: D1, F1, F2]", fin_sec)
-        self.assertIn("[ready | after: D1]", fin_sec)
+        self.assertIn("[ready | FINAL | COMBO | done: 4]", fin_sec)
+        self.assertIn("[ready | FINAL | done: 3]", fin_sec)
+        self.assertIn("[ready | FINAL | done: 1]", fin_sec)
         self.assertNotIn("B1", fin_sec)
 
         chain3_sec = out[out.index(c3_hdr):out.index("Standalone tasks:")]
         self.assertIn("F7", chain3_sec)
-        self.assertIn("[ready | after: D1]", chain3_sec)
+        self.assertIn("[ready | FINAL | done: 1]", chain3_sec)
 
-        # 2. --ready ranks work chain finales first within their status tier (F6 before F4 and B1; F10 & F11 before F8; F7 is not a finale so ranks after F8)
+        # 2. --ready ranks work chain finales first within their status tier (F6 before F4 and B1; F11 (done: 3) before F10 (done: 1) before F8; F7 is not a finale so ranks after F8)
         r_ready = self._run(
             [str(SCRIPT), "chain", "--numbered=right", "--ready"],
             cwd=str(proj_a),
@@ -767,16 +766,19 @@ class TestChain(TodoMdTestCase):
         ready_rows = {k: v for k, v in self._table_rows(r_ready.stdout).items() if k.endswith(".")}
         self.assertEqual(sorted(ready_rows), ["1.", "2.", "3.", "4.", "5.", "6.", "7."], msg=r_ready.stdout)
         self.assertIn("F6", ready_rows["1."])
-        self.assertIn("[ready | after: D1, F1, F2, ...]", ready_rows["1."])
+        self.assertIn("[FINAL | COMBO | chain: 1, done: 4]", ready_rows["1."])
         self.assertIn("F4", ready_rows["2."])
-        self.assertIn("[ready | 1 chain | +1 ready | unblocks 1 -> F5]", ready_rows["2."])
+        self.assertIn("[chain: 1, ready: +1, unblocks: 1]", ready_rows["2."])
         self.assertIn("B1", ready_rows["3."])
-        self.assertIn("F10", ready_rows["4."])
-        self.assertIn("F11", ready_rows["5."])
+        self.assertTrue(ready_rows["3."].endswith("Standalone next"), msg=ready_rows["3."])
+        self.assertIn("F11", ready_rows["4."])
+        self.assertIn("[FINAL | chain: 1, done: 3]", ready_rows["4."])
+        self.assertIn("F10", ready_rows["5."])
+        self.assertIn("[FINAL | chain: 1, done: 1]", ready_rows["5."])
         self.assertIn("F8", ready_rows["6."])
-        self.assertIn("[ready | 1 chain | +1 ready | unblocks 1 -> F9]", ready_rows["6."])
+        self.assertIn("[chain: 1, ready: +1, unblocks: 1]", ready_rows["6."])
         self.assertIn("F7", ready_rows["7."])
-        self.assertIn("[ready | after: D1]", ready_rows["7."])
+        self.assertIn("[FINAL | chain: 1, done: 1]", ready_rows["7."])
 
         # 3. --by-role ranks chain finales first within their status tier in each role queue
         r_by_role = self._run(
@@ -787,7 +789,7 @@ class TestChain(TodoMdTestCase):
         )
         br_rows = {k: v for k, v in self._table_rows(r_by_role.stdout).items() if k.endswith(".")}
         self.assertIn("F6", br_rows["1."])
-        self.assertIn("[ready | after: D1, F1, F2, ...]", br_rows["1."])
+        self.assertIn("[ready | FINAL | COMBO | done: 4]", br_rows["1."])
         self.assertIn("F4", br_rows["2."])
 
         # 4. --role and --limit apply consistently starting from Chain finales:
@@ -810,12 +812,12 @@ class TestChain(TodoMdTestCase):
             check=True,
         )
         self.assertNotIn("Chain finales:", r_role_lim.stdout)
-        self.assertIn("Chain 1 -> F7: Plan after done (2 tasks, 50% | 1 done, 1 open):", r_role_lim.stdout)
+        self.assertIn("Chain 1 -> F7: Plan after done [50% | done: 1, open: 1]:", r_role_lim.stdout)
         self.assertIn("F7", r_role_lim.stdout)
-        self.assertIn("[ready | after: D1]", r_role_lim.stdout)
+        self.assertIn("[ready | FINAL | done: 1]", r_role_lim.stdout)
         self.assertNotIn("F6", r_role_lim.stdout)
 
-        # 5. Workspace -w formats cross-project after refs
+        # 5. Workspace -w formats cross-project finale stats
         r_ws = self._run(
             [str(SCRIPT), "chain", "--numbered=right", "-w"],
             cwd=str(ws),
@@ -823,7 +825,7 @@ class TestChain(TodoMdTestCase):
             check=True,
         )
         self.assertIn("proj_b:F1", r_ws.stdout)
-        self.assertIn("[ready | after: proj_a:F3]", r_ws.stdout)
+        self.assertIn("[ready | FINAL | COMBO | done: 3]", r_ws.stdout)
 
     def test_chain_rpg_progress_transitive_done_bug_and_role_ranking(self):
         ws = self.tmp / "ws_rpg_rank"
@@ -948,12 +950,12 @@ class TestChain(TodoMdTestCase):
         out = r_chain.stdout
 
         # Verify numbered RPG progress headers and transitive DONE count (excluding CANCELED/MISSING)
-        h1 = "Chain 1 -> F4: After ready bug (2 tasks, 0% | 0 done, 2 open):"
-        h2 = "Chain 2 -> B2: Blocked bug dist 1 (2 tasks, 0% | 0 done, 2 open):"
-        h3 = "Chain 3 -> B3: Blocked bug dist 2 (3 tasks, 0% | 0 done, 3 open):"
-        h4 = "Chain 4 -> F3: Progress chain open 2 (5 tasks, 60% | 3 done, 2 open):"
-        h5 = "Chain 5 -> F9: Plan chain leaf (2 tasks, 0% | 0 done, 2 open):"
-        h6 = "Chain 6 -> D2: Design chain leaf (2 tasks, 0% | 0 done, 2 open):"
+        h1 = "Chain 1 -> F4: After ready bug [open: 2]:"
+        h2 = "Chain 2 -> B2: Blocked bug dist 1 [open: 2]:"
+        h3 = "Chain 3 -> B3: Blocked bug dist 2 [open: 3]:"
+        h4 = "Chain 4 -> F3: Progress chain open 2 [60% | done: 3, open: 2]:"
+        h5 = "Chain 5 -> F9: Plan chain leaf [open: 2]:"
+        h6 = "Chain 6 -> D2: Design chain leaf [open: 2]:"
         for h in (h1, h2, h3, h4, h5, h6):
             self.assertIn(h, out, msg=out)
 
@@ -990,7 +992,7 @@ class TestChain(TodoMdTestCase):
             check=True,
         )
         # B2 -> F12 (3 tasks, 33% | 1 done, 2 open) now has a ready bug AND higher total_tasks (3 vs 2) than B1 -> F4!
-        self.assertIn("Chain 1 -> F12: Followup after B2 (3 tasks, 33% | 1 done, 2 open):", r_after.stdout)
+        self.assertIn("Chain 1 -> F12: Followup after B2 [33% | done: 1, open: 2]:", r_after.stdout)
         self.assertLess(r_after.stdout.index("1 B2"), r_after.stdout.index("3 B1"), msg=r_after.stdout)
 
         # Verify role-weighted velocity & effort ranking between chains with identical role_ease and status:
@@ -1137,7 +1139,7 @@ class TestChain(TodoMdTestCase):
         self.assertIn("F1", out_orch)
         self.assertNotIn("todo_flow:D1", out_orch)
         self.assertIn("run_block:F1", out_orch)
-        self.assertIn("[blocked by: D1, F1]", out_orch)
+        self.assertIn("[blocked by: D1, F1 | unblocks: 2]", out_orch)
         self.assertIn("todo_md:F1", out_orch)
         self.assertIn("run_block:F3", out_orch)
         self.assertIn("todo_md:F3", out_orch)
@@ -1158,14 +1160,14 @@ class TestChain(TodoMdTestCase):
         out_direct = r_child_direct.stdout
         self.assertIn("Chain finales:", out_direct)
         self.assertIn("F3", out_direct)
-        self.assertIn("[ready | after: D1]", out_direct)
+        self.assertIn("[ready | FINAL | COMBO | done: 1]", out_direct)
         self.assertNotIn("todo_md:F3", out_direct)
-        self.assertIn("Chain 1 -> todo_flow:F2: Flow release milestone (5 tasks, 0% | 0 done, 5 open):", out_direct)
+        self.assertIn("Chain 1 -> todo_flow:F2: Flow release milestone [open: 5]:", out_direct)
         self.assertIn("todo_flow:D1", out_direct)
         self.assertIn("todo_flow:F1", out_direct)
         self.assertIn("F1", out_direct)
         self.assertNotIn("run_block:F1", out_direct)
-        self.assertIn("[blocked by: todo_flow:D1, todo_flow:F1] [unblocks 2]", out_direct)
+        self.assertIn("[blocked by: todo_flow:D1, todo_flow:F1 | unblocks: 2]", out_direct)
         self.assertIn("todo_md:F1", out_direct)
         self.assertIn("todo_flow:F2", out_direct)
         # Unrelated chains/tasks from todo_flow and todo_md are filtered out
@@ -1191,7 +1193,7 @@ class TestChain(TodoMdTestCase):
                 out_ext = r_ext.stdout
                 self.assertIn("run_block:F3", out_ext)
                 self.assertIn("run_block:F1", out_ext)
-                self.assertIn("[blocked by: todo_flow:D1, todo_flow:F1] [unblocks 2]", out_ext)
+                self.assertIn("[blocked by: todo_flow:D1, todo_flow:F1 | unblocks: 2]", out_ext)
                 self.assertIn("run_block:F2", out_ext)
                 self.assertIn("run_block:D2 (HOLD) -> run_block:F4 (NEW)", out_ext)
                 self.assertNotIn("Flow internal step", out_ext)
@@ -1293,7 +1295,7 @@ class TestChain(TodoMdTestCase):
         (todo_flow / ".todo_projects").unlink()
         (todo_flow / ".todo_projects.local").write_text("run_block\ntodo_md\n", encoding="utf-8")
         r_local_cfg = self._run([str(SCRIPT), "chain", "--numbered=right"], cwd=str(run_block), env=base_env, check=True)
-        self.assertIn("[blocked by: todo_flow:D1, todo_flow:F1]", r_local_cfg.stdout)
+        self.assertIn("[blocked by: todo_flow:D1, todo_flow:F1 | unblocks: 2]", r_local_cfg.stdout)
 
         (todo_flow / ".todo_projects.local").unlink()
         env_projects = {**base_env, "TODO_MD_PROJECTS": "todo_flow,run_block,todo_md"}
@@ -1301,7 +1303,7 @@ class TestChain(TodoMdTestCase):
         self.assertIn("run_block:F1", r_env_orch.stdout)
         self.assertNotIn("unlisted_proj", r_env_orch.stdout)
         r_env_child = self._run([str(SCRIPT), "chain", "--numbered=right"], cwd=str(run_block), env=env_projects, check=True)
-        self.assertIn("[blocked by: todo_flow:D1, todo_flow:F1]", r_env_child.stdout)
+        self.assertIn("[blocked by: todo_flow:D1, todo_flow:F1 | unblocks: 2]", r_env_child.stdout)
         self.assertNotIn("Flow internal step", r_env_child.stdout)
 
     def test_root_anchored_chains_quest_momentum_also_in_and_all_done_tasks(self):
@@ -1396,9 +1398,9 @@ class TestChain(TodoMdTestCase):
         # Verify CLI output without --all:
         r_def = self._run([str(SCRIPT), "chain", "--numbered=right"], cwd=str(run_block), env=base_env, check=True)
         out_def = r_def.stdout
-        self.assertIn("Chain 1 -> F4: Goal B closing root (3 tasks, 33% | 1 done, 2 open):", out_def)
-        self.assertIn("Chain 2 -> F3: Goal A closing root (4 tasks, 25% | 1 done, 3 open):", out_def)
-        self.assertIn("Chain 3 -> F7: Competing next root (3 tasks, 0% | 0 done, 3 open):", out_def)
+        self.assertIn("Chain 1 -> F4: Goal B closing root [33% | done: 1, open: 2]:", out_def)
+        self.assertIn("Chain 2 -> F3: Goal A closing root [25% | done: 1, open: 3]:", out_def)
+        self.assertIn("Chain 3 -> F7: Competing next root [open: 3]:", out_def)
         self.assertIn("[also in: F3]", out_def)
         self.assertIn("[also in: F4]", out_def)
         self.assertNotIn("todo_flow:D1", out_def)
@@ -1643,19 +1645,19 @@ class TestChain(TodoMdTestCase):
         out_wide = r_wide.stdout
         self.assertIn(
             "Chain 1 -> F4: Closing root questline goal delivering nested milestone sub-chains and wrapped tree rows "
-            "(7 tasks, 14% | 1 done, 6 open):",
+            "[14% | done: 1, open: 6]:",
             out_wide,
         )
-        # Outer Sub-chain -> F2 (1 done + 4 open = 5 tasks -> 20% | 1 done, 4 open)
+        # Outer Sub-chain -> F2 (1 done + 4 open = 5 tasks -> 20% | done: 1, open: 4)
         self.assertIn(
             "  ├── Sub-chain -> F2: Local intermediate milestone integrating external aggregator and local engine prerequisite "
-            "(20% | 1 done, 4 open):",
+            "[20% | done: 1, open: 4]:",
             out_wide,
         )
-        # Inner Sub-chain -> todo_flow:F2 (1 done + 2 open = 3 tasks -> 33% | 1 done, 2 open)
+        # Inner Sub-chain -> todo_flow:F2 (1 done + 2 open = 3 tasks -> 33% | done: 1, open: 2)
         self.assertIn(
             "  │   ├── Sub-chain -> todo_flow:F2: External milestone aggregator combining completed foundation and open parser prerequisite "
-            "(33% | 1 done, 2 open):",
+            "[33% | done: 1, open: 2]:",
             out_wide,
         )
         # Verify tree connectors:
@@ -1679,7 +1681,7 @@ class TestChain(TodoMdTestCase):
         out_all_wide = r_all_wide.stdout
         self.assertIn(
             "  │   │   ├── Sub-chain -> todo_flow:F1: External parser prerequisite with a comprehensive multi-line wrapped description for sub-chain testing "
-            "(50% | 1 done, 1 open):",
+            "[50% | done: 1, open: 1]:",
             out_all_wide,
         )
         self.assertIn("  │   │   │   ├── 1 todo_flow:D1", out_all_wide)

@@ -1,3 +1,18 @@
+# ✅ [DONE] F59: Unify task and chain RPG stats ([FINAL | STAGE | COMBO | chain: N, done: D, ready: +M, unblocks: K] and [<pct>% | done: D, open: O]) across Quest-Log views — *2026-11-21*
+
+- In `_prepare_active_plan()` and `plan_execution_chains()` (`src/parser.py:2720-2855` and `src/parser.py:3380-3425`), compute `done_counts` (`{u: len(done_nodes.get(u, set())) for u in active_list}`), include `-done_counts.get(u, 0)` in `_node_rank()` so partially completed chains (`done > 0`) rank ahead of unstarted branches at equal priority, and expose `done_counts` and `is_momentum_next` in the returned plan dictionary.
+- In `cmd_chain()` / `_format_row()` (`src/commands.py:1255-1340`), replace legacy `[ready | N chain(s) | +M ready | unblocks K -> targets]`, `[ready | after: ...]`, and two-bracket `[ready] [unblocks K]` / `[blocked by: ... ] [unblocks K]` tags with a unified bracketed RPG stat block `[perks | key: val, ...]`:
+  - Perks (uppercase, separated by ` | ` in fixed priority order):
+    - `ready` (shown only in non-`--ready` views where ready and blocked rows appear together; omitted in `-r` / `--ready`),
+    - `FINAL` when `done_counts[u] > 0` and `active_unblocks[u] == 0` (closing root of a chain with all prerequisites completed),
+    - `STAGE` when `done_counts[u] > 0` and `active_unblocks[u] > 0` (ready intermediate sub-chain boss unlocking downstream tasks),
+    - `COMBO` when `is_momentum_next.get(u, 1) == 0` (continues the most recently completed task `latest_done_task`).
+  - Key-value stats (comma-separated after perks and ` | `):
+    - In `-r` / `--ready` (`show_downstream=True`): `chain: <N>` (using `1` for `FINAL` tasks in `finale_set`, else `chain_counts[u]` when `> 0`), `done: <D>` (only when `D > 0`), `ready: +<M>` (when `unblocks > 0`, where `M = len(immediate_ready_targets[u])`), and `unblocks: <K>` (when `K > 0`). Omit the trailing bracket tag completely for standalone ready tasks in `-r` that have no perks and all zero stats (`chain == 0, done == 0, unblocks == 0`).
+    - In non-`--ready` views (`show_downstream=False`): combine perks and stats into a single bracketed tag (`[ready | FINAL | COMBO | done: <D>]`, `[ready | STAGE | done: <D>, unblocks: <K>]`, `[ready | unblocks: <K>]`, `[ready]`, or `[blocked by: <refs> | unblocks: <K>]` / `[blocked | unblocks: <K>]`).
+- In `cmd_chain()` (`src/commands.py:1570-1680`), unify `Chain <N> -> <ref>: <title>` and `Sub-chain -> <ref>: <title>` header stats to `[<pct>% | done: <D>, open: <O>]:` when `done > 0` and `[open: <O>]:` when `done == 0` (replacing parenthesized `(<total> tasks, <pct>% | <done> done, <open> open):` and `(<pct>% | <done> done, <open> open):`).
+- Update `src/header.py`, `src/rules/todo_md.md`, `README.md`, and unit tests in `tests/test_chain.py`, rebuild `./todo_md` via `build.py`, and bump `VERSION` for a MINOR release.
+
 # ✅ [DONE] F54: Support nested .todo_projects orchestrator hierarchies and external project path aliases (e.g. ~/chrome/canary) — *2026-11-21, nested .todo_projects hierarchies and external path aliases*
 
 - In `read_configured_todo_projects()` (`src/parser.py`), recursively expand nested orchestrator projects (tracking `visited_configs: set[Path]` to prevent cycles): when a configured entry (such as `todo_flow`) has its own `.todo_projects` / `.todo_projects.local`, transitively include its child projects (`agents-rules`, `agents_bundle`, `todo_md`, `run_block`) alongside sibling projects (such as `~/chrome/canary`).

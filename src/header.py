@@ -48,8 +48,8 @@ Quest-Log options ({prog} [opts], {prog} chain [<ID>...] [opts], {prog} queue <I
   --numbered[=left|right]       Add period-free row numbers padded to the widest number (default: no numbers; side default: left)
   -l N, --limit N, -n N         Limit displayed rows to N (-n is a backward-compatible alias)
   --all                         Include archived DONE/CANCELED tasks from TODO_ARCHIVE.md (same as the ALL status keyword)
-  -r, --ready                   Show only ready tasks ranked by role ease, Quest Momentum, chain count, and ready unlocks
-                                (rows show [ready | N chain(s) | +M ready | unblocks K -> targets]; also accepted by list)
+  -r, --ready                   Show only ready tasks ranked by role ease, Quest Momentum, chain count, done count, and ready unlocks
+                                (rows show [FINAL | STAGE | COMBO | chain: N, done: D, ready: +M, unblocks: K]; also accepted by list)
   --by-role                     Partition active tasks into role queues
   --role ROLE                   Show only tasks matching ROLE
   --include-hold                Include HOLD tasks and branches blocked by HOLD

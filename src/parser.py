@@ -2776,6 +2776,9 @@ def _prepare_active_plan(
     ready_unblocks: dict[tuple[Path, str], int] = {
         u: len(targets) for u, targets in immediate_ready_targets.items()
     }
+    done_counts: dict[tuple[Path, str], int] = {
+        u: len(done_nodes.get(u, set())) for u in active_list
+    }
     is_momentum_next: dict[tuple[Path, str], int] = {
         u: (
             0
@@ -2792,7 +2795,7 @@ def _prepare_active_plan(
     def _node_rank(
         u: tuple[Path, str],
         ready_step: int = 0,
-    ) -> tuple[int, int, int, int, int, int, int, int, int, tuple[str, str, str], tuple[Path, str]]:
+    ) -> tuple[int, int, int, int, int, int, int, int, int, int, tuple[str, str, str], tuple[Path, str]]:
         st = str(nodes[u]["status"])
         prio = ACTIVE_STATUS_ORDER.get(st, 99)
         is_fin = 0 if u in finale_set else 1
@@ -2802,6 +2805,7 @@ def _prepare_active_plan(
             _resolve_node_role_ease(nodes, u),
             is_momentum_next.get(u, 1),
             -chain_counts.get(u, 0),
+            -done_counts.get(u, 0),
             -ready_unblocks.get(u, 0),
             -active_unblocks.get(u, 0),
             -ready_step,
@@ -2838,6 +2842,8 @@ def _prepare_active_plan(
         "excluded_hold": excluded_hold,
         "finale_set": finale_set,
         "chain_counts": chain_counts,
+        "done_counts": done_counts,
+        "is_momentum_next": is_momentum_next,
         "ready_unblocks": ready_unblocks,
         "immediate_ready_targets": immediate_ready_targets,
         "node_rank": _node_rank,
@@ -3104,6 +3110,8 @@ def plan_execution_chains(
     excluded_hold: set[tuple[Path, str]] = prep["excluded_hold"]  # type: ignore[assignment]
     finale_set: set[tuple[Path, str]] = prep["finale_set"]  # type: ignore[assignment]
     chain_counts: dict[tuple[Path, str], int] = prep["chain_counts"]  # type: ignore[assignment]
+    done_counts: dict[tuple[Path, str], int] = prep["done_counts"]  # type: ignore[assignment]
+    is_momentum_next: dict[tuple[Path, str], int] = prep["is_momentum_next"]  # type: ignore[assignment]
     ready_unblocks: dict[tuple[Path, str], int] = prep["ready_unblocks"]  # type: ignore[assignment]
     immediate_ready_targets: dict[tuple[Path, str], list[tuple[Path, str]]] = prep["immediate_ready_targets"]  # type: ignore[assignment]
     _node_rank = prep["node_rank"]  # type: ignore[assignment]
@@ -3123,6 +3131,8 @@ def plan_execution_chains(
             "excluded_hold": excluded_hold,
             "finale_set": finale_set,
             "chain_counts": chain_counts,
+            "done_counts": done_counts,
+            "is_momentum_next": is_momentum_next,
             "ready_unblocks": ready_unblocks,
             "immediate_ready_targets": immediate_ready_targets,
             "finales": [],
@@ -3410,6 +3420,8 @@ def plan_execution_chains(
         "excluded_hold": excluded_hold,
         "finale_set": finale_set,
         "chain_counts": chain_counts,
+        "done_counts": done_counts,
+        "is_momentum_next": is_momentum_next,
         "ready_unblocks": ready_unblocks,
         "immediate_ready_targets": immediate_ready_targets,
         "finales": finales,
@@ -3519,6 +3531,11 @@ def plan_execution_chains_by_role(
         "active_unblocks": active_unblocks,
         "excluded_hold": excluded_hold,
         "finale_set": finale_set,
+        "chain_counts": prep["chain_counts"],
+        "done_counts": prep["done_counts"],
+        "is_momentum_next": prep["is_momentum_next"],
+        "ready_unblocks": prep["ready_unblocks"],
+        "immediate_ready_targets": prep["immediate_ready_targets"],
         "queues": queues,
     }
 
