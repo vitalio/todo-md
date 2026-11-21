@@ -194,7 +194,7 @@ class TestCommands(TodoMdTestCase):
         self.assertIn("no active WIP or NEXT task", r_empty.stderr)
 
         (self.tmp / "src").mkdir()
-        (self.tmp / "src" / "app.py").write_text("print('hi')\n", encoding="utf-8")
+        (self.tmp / "src" / "app.py").write_text("".join(f"line{i}\n" for i in range(1, 13)), encoding="utf-8")
         (self.tmp / "README.md").write_text("# Demo\n", encoding="utf-8")
         body = (
             "- Update `src/app.py:10` and `README.md` (and `src/app.py` again).\n"
@@ -214,7 +214,7 @@ class TestCommands(TodoMdTestCase):
 
         r_files = self._run([str(SCRIPT), "files", "F1"])
         self.assertEqual(r_files.returncode, 0, r_files.stderr)
-        self.assertEqual(r_files.stdout.splitlines(), ["src/app.py", "README.md"])
+        self.assertEqual(r_files.stdout.splitlines(), ["src/app.py:10-10", "README.md", "src/app.py"])
 
         r_files_top = self._run([str(SCRIPT), "--files"])
         self.assertEqual(r_files_top.returncode, 0, r_files_top.stderr)
@@ -654,6 +654,67 @@ class TestCommands(TodoMdTestCase):
             with self.subTest(bad_args=bad_args):
                 proc = self._run([str(SCRIPT), *bad_args], cwd=str(proj_a))
                 self.assertNotEqual(proc.returncode, 0, msg=proc.stdout)
+
+    def test_files_glob_patterns_and_line_slices(self):
+        self._run([str(SCRIPT), "init"], check=True)
+        src = self.tmp / "src"
+        src.mkdir()
+        (src / "big.py").write_text("".join(f"l{i}\n" for i in range(1, 101)), encoding="utf-8")
+        (src / "a.py").write_text("a\n", encoding="utf-8")
+        (src / "b.py").write_text("b\n", encoding="utf-8")
+        cache = src / "__pycache__"
+        cache.mkdir()
+        (cache / "a.pyc").write_text("x\n", encoding="utf-8")
+        docs = self.tmp / "docs"
+        docs.mkdir()
+        (docs / "x.md").write_text("x\n", encoding="utf-8")
+        (docs / "y.md").write_text("y\n", encoding="utf-8")
+        (self.tmp / "todo_md").write_text("compiled\n", encoding="utf-8")
+        body = (
+            "- Slices `src/big.py:10-20`, `src/big.py:50`, `src/big.py#L60-L70`, "
+            "`src/big.py#L80`, `src/big.py:95-200`.\n"
+            "- Globs `src/*.py`, `src/**/*.pyc`, and `docs/*.md`.\n"
+            "- Ignored: cross-project ref `todo_md:D5`, bare `D*` and `*`, `src/*.py:1-2`, "
+            "`../*.py`, `src/big.py:0-5`, `src/big.py:20-10`, `src/big.py:500-600`.\n"
+        )
+        self._run([str(SCRIPT), "add", "Glob task", "--next", "-b", body], check=True)
+        r = self._run([str(SCRIPT), "files", "F1"], check=True)
+        self.assertEqual(
+            r.stdout.splitlines(),
+            [
+                "src/big.py:10-20",
+                "src/big.py:50-50",
+                "src/big.py:60-70",
+                "src/big.py:80-80",
+                "src/big.py:95-100",
+                "src/a.py",
+                "src/b.py",
+                "src/big.py",
+                "docs/x.md",
+                "docs/y.md",
+            ],
+        )
+        self.assertNotIn("__pycache__", r.stdout)
+
+    def test_files_line_slice_budgets(self):
+        self._run([str(SCRIPT), "init"], check=True)
+        (self.tmp / "big.py").write_text("".join(f"l{i}\n" for i in range(1, 101)), encoding="utf-8")
+        self._run(
+            [str(SCRIPT), "add", "Slice budgets", "--next", "-b", "Read `big.py:1-5`, `big.py:10-40`, `big.py`."],
+            check=True,
+        )
+        cases = (
+            ([], ["big.py:1-5", "big.py:10-40", "big.py"]),
+            (["--max-lines", "10"], ["big.py:1-5"]),
+            (["--max-lines", "40"], ["big.py:1-5", "big.py:10-40"]),
+            (["--max-total-lines", "40"], ["big.py:1-5", "big.py:10-40"]),
+            (["--max-bytes", "20"], ["big.py:1-5"]),
+            (["--max-total-bytes", "15"], ["big.py:1-5"]),
+        )
+        for extra, expected in cases:
+            with self.subTest(extra=extra):
+                r = self._run([str(SCRIPT), "files", "F1", *extra], check=True)
+                self.assertEqual(r.stdout.splitlines(), expected)
 
     def test_list_rejects_retired_tree_flag(self):
         proj = self.tmp / "proj_no_tree"

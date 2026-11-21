@@ -51,6 +51,10 @@ ANY_ID_RE = re.compile(
     rf"^(?:#\s+(?:{STATUS_TOKEN_PAT}\s+|[-*o?+c]\s+)?|(?:- \[[ xX~]\]\s+(?:{STATUS_TOKEN_PAT}\s+)?|- |[*o?+c] ))([A-Z]\d+)\b"
 )
 BACKTICK_TOKEN_RE = re.compile(r"`([^`\n]+)`")
+LINE_SLICE_RE = re.compile(
+    r"^(?P<path>.+?)(?::(?P<a>\d+)(?:-(?P<b>\d+))?(?::\d+)?|#L(?P<c>\d+)(?:-L?(?P<d>\d+))?)$"
+)
+FILE_SPEC_RE = re.compile(r"^(?P<path>.+):(?P<start>\d+)-(?P<end>\d+)$")
 PROJECT_TASK_RE = re.compile(r"^(.+?):([A-Za-z]\d+)$")
 DEPENDS_LINE_RE = re.compile(r"^\s*[-*]\s*Depends on:\s*(.+?)\s*$", re.IGNORECASE)
 ROLE_LINE_RE = re.compile(r"^\s*[-*]\s*Role:\s*(.*?)\s*$", re.IGNORECASE)
@@ -183,8 +187,10 @@ HELP_COMMANDS: tuple[tuple[str, str], ...] = (
     ("{prog} next-id [<ID>] [--role ROLE] | --top",
      "Print the top ready WIP/NEXT ID, or the first ready ID in <ID>'s queue"),
     ("{prog} files [<ID>] | --files [<ID>]",
-     "List existing repository file paths referenced in backticks in task <ID>. Options: "
-     "--max-lines N, --max-total-lines N, --max-bytes N, --max-total-bytes N"),
+     "List existing repository files referenced in backticks in task <ID>: glob patterns "
+     "expand to matching files and path:START-END slices (also path:LINE, path#LSTART-LEND) "
+     "print as path:START-END. Options: --max-lines N, --max-total-lines N, --max-bytes N, "
+     "--max-total-bytes N (budgets count only the sliced lines)"),
     ("{prog} check", "Validate layout, headings, status badges, and unique IDs"),
     ("{prog} init [TEXT] [--force]",
      "Create starter TODO.md (with optional project idea from TEXT/stdin) and "

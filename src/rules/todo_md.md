@@ -106,9 +106,12 @@
     first unblocked actionable ID in `<ID>`'s queue, exiting non-zero on cycles,
     missing/canceled blockers, or closed targets),
     `{cmd:todo_md} files [<ID>] [--max-lines N] [--max-total-lines N] [--max-bytes N] [--max-total-bytes N]`
-    (existing backtick-referenced repo files within optional size budgets;
-    reference target file paths and key symbol names in backticks in task
-    bodies rather than brittle line ranges)
+    (existing backtick-referenced repo files, glob patterns such as `src/*.py`,
+    and `path:start-end` line slices within optional size budgets, evaluated
+    against the sliced lines only; reference target file paths and
+    key symbol names in backticks in task bodies, and when promoting a task to
+    `NEXT` for `role=work`, record `path:start-end` line ranges for large files
+    whose sections were already inspected)
   - Create: `{cmd:todo_md} add [<PROJECT>] [<PREFIX>] "<title>" [-p <PREFIX>] [--next] [--status WIP|NEXT|NEW|HOLD|QUESTION] [-m "<note>"] [-b "<body_md>"|-] [--depends <spec>] [-c|--commit]`
     (auto-assigns `<ID>`, default prefix `F`; pass body via `-b`, `-b -` for `stdin`, or piped `stdin`;
     `{cmd:todo_md} init "<idea>"` bootstraps a new `TODO.md`)

@@ -1,3 +1,12 @@
+# ✅ [DONE] F57: Support glob path patterns and line-range slices (path:start-end) in todo_md files (extract_task_files and cmd_files) — *2026-11-21, glob patterns and line-range slices in files*
+
+- Depends on: F56
+- In `extract_task_files()` (`src/commands.py:1005-1095`), support both glob patterns and line-range suffixes on backticked repository file references:
+  - Line-range suffixes: parse trailing `:start-end`, `:line`, or `#Lstart-Lend` / `#Lline` (1-based inclusive line numbers, normalizing to `rel_path:start-end` when a range or single line is given) instead of stripping and discarding line numbers, and reject tokens where the suffix after `:` is not a valid line number/range (so cross-project task refs like `todo_md:D5` are never stripped to the compiled `todo_md` binary in repo root); deduplicate by the full `rel_path` or `rel_path:start-end` spec so multiple distinct slices of a large file can be emitted.
+  - Glob patterns: allow `*`, `?`, and `[` in relative path tokens without line ranges when the token contains a path separator `/` or file extension `.` (ignoring bare prefix tokens like `D*` or `*`) and no `..` traversal segments, expanding `sorted(repo_root.glob(cand))` into matching regular files inside `repo_root` (skipping `.git` and `__pycache__`).
+- In `cmd_files()` (`src/commands.py:1040-1095`), when an item specifies `:start-end`, evaluate `--max-lines`, `--max-total-lines`, `--max-bytes`, and `--max-total-bytes` against the sliced lines (`lines[start - 1 : end]`) rather than the entire file so inspected sections of large files fit within bundle size budgets, and print `rel_path:start-end` to `stdout`.
+- Update `src/header.py`, `src/rules/todo_md.md` (documenting that planners record `path:start-end` line ranges for large inspected files when promoting a task to `NEXT` for `role=work`), `README.md`, and unit tests in `tests/test_commands.py`, rebuild via `build.py`, and bump `VERSION` for a MINOR release.
+
 # ✅ [DONE] F56: Format and align -h/--help output with structured Usage/Commands/Options sections and <=100-col lines — *2026-11-21, structured --help layout with aligned columns and 100-col wrapping*
 
 - Depends on: F44

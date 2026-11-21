@@ -1008,10 +1008,65 @@ def cmd_next_id(
     return 0
 
 
+def split_line_slice(token: str) -> tuple[str, tuple[int, int] | None]:
+    m = LINE_SLICE_RE.match(token)
+    if not m:
+        return token, None
+    start = int(m.group("a") or m.group("c"))
+    end_raw = m.group("b") or m.group("d")
+    return m.group("path"), (start, int(end_raw) if end_raw else start)
+
+
+def split_file_spec(spec: str) -> tuple[str, tuple[int, int] | None]:
+    m = FILE_SPEC_RE.match(spec)
+    if not m:
+        return spec, None
+    return m.group("path"), (int(m.group("start")), int(m.group("end")))
+
+
+def _resolve_repo_file(repo_root: Path, token: str) -> str | None:
+    p_tok = Path(token)
+    target = p_tok.resolve() if p_tok.is_absolute() else (repo_root / token).resolve()
+    try:
+        rel_posix = target.relative_to(repo_root).as_posix()
+    except ValueError:
+        return None
+    if rel_posix == "." or not target.is_file():
+        return None
+    return rel_posix
+
+
+def _expand_task_glob(repo_root: Path, pattern: str) -> list[str]:
+    if pattern.startswith("/") or ("/" not in pattern and "." not in pattern):
+        return []
+    if ".." in pattern.split("/"):
+        return []
+    try:
+        matches = sorted(repo_root.glob(pattern))
+    except (NotImplementedError, ValueError, OSError):
+        return []
+    out: list[str] = []
+    for m in matches:
+        try:
+            rel = m.resolve().relative_to(repo_root)
+        except (ValueError, OSError):
+            continue
+        if not m.is_file() or {".git", "__pycache__"} & set(rel.parts):
+            continue
+        out.append(rel.as_posix())
+    return out
+
+
 def extract_task_files(base_dir: Path, section_text: str) -> list[str]:
     repo_root = base_dir.resolve()
     found: list[str] = []
     seen: set[str] = set()
+
+    def add(spec: str) -> None:
+        if spec not in seen:
+            seen.add(spec)
+            found.append(spec)
+
     in_fence = False
     for line in section_text.splitlines():
         if line.lstrip().startswith(FENCE):
@@ -1023,22 +1078,25 @@ def extract_task_files(base_dir: Path, section_text: str) -> list[str]:
             cand = raw.strip()
             if not cand or any(ch.isspace() for ch in cand) or "://" in cand:
                 continue
-            if cand.startswith("-") or any(ch in cand for ch in "<>*?{}"):
+            if cand.startswith("-") or any(ch in cand for ch in "<>{}"):
                 continue
-            cand = re.sub(r"(?::\d+(?::\d+)?|#L\d+(?:-L\d+)?)$", "", cand)
-            if not cand:
+            path_part, span = split_line_slice(cand)
+            if span is not None and (span[0] < 1 or span[1] < span[0]):
                 continue
-            p_cand = Path(cand)
-            target = p_cand.resolve() if p_cand.is_absolute() else (repo_root / cand).resolve()
-            try:
-                rel_posix = target.relative_to(repo_root).as_posix()
-            except ValueError:
+            if any(ch in path_part for ch in "*?["):
+                if span is None:
+                    for rel_glob in _expand_task_glob(repo_root, path_part):
+                        add(rel_glob)
                 continue
-            if rel_posix == "." or not target.is_file():
+            rel = _resolve_repo_file(repo_root, path_part)
+            if rel is None:
                 continue
-            if rel_posix not in seen:
-                seen.add(rel_posix)
-                found.append(rel_posix)
+            if span is not None:
+                n_total = len((repo_root / rel).read_bytes().splitlines())
+                if span[0] > n_total:
+                    continue
+                rel = f"{rel}:{span[0]}-{min(span[1], n_total)}"
+            add(rel)
     return found
 
 
@@ -1057,28 +1115,30 @@ def cmd_files(
     has_budget = any(
         cap is not None for cap in (max_lines, max_total_lines, max_bytes, max_total_bytes)
     )
-    need_lines = max_lines is not None or max_total_lines is not None
     repo_root = base_dir.resolve()
     total_lines = 0
     total_bytes = 0
     for t in collect_all_tasks(base_dir):
         if str(t["id"]).upper() == target:
-            for rel_path in extract_task_files(base_dir, str(t["section"])):
+            for spec in extract_task_files(base_dir, str(t["section"])):
                 if has_budget:
-                    raw = (repo_root / rel_path).read_bytes()
-                    n_bytes = len(raw)
+                    rel_path, span = split_file_spec(spec)
+                    chunks = (repo_root / rel_path).read_bytes().splitlines(keepends=True)
+                    if span is not None:
+                        chunks = chunks[span[0] - 1 : span[1]]
+                    n_bytes = sum(len(c) for c in chunks)
+                    n_lines = len(chunks)
                     if max_bytes is not None and n_bytes > max_bytes:
                         continue
                     if max_total_bytes is not None and total_bytes + n_bytes > max_total_bytes:
                         continue
-                    n_lines = len(raw.splitlines()) if need_lines else 0
                     if max_lines is not None and n_lines > max_lines:
                         continue
                     if max_total_lines is not None and total_lines + n_lines > max_total_lines:
                         continue
                     total_bytes += n_bytes
                     total_lines += n_lines
-                sys.stdout.write(f"{rel_path}\n")
+                sys.stdout.write(f"{spec}\n")
             return 0
     sys.stderr.write(f"{prog_name()}: task {target!r} not found in TODO*.md under {base_dir}\n")
     return 1
