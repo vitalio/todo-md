@@ -42,12 +42,12 @@ todo_md check
 ## CLI Reference
 
 Mutating commands (`init`, `add`, `edit`, `append`, `status`, `next`, `reopen`, `done`,
-`cancel`) first run `git pull --ff-only --quiet` when the repository has a configured
-git upstream, so task IDs are never assigned from a stale `HEAD`. The sync is skipped
-outside a git repository, without an upstream, when `TODO_MD_NO_GIT_PULL=1` is set, or
-(unless `-c` / `--commit` is enabled) when tracked files other than `TODO*.md` have
-uncommitted changes. If the pull fails (for example the branch has diverged), the
-command aborts with an error before touching `TODO*.md`.
+`cancel`) first run `git pull --ff-only --no-rebase --quiet` when the repository has a
+configured git upstream, so task IDs are never assigned from a stale `HEAD`. The sync is
+skipped outside a git repository, without an upstream, when `TODO_MD_NO_GIT_PULL=1` is
+set, or when any tracked file (including `TODO*.md` modified earlier in an uncommitted
+batch) has uncommitted changes. If the pull fails (for example the branch has diverged),
+the command aborts with an error before touching `TODO*.md`.
 
 Global options accepted before subcommands:
 
@@ -70,11 +70,11 @@ Global options accepted before subcommands:
 | `todo_md add [<PROJ>] [<PREFIX>] <TITLE> [opts]` | Add a new task with auto-assigned ID (`-p PREFIX`, `--next`, `--status STATUS`, `-m NOTE`, `-b BODY\|-`, `--depends SPEC`) |
 | `todo_md edit <ID> [opts]` | Update task title, note, body, or dependencies (`-t TITLE`, `-m NOTE`, `-b BODY\|-`, `--depends SPEC`); a new body keeps existing `- Depends on:` and `- Target files:` lines that it omits, and `--depends ""` clears dependencies |
 | `todo_md append <ID> [-b TEXT\|-]` | Append progress/notes to task `<ID>` body (`-b TEXT\|-` or `stdin`) |
-| `todo_md status <ID> <STATUS> [-m N] [--reopen]` | Update task status (`WIP`, `NEXT`, `NEW`, `HOLD`, `QUESTION`, `DONE`, `CANCELED`; `--reopen` required if archived) |
-| `todo_md next <ID> [-m NOTE] [--reopen]` | Promote task `<ID>` to `🎯 [NEXT]` priority at the top of `TODO.md` (strips `- Role: plan` so non-`D` tasks transition to `work`; `--reopen` required if archived) |
-| `todo_md reopen <ID> [--status S] [-m NOTE]` | Reopen archived task `<ID>` back to `TODO.md` (default status `NEW`, clears prior closing note unless `-m` is given) |
-| `todo_md done <ID> [-m NOTE]` | Mark task `<ID>` as `✅ [DONE]`, move it to `TODO_ARCHIVE.md`, and print any newly `Unblocked:` tasks |
-| `todo_md cancel <ID> [-m REASON]` | Mark task `<ID>` as `❌ [CANCELED]` and move it to `TODO_ARCHIVE.md` |
+| `todo_md status <ID>... <STATUS> [-m N] [--reopen]` | Update status for one or more tasks (`WIP`, `NEXT`, `NEW`, `HOLD`, `QUESTION`, `DONE`, `CANCELED`; `--reopen` required if archived) |
+| `todo_md next <ID>... [-m NOTE] [--reopen]` | Promote task(s) `<ID>...` to `🎯 [NEXT]` priority at the top of `TODO.md` (strips `- Role: plan` so non-`D` tasks transition to `work`; `--reopen` required if archived) |
+| `todo_md reopen <ID>... [--status S] [-m NOTE]` | Reopen archived task(s) `<ID>...` back to `TODO.md` (default status `NEW`, clears prior closing note unless `-m` is given) |
+| `todo_md done <ID>... [-m NOTE]` | Mark task(s) `<ID>...` as `✅ [DONE]`, move to `TODO_ARCHIVE.md`, and print any newly `Unblocked:` tasks |
+| `todo_md cancel <ID>... [-m REASON]` | Mark task(s) `<ID>...` as `❌ [CANCELED]` and move to `TODO_ARCHIVE.md` |
 | `todo_md ids` | Print highest task IDs in use and next free ID per letter prefix, followed by a compact prefix legend (`F` feature, `B` bugfix, `D` design, custom `A-Z`) and the status-role conventions |
 | `todo_md queue <ID> [--all]` | Alias for `todo_md chain <ID> [--all]`: focused Quest-Log of the chain containing `<ID>` with `Next actionable: <ref>` (use `--all` to include `DONE`) |
 | `todo_md chain [<ID>...] [opts]` | Show the Quest-Log: root-anchored RPG progress chains (`[<pct>% \| <done>/<total>] Chain <N> -> <root_ref>: <root_title>:`, with ready `work` chain finales `[ready \| FINAL]` ranked first as top `Chain 1..K` entries) rendered as flat priority-topological rows by default (`--tree` / `-t` renders nested `[<pct>% \| <done>/<total>] Sub-chain -> <milestone_ref>: <title>:` milestone trees with 4-char connectors `├── `, `└── `, `└─► `), `[also in: <other_root_ref>, ...]` on shared prerequisites, and standalone tasks (or role-tiered queues with `--by-role`) across the repository or `.todo_projects` orchestrator DAG (merging orchestrator blockers (including nested `.todo_projects` hierarchies expanded transitively and external project path aliases such as `~/chrome/canary` -> `chrome/canary:<ID>`) into child-project views, formatting task refs relative to `cwd`, and applying composable TTY styling for external-project tasks, `DONE` tasks, and highlighted targets), ranked with monotonic Quest Momentum by ready `work` finale priority, bug priority (`B*`), role execution ease, active quest momentum / started-chain status floor, role-weighted velocity (`work=1, plan=2, design=5`), whole-cone size, and root tie-breaker. Options: `--all` (include archived `DONE`/`CANCELED` tasks from `TODO_ARCHIVE.md`), `-r` / `--ready` (ready tasks ranked by role ease, Quest Momentum continuation, best parent chain rank (tasks advancing `Chain 1` first), multi-chain count, completed prerequisite count, and immediate ready unlocks, shown as `[FINAL \| STAGE \| COMBO \| chain: <N>, ready: +<M>, unblocks: <K>]`, with `chain: <N>` shown only when `N > 1` and `ready: +<M>` only when `M > 0`), `--by-role`, `--role ROLE`, `-l N` / `--limit N` (`-n N` alias), `--include-hold`, `--numbered[=left\|right]` (period-free row numbers, default side `left`), `--status STATUS` or a bare `WIP\|NEXT\|QUESTION\|NEW\|HOLD\|ACTIVE\|ALL` keyword (`DONE\|CANCELED\|archive` render the list view), `-f` / `--filter <ID>...` (and positional `<ID>...`: bare `<ID>` matches across all projects in view, `<project>:<ID>` matches one project; focuses and highlights by default, and prints `Next actionable: <ref>` for a single ID), `-H` / `--highlight [<ID>...]` (boolean toggle disabling focus to render the full view with matched `-f`/`-s` tasks highlighted; `-H <ID>...` is shorthand for `-f <ID>... -H`), `-s` / `--search <QUERY>` (`-w` for workspace) |

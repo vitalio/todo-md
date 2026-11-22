@@ -41,13 +41,10 @@ def _sync_upstream(base_dir: Path, commit: bool = False, no_commit: bool = False
         return
     if _git_run(base_dir, "rev-parse", "--abbrev-ref", "@{u}").returncode != 0:
         return
-    if not _commit_enabled(commit, no_commit):
-        r_st = _git_run(base_dir, "status", "--porcelain", "--untracked-files=no")
-        if r_st.returncode != 0:
-            return
-        if any(Path(line[3:].strip()).name not in TASK_FILES for line in r_st.stdout.splitlines()):
-            return
-    r_pull = _git_run(base_dir, "pull", "--ff-only", "--quiet")
+    r_st = _git_run(base_dir, "status", "--porcelain", "--untracked-files=no")
+    if r_st.returncode != 0 or r_st.stdout.strip():
+        return
+    r_pull = _git_run(base_dir, "pull", "--ff-only", "--no-rebase", "--quiet")
     if r_pull.returncode != 0:
         detail = (r_pull.stderr or r_pull.stdout).strip()
         msg = (
@@ -277,6 +274,15 @@ def _parse_note_arg(rest: list[str]) -> tuple[list[str], str | None]:
             i += 1
     return pos, note
 
+def _expand_task_id_args(raw_args: list[str]) -> list[str]:
+    refs: list[str] = []
+    for arg in raw_args:
+        parts = [p.strip() for p in arg.split(",") if p.strip()]
+        if not parts:
+            return []
+        refs.extend(parts)
+    return refs
+
 def cmd_transition(
     base_dir: Path,
     task_id: str,
@@ -288,11 +294,13 @@ def cmd_transition(
     require_archived: bool = False,
     commit: bool = False,
     no_commit: bool = False,
+    sync: bool = True,
 ) -> int:
     target = task_id.strip().upper()
     if new_status and new_status not in VALID_STATUSES:
         raise SystemExit(f"{prog_name()}: invalid status {new_status!r}; expected one of {', '.join(VALID_STATUSES)}")
-    _sync_upstream(base_dir, commit, no_commit)
+    if sync:
+        _sync_upstream(base_dir, commit, no_commit)
     source_file: str | None = None
     found: dict[str, object] | None = None
     updated_source_text = ""
@@ -430,6 +438,43 @@ def cmd_transition(
             sys.stdout.write(f"Unblocked: {', '.join(unblocked)}\n")
     return rc
 
+def cmd_transition_batch(
+    targets: list[tuple[Path, str]],
+    new_status: str | None = None,
+    dest_file: str | None = None,
+    note: str | None = None,
+    promote_top: bool = False,
+    reopen: bool = False,
+    require_archived: bool = False,
+    commit: bool = False,
+    no_commit: bool = False,
+) -> int:
+    if new_status and new_status not in VALID_STATUSES:
+        raise SystemExit(f"{prog_name()}: invalid status {new_status!r}; expected one of {', '.join(VALID_STATUSES)}")
+    seen_dirs: set[Path] = set()
+    for tdir, _ in targets:
+        resolved_dir = tdir.resolve()
+        if resolved_dir not in seen_dirs:
+            seen_dirs.add(resolved_dir)
+            _sync_upstream(tdir, commit, no_commit)
+    for tdir, tid in targets:
+        rc = cmd_transition(
+            tdir,
+            tid,
+            new_status=new_status,
+            dest_file=dest_file,
+            note=note,
+            promote_top=promote_top,
+            reopen=reopen,
+            require_archived=require_archived,
+            commit=commit,
+            no_commit=no_commit,
+            sync=False,
+        )
+        if rc != 0:
+            return rc
+    return 0
+
 def cmd_reopen(
     base_dir: Path,
     argv: list[str],
@@ -469,16 +514,16 @@ def cmd_reopen(
             pos.append(a)
             i += 1
 
-    if len(pos) != 1:
-        raise SystemExit(f"{prog}: usage: {prog} reopen <ID> [--status STATUS] [-m NOTE]")
+    raw_ids = _expand_task_id_args(pos)
+    if not raw_ids:
+        raise SystemExit(f"{prog}: usage: {prog} reopen <ID>... [--status STATUS] [-m NOTE]")
     if target_status not in ACTIVE_STATUS_ORDER:
         raise SystemExit(
             f"{prog}: reopen --status must be an active status ({', '.join(ACTIVE_STATUS_ORDER)}), got {target_status!r}"
         )
-    tdir, tid = resolve_project_task_ref(base_dir, pos[0], explicit_dir=explicit_dir)
-    return cmd_transition(
-        tdir,
-        tid,
+    targets = [resolve_project_task_ref(base_dir, ref, explicit_dir=explicit_dir) for ref in raw_ids]
+    return cmd_transition_batch(
+        targets,
         new_status=target_status,
         dest_file="TODO.md",
         note=note,

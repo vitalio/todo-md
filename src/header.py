@@ -198,18 +198,18 @@ HELP_COMMANDS: tuple[tuple[str, str], ...] = (
      "existing '- Depends on:' and '- Target files:' lines it omits; --depends '' clears dependencies"),
     ("{prog} append <ID> [-b TEXT|-]",
      "Append text to the body of task <ID> (from -b TEXT|- or stdin)"),
-    ("{prog} status <ID> <STATUS> [opts]",
+    ("{prog} status <ID>... <STATUS> [opts]",
      "Set status (WIP|NEXT|NEW|HOLD|QUESTION|DONE|CANCELED). Options: -m NOTE, --reopen"),
-    ("{prog} next <ID> [-m NOTE] [--reopen]",
-     "Promote task <ID> to 🎯 [NEXT] at the top of TODO.md (strips - Role: plan; "
+    ("{prog} next <ID>... [-m NOTE] [--reopen]",
+     "Promote task(s) <ID>... to 🎯 [NEXT] at the top of TODO.md (strips - Role: plan; "
      "--reopen if archived)"),
-    ("{prog} reopen <ID> [opts]",
-     "Move archived task <ID> back to TODO.md. Options: -s/--status STATUS (default: NEW), "
-     "-m NOTE"),
-    ("{prog} done <ID> [-m SHA_OR_NOTE]",
-     "Mark <ID> as DONE and move it to TODO_ARCHIVE.md"),
-    ("{prog} cancel <ID> [-m REASON]",
-     "Mark <ID> as CANCELED and move it to TODO_ARCHIVE.md"),
+    ("{prog} reopen <ID>... [opts]",
+     "Move archived task(s) <ID>... back to TODO.md. Options: -s/--status STATUS (default: "
+     "NEW), -m NOTE"),
+    ("{prog} done <ID>... [-m SHA_OR_NOTE]",
+     "Mark <ID>... as DONE and move to TODO_ARCHIVE.md"),
+    ("{prog} cancel <ID>... [-m REASON]",
+     "Mark <ID>... as CANCELED and move to TODO_ARCHIVE.md"),
     ("{prog} ids", "Print highest task IDs in use and next available ID per prefix"),
     ("{prog} chain [<ID>...] [opts]",
      "Show the Quest-Log: top-ranked work finales, root-anchored chains, role queues, "

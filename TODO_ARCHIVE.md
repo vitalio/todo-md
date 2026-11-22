@@ -1,3 +1,10 @@
+# ✅ [DONE] B7: Skip repeated git pull across batched mutations, support multi-ID status transitions, and simplify Target files rule — *2026-11-22*
+
+- In `_sync_upstream()` (`src/commands.py`), skip running `git pull` when `git status --porcelain --untracked-files=no` is non-empty (including when `TODO.md` or `TODO_ARCHIVE.md` was already modified by an earlier command in the same uncommitted mutation batch), and pass `--no-rebase` (`git pull --ff-only --no-rebase --quiet`) so `git pull` runs only once at the start of a clean batch and never fails under global `pull.rebase=true`.
+- Support multiple task IDs in `todo_md next <ID>...`, `todo_md status <ID>... <STATUS>`, `todo_md done <ID>...`, `todo_md cancel <ID>...`, and `todo_md reopen <ID>...` (`src/commands.py`, `src/cli.py`, `src/header.py`), running `_sync_upstream()` once before applying the batch transition.
+- In `agents/todo_md.md`, simplify the `Target files contract` bullet so planners record known target files as plain backticked paths on `- Target files:` only when already identified during planning, without spending extra steps searching for files or computing symbol/line slices.
+- Target files: `src/commands.py`, `src/cli.py`, `src/header.py`, `agents/todo_md.md`, `README.md`, `tests/test_cli.py`.
+
 # ✅ [DONE] B6: Keep ready NEXT tasks at the top of flat chains, dynamically re-rank --tree subtrees, and prefix chain headers with [<pct>% | <done>/<total>] — *2026-11-22*
 
 - In `_prepare_active_plan()` (`src/chains.py`), rank currently ready tasks

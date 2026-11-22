@@ -18,8 +18,11 @@ class TestCli(TodoMdTestCase):
         flat = self._flat_text(rh.stdout)
         self.assertNotIn("resume", rh.stdout)
         self.assertNotIn("TODO_PLAN.md", rh.stdout)
-        self.assertIn("next <ID>", rh.stdout)
-        self.assertIn("reopen <ID>", rh.stdout)
+        self.assertIn("next <ID>...", rh.stdout)
+        self.assertIn("status <ID>... <STATUS>", rh.stdout)
+        self.assertIn("reopen <ID>...", rh.stdout)
+        self.assertIn("done <ID>...", rh.stdout)
+        self.assertIn("cancel <ID>...", rh.stdout)
         self.assertIn("--reopen", rh.stdout)
         self.assertIn("-C DIR|PROJ, --project NAME", rh.stdout)
         self.assertIn("add", rh.stdout)
@@ -422,6 +425,41 @@ class TestCli(TodoMdTestCase):
         self.assertNotIn("Parser rewrite", out_arch_filt)
         out_arch = self._run([str(SCRIPT), "--full", "--all", "-s", "unrelated"], cwd=str(proj), check=True).stdout
         self.assertIn("Task: F3", out_arch)
+
+
+    def test_multi_id_status_transitions_and_single_sync(self):
+        proj = self.tmp / "multi_tr"
+        proj.mkdir()
+        self._run([str(SCRIPT), "init"], cwd=str(proj), check=True)
+        for title in ("First", "Second", "Third", "Fourth"):
+            self._run([str(SCRIPT), "add", title], cwd=str(proj), check=True)
+
+        with mock.patch.object(self.todo_md_mod, "_sync_upstream") as m_sync:
+            self._run([str(SCRIPT), "next", "F1", "F2"], cwd=str(proj), check=True)
+            self.assertEqual(m_sync.call_count, 1)
+
+            self._run([str(SCRIPT), "status", "F1,F2", "WIP", "-m", "active"], cwd=str(proj), check=True)
+            self.assertEqual(m_sync.call_count, 2)
+
+            self._run([str(SCRIPT), "done", "F1", "F2", "-m", "done batch"], cwd=str(proj), check=True)
+            self.assertEqual(m_sync.call_count, 3)
+
+            self._run([str(SCRIPT), "cancel", "F3,F4", "-m", "drop batch"], cwd=str(proj), check=True)
+            self.assertEqual(m_sync.call_count, 4)
+
+            self._run(
+                [str(SCRIPT), "reopen", "F1", "F3", "--status", "NEXT", "-m", "back"],
+                cwd=str(proj),
+                check=True,
+            )
+            self.assertEqual(m_sync.call_count, 5)
+
+        todo_txt = (proj / "TODO.md").read_text(encoding="utf-8")
+        arch_txt = (proj / "TODO_ARCHIVE.md").read_text(encoding="utf-8")
+        self.assertIn("# 🎯 [NEXT] F1: First — *back*", todo_txt)
+        self.assertIn("# 🎯 [NEXT] F3: Third — *back*", todo_txt)
+        self.assertIn("F2: Second", arch_txt)
+        self.assertIn("F4: Fourth", arch_txt)
 
 
 if __name__ == "__main__":

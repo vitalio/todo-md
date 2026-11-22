@@ -586,16 +586,24 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_append(base_dir, args[1:], commit=commit, no_commit=no_commit)
     if args[0] in ("done", "--done"):
         pos, note = _parse_note_arg(args[1:])
-        if len(pos) != 1:
-            raise SystemExit(f"{prog}: usage: {prog} done <ID> [-m NOTE]")
-        tdir, tid = resolve_project_task_ref(base_dir, pos[0], explicit_dir=explicit_dir)
-        return cmd_transition(tdir, tid, new_status="DONE", dest_file="TODO_ARCHIVE.md", note=note, commit=commit, no_commit=no_commit)
+        bad_flags = [p for p in pos if p.startswith("-")]
+        if bad_flags:
+            raise SystemExit(f"{prog}: unknown option for done: {bad_flags[0]}")
+        raw_ids = _expand_task_id_args(pos)
+        if not raw_ids:
+            raise SystemExit(f"{prog}: usage: {prog} done <ID>... [-m NOTE]")
+        targets = [resolve_project_task_ref(base_dir, ref, explicit_dir=explicit_dir) for ref in raw_ids]
+        return cmd_transition_batch(targets, new_status="DONE", dest_file="TODO_ARCHIVE.md", note=note, commit=commit, no_commit=no_commit)
     if args[0] in ("cancel", "canceled", "--cancel"):
         pos, note = _parse_note_arg(args[1:])
-        if len(pos) != 1:
-            raise SystemExit(f"{prog}: usage: {prog} cancel <ID> [-m REASON]")
-        tdir, tid = resolve_project_task_ref(base_dir, pos[0], explicit_dir=explicit_dir)
-        return cmd_transition(tdir, tid, new_status="CANCELED", dest_file="TODO_ARCHIVE.md", note=note, commit=commit, no_commit=no_commit)
+        bad_flags = [p for p in pos if p.startswith("-")]
+        if bad_flags:
+            raise SystemExit(f"{prog}: unknown option for cancel: {bad_flags[0]}")
+        raw_ids = _expand_task_id_args(pos)
+        if not raw_ids:
+            raise SystemExit(f"{prog}: usage: {prog} cancel <ID>... [-m REASON]")
+        targets = [resolve_project_task_ref(base_dir, ref, explicit_dir=explicit_dir) for ref in raw_ids]
+        return cmd_transition_batch(targets, new_status="CANCELED", dest_file="TODO_ARCHIVE.md", note=note, commit=commit, no_commit=no_commit)
     if args[0] == "status" or (
         args[0] == "--status" and len(args) > 1 and _collect_task_refs([args[1]]) is not None
     ):
@@ -605,11 +613,14 @@ def main(argv: list[str] | None = None) -> int:
         bad_flags = [p for p in pos if p.startswith("-")]
         if bad_flags:
             raise SystemExit(f"{prog}: unknown option for status: {bad_flags[0]}")
-        if len(pos) != 2:
-            raise SystemExit(f"{prog}: usage: {prog} status <ID> <STATUS> [-m NOTE] [--reopen]")
-        tdir, tid = resolve_project_task_ref(base_dir, pos[0], explicit_dir=explicit_dir)
-        st_up = pos[1].upper()
-        return cmd_transition(tdir, tid, new_status=st_up, dest_file=None, note=note, promote_top=(st_up in ("WIP", "NEXT")), reopen=reopen, commit=commit, no_commit=no_commit)
+        if len(pos) < 2:
+            raise SystemExit(f"{prog}: usage: {prog} status <ID>... <STATUS> [-m NOTE] [--reopen]")
+        raw_ids = _expand_task_id_args(pos[:-1])
+        if not raw_ids:
+            raise SystemExit(f"{prog}: usage: {prog} status <ID>... <STATUS> [-m NOTE] [--reopen]")
+        targets = [resolve_project_task_ref(base_dir, ref, explicit_dir=explicit_dir) for ref in raw_ids]
+        st_up = pos[-1].upper()
+        return cmd_transition_batch(targets, new_status=st_up, dest_file=None, note=note, promote_top=(st_up in ("WIP", "NEXT")), reopen=reopen, commit=commit, no_commit=no_commit)
     if args[0] in ("reopen", "--reopen"):
         return cmd_reopen(base_dir, args[1:], commit=commit, no_commit=no_commit, explicit_dir=explicit_dir)
     if args[0] in ("queue", "--queue"):
@@ -726,10 +737,11 @@ def main(argv: list[str] | None = None) -> int:
         bad_flags = [p for p in pos if p.startswith("-")]
         if bad_flags:
             raise SystemExit(f"{prog}: unknown option for next: {bad_flags[0]}")
-        if len(pos) != 1:
-            raise SystemExit(f"{prog}: usage: {prog} next <ID> [-m NOTE] [--reopen]")
-        tdir, tid = resolve_project_task_ref(base_dir, pos[0], explicit_dir=explicit_dir)
-        return cmd_transition(tdir, tid, new_status="NEXT", dest_file="TODO.md", note=note, promote_top=True, reopen=reopen, commit=commit, no_commit=no_commit)
+        raw_ids = _expand_task_id_args(pos)
+        if not raw_ids:
+            raise SystemExit(f"{prog}: usage: {prog} next <ID>... [-m NOTE] [--reopen]")
+        targets = [resolve_project_task_ref(base_dir, ref, explicit_dir=explicit_dir) for ref in raw_ids]
+        return cmd_transition_batch(targets, new_status="NEXT", dest_file="TODO.md", note=note, promote_top=True, reopen=reopen, commit=commit, no_commit=no_commit)
     if args[0] in ("ids", "--ids"):
         return cmd_ids(base_dir)
     if args[0] in ("check", "--check"):

@@ -30,11 +30,11 @@
     [--next] [--status <S>] [-m "<note>"] [-b "<body_md>"|-] [--depends <spec>]
     [-c]`, `todo_md edit <ID> [-t "<title>"] [-m "<note>"] [-b "<body_md>"|-]
     [--depends <spec>] [-c]`, `todo_md append <ID> [-b "<text>"|-] [-c]`,
-    `todo_md next <ID> [-m "<note>"] [--reopen] [-c]`,
-    `todo_md status <ID> <STATUS> [-m "<note>"] [--reopen] [-c]`,
-    `todo_md reopen <ID> [--status <S>] [-m "<note>"] [-c]`,
-    `todo_md done <ID> [-m "<note>"] [-c]`,
-    `todo_md cancel <ID> [-m "<reason>"] [-c]`, `todo_md check`. In
+    `todo_md next <ID>... [-m "<note>"] [--reopen] [-c]`,
+    `todo_md status <ID>... <STATUS> [-m "<note>"] [--reopen] [-c]`,
+    `todo_md reopen <ID>... [--status <S>] [-m "<note>"] [-c]`,
+    `todo_md done <ID>... [-m "<note>"] [-c]`,
+    `todo_md cancel <ID>... [-m "<reason>"] [-c]`, `todo_md check`. In
     `role=plan`, `role=design`, and `role=review`, batch mutations without `-c`
     and commit `TODO*.md` once backlog updates are complete; in `role=work`,
     run `todo_md done <ID>` inside the final commit step without `-c`.
@@ -44,8 +44,7 @@
     branches; do not introduce a separate `- Order:` field). Wire new or refined
     tasks both upstream (`--depends`) and downstream (`todo_md edit <ID>
     --depends ...` on existing open tasks or waves).
-  - Target files contract: record touched files on one `- Target files:` bullet
-    (backticked, excluding `TODO*.md` and `AGENTS.md`) when promoting a task to
-    `NEXT`: plain paths for files <= 400 lines, and `path:symbol`,
-    `path:sym1..sym2`, or `path:start-end` slices for larger files (a symbol
-    that is not found falls back to the whole file).
+  - Target files contract: when target files are already known during planning,
+    record them as plain backticked paths on one `- Target files:` bullet
+    (excluding `TODO*.md` and `AGENTS.md`); do not spend extra steps searching
+    for files or computing symbol or line slices.

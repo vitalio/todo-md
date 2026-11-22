@@ -203,12 +203,18 @@ class TestCommands(TodoMdTestCase):
         self.assertIn("Task B", (repo_b / "TODO.md").read_text(encoding="utf-8"))
         git(repo_b, "push")
 
-        # Uncommitted tracked code changes without --commit: the sync is skipped
+        # Uncommitted tracked code changes or earlier uncommitted TODO*.md mutation: sync is skipped
+        git(repo_b, "config", "pull.rebase", "true")
         (repo_b / "code.txt").write_text("dirty\n", encoding="utf-8")
         tmd(repo_a, "add", "Task D", "-c", check=True)
         git(repo_a, "push")
         r_e = tmd(repo_b, "add", "Task E", check=True)
         self.assertIn("added F4", r_e.stdout)
+        self.assertNotIn("Task D", (repo_b / "TODO.md").read_text(encoding="utf-8"))
+        # Clean code.txt while TODO.md remains dirty from the uncommitted batch: sync is still skipped
+        git(repo_b, "checkout", "--", "code.txt")
+        r_e2 = tmd(repo_b, "next", "F4", check=True)
+        self.assertIn("promoted F4", r_e2.stdout)
         self.assertNotIn("Task D", (repo_b / "TODO.md").read_text(encoding="utf-8"))
 
         # Diverged branch: fail fast without touching TODO.md; TODO_MD_NO_GIT_PULL skips the sync
