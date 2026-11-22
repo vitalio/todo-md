@@ -1,40 +1,3 @@
-# 🎯 [NEXT] B7: Skip repeated git pull across batched mutations, support multi-ID status transitions, and simplify Target files rule
-
-- In `_sync_upstream()` (`src/commands.py`), skip running `git pull` when `git status --porcelain --untracked-files=no` is non-empty (including when `TODO.md` or `TODO_ARCHIVE.md` was already modified by an earlier command in the same uncommitted mutation batch), and pass `--no-rebase` (`git pull --ff-only --no-rebase --quiet`) so `git pull` runs only once at the start of a clean batch and never fails under global `pull.rebase=true`.
-- Support multiple task IDs in `todo_md next <ID>...`, `todo_md status <ID>... <STATUS>`, `todo_md done <ID>...`, `todo_md cancel <ID>...`, and `todo_md reopen <ID>...` (`src/commands.py`, `src/cli.py`, `src/header.py`), running `_sync_upstream()` once before applying the batch transition.
-- In `agents/todo_md.md`, simplify the `Target files contract` bullet so planners record known target files as plain backticked paths on `- Target files:` only when already identified during planning, without spending extra steps searching for files or computing symbol/line slices.
-- Target files: `src/commands.py`, `src/cli.py`, `src/header.py`, `agents/todo_md.md`, `README.md`, `tests/test_cli.py`.
-
-# 🎯 [NEXT] B6: Keep ready NEXT tasks at the top of flat chains, dynamically re-rank --tree subtrees, and prefix chain headers with [<pct>% | <done>/<total>]
-
-- In `_prepare_active_plan()` (`src/chains.py`), rank currently ready tasks
-  (`initial_in_deg == 0`) ahead of blocked tasks within the same status and
-  role ease so ready `NEXT` tasks (such as `F55`) precede blocked `NEXT` tasks
-  (such as `F51`, `F16`) in `ranked_active`.
-- In `build_chain_milestone_tree()` (`src/chains.py`), select the next child
-  subtree from `direct_children` dynamically on each iteration after updating
-  `emitted` (recomputing `_child_subtree_sort_key()` over unemitted nodes
-  `u not in emitted`), so sibling branches that only shared an already-emitted
-  high-priority ancestor do not retain a stale `min_pos` ahead of branches
-  with remaining unemitted `NEXT`/`WIP` tasks.
-- In `plan_execution_chains()` (`src/chains.py`) and `cmd_chain()`
-  (`src/render_chain.py`), render default flat chains (without `--tree`) in
-  priority-topological execution order (`base_display_nodes` from
-  `ranked_active`, with any `--all` completed tasks ordered before their
-  dependents) so lower-priority `NEW` tails of one branch never push ready or
-  blocked `NEXT` tasks of a parallel branch down to the bottom of the chain,
-  while preserving `chain_tree` DFS milestone grouping under `--tree` / `-t`.
-- In `cmd_chain()` (`src/render_chain.py`) and `README.md`, move chain and
-  `--tree` sub-chain progress stats to a leading `[<pct>% | <done>/<total>]`
-  prefix (including `[0% | 0/<total>]` when `done == 0`, where
-  `total = done + open`) so headers render as
-  `[<pct>% | <done>/<total>] Chain <N> -> <root_ref>: <root_title>:` and
-  `├── [<pct>% | <done>/<total>] Sub-chain -> <milestone_ref>: <title>:`.
-- Target files: `src/chains.py:_prepare_active_plan..plan_execution_chains`,
-  `src/render_chain.py:cmd_chain`, `README.md`,
-  `tests/test_chain.py:test_root_anchored_chains_quest_momentum_also_in_and_all_done_tasks..test_flat_default_tree_flag_numbered_alignment_and_short_limit`,
-  `tests/test_parser.py:test_composable_task_styling_in_chain_and_list`.
-
 # 🎯 [NEXT] P1: JSON output mode (`--json`)
 
 - Depends on: F62 -> F71
@@ -45,6 +8,13 @@
   - Support `--json` in `cmd_ids()` (`{"highest_ids": ..., "next_free": ...}`), `cmd_projects()` (array of `{"project": ..., "path": ..., "open": ..., "archived": ...}`), and Quest-Log `cmd_chain()` (`src/render_chain.py`, returning structured `chains`, `standalone`, `next_actionable`, or role/ready task lists).
 - Keep `--help` (`src/header.py`), `agents/todo_md.md`, and `README.md` in sync, and add unit tests in `tests/test_cli.py` and `tests/test_commands.py`.
 - Target files: `src/header.py:HELP_GLOBAL_OPTIONS..usage_text`, `src/render.py:cmd_ids..cmd_workspace_list`, `src/render_chain.py:cmd_chain`, `src/cli.py:_parse_quest_log_args..main`, `agents/todo_md.md`, `README.md`, `tests/test_cli.py`, `tests/test_commands.py`.
+
+# 🎯 [NEXT] B7: Skip repeated git pull across batched mutations, support multi-ID status transitions, and simplify Target files rule
+
+- In `_sync_upstream()` (`src/commands.py`), skip running `git pull` when `git status --porcelain --untracked-files=no` is non-empty (including when `TODO.md` or `TODO_ARCHIVE.md` was already modified by an earlier command in the same uncommitted mutation batch), and pass `--no-rebase` (`git pull --ff-only --no-rebase --quiet`) so `git pull` runs only once at the start of a clean batch and never fails under global `pull.rebase=true`.
+- Support multiple task IDs in `todo_md next <ID>...`, `todo_md status <ID>... <STATUS>`, `todo_md done <ID>...`, `todo_md cancel <ID>...`, and `todo_md reopen <ID>...` (`src/commands.py`, `src/cli.py`, `src/header.py`), running `_sync_upstream()` once before applying the batch transition.
+- In `agents/todo_md.md`, simplify the `Target files contract` bullet so planners record known target files as plain backticked paths on `- Target files:` only when already identified during planning, without spending extra steps searching for files or computing symbol/line slices.
+- Target files: `src/commands.py`, `src/cli.py`, `src/header.py`, `agents/todo_md.md`, `README.md`, `tests/test_cli.py`.
 
 # 🎯 [NEXT] D3: Design explicit HOLD task review workflow and reverse dependency visibility
 

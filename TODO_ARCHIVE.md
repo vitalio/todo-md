@@ -1,3 +1,33 @@
+# ✅ [DONE] B6: Keep ready NEXT tasks at the top of flat chains, dynamically re-rank --tree subtrees, and prefix chain headers with [<pct>% | <done>/<total>] — *2026-11-22*
+
+- In `_prepare_active_plan()` (`src/chains.py`), rank currently ready tasks
+  (`initial_in_deg == 0`) ahead of blocked tasks within the same status and
+  role ease so ready `NEXT` tasks (such as `F55`) precede blocked `NEXT` tasks
+  (such as `F51`, `F16`) in `ranked_active`.
+- In `build_chain_milestone_tree()` (`src/chains.py`), select the next child
+  subtree from `direct_children` dynamically on each iteration after updating
+  `emitted` (recomputing `_child_subtree_sort_key()` over unemitted nodes
+  `u not in emitted`), so sibling branches that only shared an already-emitted
+  high-priority ancestor do not retain a stale `min_pos` ahead of branches
+  with remaining unemitted `NEXT`/`WIP` tasks.
+- In `plan_execution_chains()` (`src/chains.py`) and `cmd_chain()`
+  (`src/render_chain.py`), render default flat chains (without `--tree`) in
+  priority-topological execution order (`base_display_nodes` from
+  `ranked_active`, with any `--all` completed tasks ordered before their
+  dependents) so lower-priority `NEW` tails of one branch never push ready or
+  blocked `NEXT` tasks of a parallel branch down to the bottom of the chain,
+  while preserving `chain_tree` DFS milestone grouping under `--tree` / `-t`.
+- In `cmd_chain()` (`src/render_chain.py`) and `README.md`, move chain and
+  `--tree` sub-chain progress stats to a leading `[<pct>% | <done>/<total>]`
+  prefix (including `[0% | 0/<total>]` when `done == 0`, where
+  `total = done + open`) so headers render as
+  `[<pct>% | <done>/<total>] Chain <N> -> <root_ref>: <root_title>:` and
+  `├── [<pct>% | <done>/<total>] Sub-chain -> <milestone_ref>: <title>:`.
+- Target files: `src/chains.py:_prepare_active_plan..plan_execution_chains`,
+  `src/render_chain.py:cmd_chain`, `README.md`,
+  `tests/test_chain.py:test_root_anchored_chains_quest_momentum_also_in_and_all_done_tasks..test_flat_default_tree_flag_numbered_alignment_and_short_limit`,
+  `tests/test_parser.py:test_composable_task_styling_in_chain_and_list`.
+
 # ✅ [DONE] F71: Extend discovery_session reuse to resolve_dependency_statuses, cross-project stage edges, and multi-task show/top-id queries — *2026-11-22*
 
 - Depends on: F64, F62

@@ -258,17 +258,21 @@ def _prepare_active_plan(
 
     best_chain_rank: dict[tuple[Path, str], int] = {}
 
+    initial_in_deg = {u: sum(1 for p in prereqs.get(u, []) if p in active_set) for u in active_list}
+
     def _node_rank(
         u: tuple[Path, str],
         ready_step: int = 0,
-    ) -> tuple[int, int, int, int, int, int, int, int, int, int, int, tuple[str, str, str], tuple[Path, str]]:
+    ) -> tuple[int, int, int, int, int, int, int, int, int, int, int, int, tuple[str, str, str], tuple[Path, str]]:
         st = str(nodes[u]["status"])
         prio = ACTIVE_STATUS_ORDER.get(st, 99)
         is_fin = 0 if u in finale_set else 1
+        is_blocked = 0 if initial_in_deg.get(u, 0) == 0 else 1
         return (
             prio,
             is_fin,
             _resolve_node_role_ease(nodes, u),
+            is_blocked,
             is_momentum_next.get(u, 1),
             best_chain_rank.get(u, 0),
             -chain_counts.get(u, 0),
@@ -281,7 +285,7 @@ def _prepare_active_plan(
             u,
         )
 
-    in_deg = {u: sum(1 for p in prereqs.get(u, []) if p in active_set) for u in active_list}
+    in_deg = dict(initial_in_deg)
     avail = [_node_rank(u, 0) for u in active_list if in_deg[u] == 0]
     heapq.heapify(avail)
     ranked_active: list[tuple[Path, str]] = []
@@ -432,10 +436,11 @@ def build_chain_milestone_tree(
             min_pos = min((pos_map.get(u, len(display_nodes)) for u in c_nodes), default=pos_map.get(c, len(display_nodes)))
             return (min_pos, pos_map.get(c, len(display_nodes)))
 
-        direct_children.sort(key=_child_subtree_sort_key)
-        for child in direct_children:
-            if child in emitted:
-                continue
+        while True:
+            pending_children = [c for c in direct_children if c not in emitted]
+            if not pending_children:
+                break
+            child = min(pending_children, key=_child_subtree_sort_key)
             unemitted_prereqs = [p for p in reduced_prereqs.get(child, []) if p not in emitted]
             if unemitted_prereqs:
                 children_items.append(_build_node(child, is_root=False))
@@ -712,7 +717,7 @@ def plan_execution_chains(
             done_graph_prereqs=done_graph_prereqs,
             include_done=show_done,
         )
-        display_nodes = flatten_chain_tree_ordered_nodes(chain_tree) or base_display_nodes
+        display_nodes = list(base_display_nodes)
 
         ready_in_comp = [
             u

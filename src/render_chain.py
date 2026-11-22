@@ -460,7 +460,10 @@ def cmd_chain(
                 return flat
 
             chain_trees = [_build_chain_tree(c_nodes, c_info) for c_nodes, c_info in chains_with_stats]
-            total_rows = len(standalone) + sum(len(_flat_tree_nodes(ct)) for ct in chain_trees)
+            total_rows = len(standalone) + sum(
+                len(_flat_tree_nodes(ct)) if tree else len(c_nodes)
+                for (c_nodes, _), ct in zip(chains_with_stats, chain_trees)
+            )
             num_w_box[0] = len(str(max(1, total_rows)))
             for chain_idx, (comp, st_info) in enumerate(chains_with_stats, start=1):
                 if wrote_section:
@@ -498,12 +501,9 @@ def cmd_chain(
                     | set(st_info.get("done_nodes", set()))  # type: ignore[arg-type]
                 )
                 chain_highlighted = any(_is_highlighted_node(u) for u in chain_nodes)
-                chain_stat_tag = (
-                    f"[{pct}% | done: {done_c}, open: {open_c}]"
-                    if done_c > 0
-                    else f"[open: {open_c}]"
-                )
-                header_line = f"Chain {chain_idx} -> {root_ref}: {root_title} {chain_stat_tag}:\n"
+                total_c = done_c + open_c
+                chain_stat_tag = f"[{pct}% | {done_c}/{total_c}]"
+                header_line = f"{chain_stat_tag} Chain {chain_idx} -> {root_ref}: {root_title}:\n"
                 sys.stdout.write(
                     _style_task_row(
                         header_line,
@@ -568,12 +568,9 @@ def cmd_chain(
                                 "│   " if b else "    " for b in [*active_bars, not is_last_c]
                             )
                             sub_cont_prefix = f"  {sub_cont_bars}" if sub_cont_bars.strip() else "    "
-                            sub_stat_tag = (
-                                f"[{m_pct}% | done: {m_done}, open: {m_open}]"
-                                if m_done > 0
-                                else f"[open: {m_open}]"
-                            )
-                            sub_desc = f"Sub-chain -> {m_ref}: {m_title} {sub_stat_tag}:"
+                            m_total = m_done + m_open
+                            sub_stat_tag = f"[{m_pct}% | {m_done}/{m_total}]"
+                            sub_desc = f"{sub_stat_tag} Sub-chain -> {m_ref}: {m_title}:"
                             sub_hdr = (
                                 _wrap_table_row(
                                     sub_prefix,
@@ -621,7 +618,7 @@ def cmd_chain(
                 if tree:
                     row_idx = _render_chain_tree_children(chain_tree, [], row_idx)
                 else:
-                    flat_nodes = _flat_tree_nodes(chain_tree)
+                    flat_nodes = list(comp)
                     flat_w = max(
                         [
                             24,
