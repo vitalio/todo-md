@@ -1,3 +1,12 @@
+# ✅ [DONE] F64: Share workspace/orchestrator discovery across per-task DAG builds and include inbound blockers in workspace overview — *2026-11-22*
+
+- Depends on: F63
+- Reuse workspace project and `.todo_projects` orchestrator discovery across per-task dependency DAG evaluations in `list`, `show`, `overview`, and active-task ordering, and report inbound orchestrator blockers consistently in workspace overviews (consolidates `F65`):
+  - In `src/parser.py`, avoid repeating `resolve_workspace_root()`, `discover_projects()`, `discover_orchestrators_for_project()`, `collect_all_tasks()`, and orchestrator stage-edge extraction across repeated `build_dependency_dag()` / `_task_dag()` calls within a single CLI command or view render (`_order_active_tasks()`, `_is_task_blocked()`, `_task_dependency_info()`, `_inbound_blocker_items()`, `format_dependency_summary()`, `cmd_list()`, `cmd_workspace_list()`, `cmd_summary()`, `cmd_workspace_summary()`, and `cmd_show()`).
+  - In `_format_task_for_summary()` (`src/parser.py:1038-1073`), pass `task=task` to `format_dependency_summary()` even when `proj_prefix` is set so `todo_md overview -w` (`cmd_workspace_summary()`) includes inbound `.todo_projects` orchestrator stage blockers in the `Dependencies (...)` line, matching `show`, `list`, and `chain`.
+  - Extend `test_orchestrator_inbound_edges_in_queue_next_id_list_and_show` in `tests/test_deps.py` to verify that `overview -w` reports inbound orchestrator blockers for prefixed project tasks and clears them once the prerequisite is marked `DONE`, and verify that repeated per-task DAG queries reuse orchestrator discovery within a render pass.
+- Target files: `src/parser.py:433-908`, `src/parser.py:1038-1073`, `src/parser.py:2152-2223`, `tests/test_deps.py:459-498`.
+
 # ✅ [DONE] B4: Preserve existing '- Depends on:' and '- Target files:' lines in 'todo_md edit -b' — *2026-11-22*
 
 - In `_apply_depends_to_body_lines()` and `cmd_edit()` in `src/commands.py`, when `body is not None` (`-b` / `--body` or piped `stdin`) and `depends_clauses is None` (`--depends` was not passed), automatically preserve any existing `- Depends on:` lines from the previous task body (`old_sec[1:]`) whenever the new `body` does not already include its own `- Depends on:` lines; clear existing `- Depends on:` lines only when `--depends ""` is explicitly passed.

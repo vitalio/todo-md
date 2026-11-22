@@ -23,7 +23,7 @@ import unicodedata
 from datetime import date
 from pathlib import Path
 
-VERSION = "0.42.3"
+VERSION = "0.42.4"
 REPO_MARKER = "todo_md-repo: vitalio/todo_md"
 DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/vitalio/todo_md/main/todo_md"
 FENCE = chr(96) * 3
@@ -452,7 +452,71 @@ def resolve_workspace_root(base_dir: Path, explicit_dir: str | None = None) -> P
     return base_dir
 
 
+class _DiscoveryCache:
+    def __init__(self) -> None:
+        self.ws_roots = {}
+        self.projects = {}
+        self.orchestrators = {}
+        self.task_maps = {}
+        self.stage_edges = {}
+        self.scans = {"projects": 0, "orchestrators": 0}
+
+
+_ACTIVE_DISCOVERY = None
+
+
+class discovery_session:
+    """Share workspace/orchestrator discovery across one render pass."""
+
+    def __enter__(self) -> "_DiscoveryCache":
+        global _ACTIVE_DISCOVERY
+        self._owner = _ACTIVE_DISCOVERY is None
+        if self._owner:
+            _ACTIVE_DISCOVERY = _DiscoveryCache()
+        return _ACTIVE_DISCOVERY
+
+    def __exit__(self, *exc: object) -> bool:
+        global _ACTIVE_DISCOVERY
+        if self._owner:
+            _ACTIVE_DISCOVERY = None
+        return False
+
+
+def _discovery_scoped(fn):
+    def wrapper(*args, **kwargs):
+        with discovery_session():
+            return fn(*args, **kwargs)
+
+    wrapper.__name__ = fn.__name__
+    wrapper.__doc__ = fn.__doc__
+    return wrapper
+
+
+def _workspace_root_cached(base_dir: Path, explicit_dir: str | None = None) -> Path:
+    cache = _ACTIVE_DISCOVERY
+    if cache is None:
+        return resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
+    key = (base_dir.resolve(), explicit_dir)
+    if key not in cache.ws_roots:
+        cache.ws_roots[key] = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
+    return cache.ws_roots[key]
+
+
 def discover_projects(
+    workspace_root: Path,
+    max_depth: int = WORKSPACE_MAX_DEPTH,
+) -> list[tuple[str, Path]]:
+    cache = _ACTIVE_DISCOVERY
+    if cache is None or max_depth != WORKSPACE_MAX_DEPTH:
+        return _scan_projects(workspace_root, max_depth)
+    key = workspace_root.resolve()
+    if key not in cache.projects:
+        cache.scans["projects"] += 1
+        cache.projects[key] = _scan_projects(workspace_root, max_depth)
+    return list(cache.projects[key])
+
+
+def _scan_projects(
     workspace_root: Path,
     max_depth: int = WORKSPACE_MAX_DEPTH,
 ) -> list[tuple[str, Path]]:
@@ -841,11 +905,14 @@ def build_dependency_dag(
     explicit_dir: str | None = None,
     stop_at_done: bool = False,
 ) -> dict[str, object]:
-    ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
+    ws_root = _workspace_root_cached(base_dir, explicit_dir=explicit_dir)
     ws_resolved = ws_root.resolve()
     disp_resolved = base_dir.resolve()
+    shared = _ACTIVE_DISCOVERY
     disp_is_proj = is_todo_project(disp_resolved)
-    task_cache: dict[Path, dict[str, dict[str, object]]] = {}
+    task_cache: dict[Path, dict[str, dict[str, object]]] = (
+        shared.task_maps if shared is not None else {}
+    )
 
     def _task_map(proj_dir: Path) -> dict[str, dict[str, object]]:
         p_res = proj_dir.resolve()
@@ -899,7 +966,11 @@ def build_dependency_dag(
             prereqs[node].append(dep)
 
     orch_cache: dict[Path, list[Path]] = {}
-    orch_edge_cache: dict[Path, dict[tuple[Path, str], list[tuple[Path, str]]]] = {}
+    orch_edge_cache: dict[Path, dict[tuple[Path, str], list[tuple[Path, str]]]] = (
+        shared.stage_edges.setdefault((ws_resolved, disp_resolved), {})
+        if shared is not None
+        else {}
+    )
 
     def _is_done_key(k: tuple[Path, str]) -> bool:
         kt = _task_map(k[0]).get(k[1])
@@ -1452,9 +1523,7 @@ def _format_task_for_summary(
         lines[0] = lines[0].replace(f"] {tid}:", f"] {proj_prefix}:{tid}:", 1)
         sec = "\n".join(lines)
     dep_line = (
-        format_dependency_summary(
-            base_dir, str(task["section"]), task=None if proj_prefix else task
-        )
+        format_dependency_summary(base_dir, str(task["section"]), task=task)
         if base_dir
         else None
     )
@@ -1476,6 +1545,7 @@ def _format_task_for_summary(
     return f"{out}\n{dep_line}" if dep_line else out
 
 
+@_discovery_scoped
 def cmd_summary(base_dir: Path, full: bool = False) -> int:
     todo_path = base_dir / "TODO.md"
     if not todo_path.is_file():
@@ -1575,6 +1645,7 @@ def _strip_heading_note(title: str) -> tuple[str, str | None]:
     return title.strip(), None
 
 
+@_discovery_scoped
 def cmd_show(base_dir: Path, task_id: str) -> int:
     target = task_id.strip().upper()
     top = highest_ids_in_use(base_dir)
@@ -1602,6 +1673,7 @@ def cmd_show(base_dir: Path, task_id: str) -> int:
     return 1
 
 
+@_discovery_scoped
 def _order_active_tasks(
     active_tasks: list[dict[str, object]],
     base_dir: Path | None = None,
@@ -1925,6 +1997,7 @@ def _wrap_table_row(
     return "\n".join(out_lines)
 
 
+@_discovery_scoped
 def cmd_list(
     base_dir: Path,
     filt: str | None = None,
@@ -2179,6 +2252,7 @@ def cmd_projects(base_dir: Path, explicit_dir: str | None = None) -> int:
     return 0
 
 
+@_discovery_scoped
 def cmd_workspace_summary(workspace_root: Path, full: bool = False) -> int:
     projects = discover_projects(workspace_root)
     if not projects:
@@ -2220,6 +2294,7 @@ def cmd_workspace_summary(workspace_root: Path, full: bool = False) -> int:
     return 0
 
 
+@_discovery_scoped
 def cmd_workspace_list(
     workspace_root: Path,
     filt: str | None = None,
@@ -2554,6 +2629,23 @@ def is_orchestrator_project(
 
 
 def discover_orchestrators_for_project(
+    target_dir: Path,
+    ws_root: Path | None = None,
+) -> tuple[list[Path], list[Path]]:
+    cache = _ACTIVE_DISCOVERY
+    if cache is None:
+        return _scan_orchestrators_for_project(target_dir, ws_root)
+    t_res = target_dir.resolve()
+    ws_res = (ws_root or _workspace_root_cached(t_res)).resolve()
+    key = (t_res, ws_res)
+    if key not in cache.orchestrators:
+        cache.scans["orchestrators"] += 1
+        cache.orchestrators[key] = _scan_orchestrators_for_project(t_res, ws_res)
+    orchestrators, configured = cache.orchestrators[key]
+    return list(orchestrators), list(configured)
+
+
+def _scan_orchestrators_for_project(
     target_dir: Path,
     ws_root: Path | None = None,
 ) -> tuple[list[Path], list[Path]]:

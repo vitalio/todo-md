@@ -482,7 +482,35 @@ class TestDeps(TodoMdTestCase):
         r_list = self._run([str(SCRIPT), "list", "active"], cwd=str(todo_md_p), check=True)
         self.assertIn("[blocked: todo_flow:F1 (NEXT)]", self._flat_text(r_list.stdout), msg=r_list.stdout)
 
+        def _md_overview_section() -> str:
+            r_ov = self._run([str(SCRIPT), "overview", "-w"], cwd=str(ws), check=True)
+            body = r_ov.stdout.split("## todo_md ", 1)[1]
+            return self._flat_text(body.split("\n## ", 1)[0])
+
+        ov_blocked = _md_overview_section()
+        self.assertIn("Dependencies (blocked):", ov_blocked)
+        self.assertIn("todo_flow:F1", ov_blocked)
+        self.assertIn("[NEXT]", ov_blocked.split("Dependencies (blocked):", 1)[1])
+
+        mod = self.todo_md_mod
+        md_tasks = [t for t in mod.collect_all_tasks(todo_md_p) if t["file"] == "TODO.md"]
+        with mod.discovery_session() as cache:
+            def _query_pass() -> None:
+                for t in md_tasks:
+                    mod._task_dag(todo_md_p, t)
+                    mod._is_task_blocked(todo_md_p, t)
+                    mod._task_dependency_info(todo_md_p, t)
+
+            _query_pass()
+            first_scans = dict(cache.scans)
+            self.assertEqual(first_scans["projects"], 1)
+            self.assertLessEqual(first_scans["orchestrators"], 2)
+            _query_pass()
+            _query_pass()
+            self.assertEqual(cache.scans, first_scans)
+
         self._run([str(SCRIPT), "done", "todo_flow:F1", "-m", "done"], cwd=str(ws), check=True)
+        self.assertNotIn("Dependencies (blocked)", _md_overview_section())
         r_next_done = self._run([str(SCRIPT), "next-id", "F1"], cwd=str(todo_md_p))
         self._assert_ok(["next-id", "F1"], r_next_done)
         self.assertEqual(r_next_done.stdout.strip(), "F1")

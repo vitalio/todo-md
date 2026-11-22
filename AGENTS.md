@@ -52,6 +52,11 @@ rules are loaded via `.agents_bundle`.
   `VERSION` by `build.py`), and task heading regexes.
 - `src/parser.py` — `TODO.md` and `TODO_ARCHIVE.md` task parser, ID sequence
   tracking, and structural validator (`todo_md check`).
+  Workspace/orchestrator discovery is shared per render pass through
+  `discovery_session()` (`_discovery_scoped` on `cmd_list`, `cmd_show`,
+  `cmd_summary`, `cmd_workspace_*`, `_order_active_tasks`); route new
+  discovery calls through the cached wrappers and never mutate task files
+  inside an active session.
 - `src/commands.py` — task lifecycle subcommands (`init`, `add`, `edit`,
   `append`, `status`, `next`, `done`, `cancel`, `list`, `archive`, `ids`,
   `check`). Keep `agents/todo_md.md`, `-h`/`--help`, and `README.md` in sync
