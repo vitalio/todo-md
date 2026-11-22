@@ -1,3 +1,12 @@
+# 🎯 [NEXT] F74: Emit canonical kind="prompt" for task and overview fragments in context-bundle-protocol
+
+- Depends on: F72
+- Replace tool-specific `kind: "task"` and `kind: "context"` fragment markers in `src/bundle.py` with the canonical `context-bundle-protocol` v1 prompt fragment kind (`kind: "prompt"`), keeping the 4 protocol fragment kinds strictly 1:1 with `.bundle` content directives (`rule`, `file`, `cmd`, `prompt`):
+  - In `emit_task_bundle()`, emit `{"kind": "prompt", "id": tid, "name": f"{src_file}:{tid}", "chain": ["todo_md"]}`.
+  - In `emit_context_bundle()`, emit `{"kind": "prompt", "name": "todo_md", "chain": ["todo_md"]}`.
+  - Update `tests/test_bundle.py`, `README.md`, and `AGENTS.md` to reference canonical `rule` and `prompt` fragments.
+- Target files: `src/bundle.py`, `tests/test_bundle.py`, `README.md`.
+
 # 🎯 [NEXT] F73: Forbid cross-project Depends on references in non-orchestrator repositories in todo_md check
 
 - In `validate_all()` (`src/parser.py`), reject cross-project `<project>:<ID>` references (`PROJECT_TASK_RE`) in `- Depends on:` when the current repository is not an orchestrator (`not has_local_todo_projects_config(base_dir)`), reporting a clear error message instructing to keep cross-project dependencies in the workspace orchestrator repository (`.todo_projects`).
