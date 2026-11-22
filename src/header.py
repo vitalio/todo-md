@@ -194,7 +194,8 @@ HELP_COMMANDS: tuple[tuple[str, str], ...] = (
      "Add a task with an auto-assigned ID; body comes from -b or stdin. Options: "
      "-p PREFIX (default: F), --next, --status STATUS, -m NOTE, -b BODY|-, --depends SPEC"),
     ("{prog} edit <ID> [opts]",
-     "Update a task. Options: -t TITLE, -m NOTE, -b BODY|-, --depends SPEC"),
+     "Update a task. Options: -t TITLE, -m NOTE, -b BODY|-, --depends SPEC. A new body keeps "
+     "existing '- Depends on:' and '- Target files:' lines it omits; --depends '' clears dependencies"),
     ("{prog} append <ID> [-b TEXT|-]",
      "Append text to the body of task <ID> (from -b TEXT|- or stdin)"),
     ("{prog} status <ID> <STATUS> [opts]",

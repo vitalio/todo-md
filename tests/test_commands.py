@@ -9,6 +9,40 @@ from tests.helpers import SCRIPT, TodoMdTestCase
 
 
 class TestCommands(TodoMdTestCase):
+    def _seed_edit_body_tasks(self):
+        self._run([str(SCRIPT), "add", "F", "Base"], check=True)
+        self._run(
+            [str(SCRIPT), "add", "F", "Target", "-b", "Old intro.\n- Depends on: F1\n- Target files: `a.py`"],
+            check=True,
+        )
+
+    def test_edit_body_preserves_depends_and_target_files(self):
+        self._seed_edit_body_tasks()
+        self._run([str(SCRIPT), "edit", "F2", "-b", "New body."], check=True)
+        txt = (self.tmp / "TODO.md").read_text(encoding="utf-8")
+        self.assertIn("New body.", txt)
+        self.assertNotIn("Old intro.", txt)
+        self.assertIn("- Depends on: F1", txt)
+        self.assertIn("- Target files: `a.py`", txt)
+
+    def test_edit_body_replacement_lines_override_preserved(self):
+        self._seed_edit_body_tasks()
+        self._run([str(SCRIPT), "add", "F", "Other"], check=True)
+        new_body = "New body.\n- Depends on: F3\n- Target files: `b.py`"
+        self._run([str(SCRIPT), "edit", "F2", "-b", new_body], check=True)
+        txt = (self.tmp / "TODO.md").read_text(encoding="utf-8")
+        self.assertIn("- Depends on: F3", txt)
+        self.assertIn("- Target files: `b.py`", txt)
+        self.assertNotIn("- Depends on: F1", txt)
+        self.assertNotIn("`a.py`", txt)
+
+    def test_edit_body_empty_depends_clears_depends_only(self):
+        self._seed_edit_body_tasks()
+        self._run([str(SCRIPT), "edit", "F2", "-b", "New body.", "--depends", ""], check=True)
+        txt = (self.tmp / "TODO.md").read_text(encoding="utf-8")
+        self.assertNotIn("Depends on", txt)
+        self.assertIn("- Target files: `a.py`", txt)
+
     def test_add_edit_append_cli(self):
         r_idea = self._run(
             [str(SCRIPT), "init"],

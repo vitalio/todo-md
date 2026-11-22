@@ -606,6 +606,35 @@ def _apply_depends_to_body_lines(lines: list[str], depends_clauses: list[str] | 
     return [*dep_lines, *filtered] if filtered else dep_lines
 
 
+def _fenced_matches(lines: list[str], pred) -> list[str]:
+    found: list[str] = []
+    in_fence = False
+    for line in lines:
+        if line.lstrip().startswith(FENCE):
+            in_fence = not in_fence
+            continue
+        if not in_fence and pred(line):
+            found.append(line)
+    return found
+
+def _preserve_old_body_lines(
+    old_body: list[str], new_body: list[str], depends_clauses: list[str] | None
+) -> list[str]:
+    result = list(new_body)
+    if depends_clauses is None:
+        has_depends = _fenced_matches(
+            result, lambda l: bool(DEPENDS_LINE_RE.match(l) or EMPTY_DEPENDS_LINE_RE.match(l))
+        )
+        old_depends = _fenced_matches(old_body, lambda l: bool(DEPENDS_LINE_RE.match(l)))
+        if old_depends and not has_depends:
+            result = [*old_depends, *result]
+    old_targets = _fenced_matches(old_body, lambda l: bool(TARGET_FILES_LINE_RE.match(l)))
+    if old_targets and not _fenced_matches(result, lambda l: bool(TARGET_FILES_LINE_RE.match(l))):
+        if result and not re.match(r"^\s*[-*]\s", result[-1]):
+            result.append("")
+        result.extend(old_targets)
+    return result
+
 def cmd_add(
     base_dir: Path,
     argv: list[str],
@@ -824,6 +853,7 @@ def cmd_edit(
 
         if body is not None:
             body_lines = body.strip().splitlines() if body.strip() else []
+            body_lines = _preserve_old_body_lines(lines[start_idx + 1:end_idx], body_lines, depends_clauses)
             body_lines = _apply_depends_to_body_lines(body_lines, depends_clauses)
             new_sec = [heading]
             if body_lines:

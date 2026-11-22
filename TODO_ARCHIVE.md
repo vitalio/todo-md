@@ -1,3 +1,10 @@
+# ✅ [DONE] B4: Preserve existing '- Depends on:' and '- Target files:' lines in 'todo_md edit -b' — *2026-11-22*
+
+- In `_apply_depends_to_body_lines()` and `cmd_edit()` in `src/commands.py`, when `body is not None` (`-b` / `--body` or piped `stdin`) and `depends_clauses is None` (`--depends` was not passed), automatically preserve any existing `- Depends on:` lines from the previous task body (`old_sec[1:]`) whenever the new `body` does not already include its own `- Depends on:` lines; clear existing `- Depends on:` lines only when `--depends ""` is explicitly passed.
+- Similarly, when `body is not None` and the new `body` omits a `- Target files:` bullet line that existed in `old_sec[1:]`, preserve the existing `- Target files:` line at the end of the updated task body so body refinements in `role=plan` never silently strip dependency chains or target-file closures.
+- Add unit tests in `tests/test_commands.py` verifying that `todo_md edit <ID> -b ...` preserves existing `- Depends on:` and `- Target files:` lines by default, overrides them when the new body or `--depends` provides replacements, and clears `- Depends on:` when `--depends ""` is passed.
+- Target files: `src/commands.py:_apply_depends_to_body_lines..cmd_edit`, `tests/test_commands.py`.
+
 # ✅ [DONE] F69: Keep todo_md --help lines within 100 display columns and 100 UTF-8 bytes — *2026-11-22*
 
 - In `src/header.py`, update `_help_wrap()` so wrapped `--help` lines stay within `width` both by terminal display columns (`help_display_width(cand) <= width`) and by UTF-8 byte length (`len(cand.encode("utf-8")) <= width`), preventing false positives when checking `todo_md -h` with byte-oriented tools such as `mawk 'length($0) > 100'` on lines containing multi-byte status emoji (`next` and `TODO.md`).

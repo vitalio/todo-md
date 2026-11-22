@@ -68,7 +68,7 @@ Global options accepted before subcommands:
 | `todo_md list [filter] [<ID>...] [--role ROLE] [-r\|--ready] [--limit N] [--full]` | List tasks (`active`, `archive`, `all`, or `<STATUS>`) in dependency order with display-width aligned status badges, terminal-width column wrapping, full `[blocked: ...]` unblock chains, composable TTY target `<ID>...` highlighting and `DONE` dimming, and optional `--role` / `-r` / `--ready` filters |
 | `todo_md archive [<ID>] [-m NOTE]` | Print `TODO_ARCHIVE.md`, or archive task `<ID>` to `TODO_ARCHIVE.md` |
 | `todo_md add [<PROJ>] [<PREFIX>] <TITLE> [opts]` | Add a new task with auto-assigned ID (`-p PREFIX`, `--next`, `--status STATUS`, `-m NOTE`, `-b BODY\|-`, `--depends SPEC`) |
-| `todo_md edit <ID> [opts]` | Update task title, note, body, or dependencies (`-t TITLE`, `-m NOTE`, `-b BODY\|-`, `--depends SPEC`) |
+| `todo_md edit <ID> [opts]` | Update task title, note, body, or dependencies (`-t TITLE`, `-m NOTE`, `-b BODY\|-`, `--depends SPEC`); a new body keeps existing `- Depends on:` and `- Target files:` lines that it omits, and `--depends ""` clears dependencies |
 | `todo_md append <ID> [-b TEXT\|-]` | Append progress/notes to task `<ID>` body (`-b TEXT\|-` or `stdin`) |
 | `todo_md status <ID> <STATUS> [-m N] [--reopen]` | Update task status (`WIP`, `NEXT`, `NEW`, `HOLD`, `QUESTION`, `DONE`, `CANCELED`; `--reopen` required if archived) |
 | `todo_md next <ID> [-m NOTE] [--reopen]` | Promote task `<ID>` to `🎯 [NEXT]` priority at the top of `TODO.md` (strips `- Role: plan` so non-`D` tasks transition to `work`; `--reopen` required if archived) |
