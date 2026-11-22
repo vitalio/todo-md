@@ -1,4 +1,11 @@
-# 🎯 [NEXT] B6: Keep ready NEXT tasks at the top of flat chains and dynamically re-rank unemitted subtrees in --tree
+# 🎯 [NEXT] B7: Skip repeated git pull across batched mutations, support multi-ID status transitions, and simplify Target files rule
+
+- In `_sync_upstream()` (`src/commands.py`), skip running `git pull` when `git status --porcelain --untracked-files=no` is non-empty (including when `TODO.md` or `TODO_ARCHIVE.md` was already modified by an earlier command in the same uncommitted mutation batch), and pass `--no-rebase` (`git pull --ff-only --no-rebase --quiet`) so `git pull` runs only once at the start of a clean batch and never fails under global `pull.rebase=true`.
+- Support multiple task IDs in `todo_md next <ID>...`, `todo_md status <ID>... <STATUS>`, `todo_md done <ID>...`, `todo_md cancel <ID>...`, and `todo_md reopen <ID>...` (`src/commands.py`, `src/cli.py`, `src/header.py`), running `_sync_upstream()` once before applying the batch transition.
+- In `agents/todo_md.md`, simplify the `Target files contract` bullet so planners record known target files as plain backticked paths on `- Target files:` only when already identified during planning, without spending extra steps searching for files or computing symbol/line slices.
+- Target files: `src/commands.py`, `src/cli.py`, `src/header.py`, `agents/todo_md.md`, `README.md`, `tests/test_cli.py`.
+
+# 🎯 [NEXT] B6: Keep ready NEXT tasks at the top of flat chains, dynamically re-rank --tree subtrees, and prefix chain headers with [<pct>% | <done>/<total>]
 
 - In `_prepare_active_plan()` (`src/chains.py`), rank currently ready tasks
   (`initial_in_deg == 0`) ahead of blocked tasks within the same status and
@@ -17,9 +24,16 @@
   dependents) so lower-priority `NEW` tails of one branch never push ready or
   blocked `NEXT` tasks of a parallel branch down to the bottom of the chain,
   while preserving `chain_tree` DFS milestone grouping under `--tree` / `-t`.
+- In `cmd_chain()` (`src/render_chain.py`) and `README.md`, move chain and
+  `--tree` sub-chain progress stats to a leading `[<pct>% | <done>/<total>]`
+  prefix (including `[0% | 0/<total>]` when `done == 0`, where
+  `total = done + open`) so headers render as
+  `[<pct>% | <done>/<total>] Chain <N> -> <root_ref>: <root_title>:` and
+  `├── [<pct>% | <done>/<total>] Sub-chain -> <milestone_ref>: <title>:`.
 - Target files: `src/chains.py:_prepare_active_plan..plan_execution_chains`,
-  `src/render_chain.py:cmd_chain`,
-  `tests/test_chain.py:test_root_anchored_chains_quest_momentum_also_in_and_all_done_tasks..test_flat_default_tree_flag_numbered_alignment_and_short_limit`.
+  `src/render_chain.py:cmd_chain`, `README.md`,
+  `tests/test_chain.py:test_root_anchored_chains_quest_momentum_also_in_and_all_done_tasks..test_flat_default_tree_flag_numbered_alignment_and_short_limit`,
+  `tests/test_parser.py:test_composable_task_styling_in_chain_and_list`.
 
 # 🎯 [NEXT] P1: JSON output mode (`--json`)
 
@@ -58,7 +72,7 @@
 # ⚪ [NEW] D5: Design cohesive Quest-Log ANSI color palette and typography for RPG perks (FINAL, STAGE, COMBO), stats, roles, and statuses
 
 - Depends on: F59 -> F60 -> F61 -> B6
-- Inspect `_style_task_row()` (`src/render.py`) and `cmd_chain()` (`src/render_chain.py`) and design a composable ANSI styling scheme for TTY output (`use_color=True`) covering uppercase RPG perks (`FINAL`, `STAGE`, `COMBO`), numeric stats (`chain: N, done: D, ready: +M, unblocks: K` and chain header `[<pct>% | done: D, open: O]`), role badges (`[work]`, `[plan]`, `[design]`), and status badges.
+- Inspect `_style_task_row()` (`src/render.py`) and `cmd_chain()` (`src/render_chain.py`) and design a composable ANSI styling scheme for TTY output (`use_color=True`) covering uppercase RPG perks (`FINAL`, `STAGE`, `COMBO`), numeric stats (`chain: N, done: D, ready: +M, unblocks: K` and leading chain/sub-chain header stats `[<pct>% | <done>/<total>]`), role badges (`[work]`, `[plan]`, `[design]`), and status badges.
 - Render live ANSI terminal previews comparing candidate color/bold palettes and verify how token-level styling composes with existing row-level styles (`DONE` dimming, external-project dimming, and `-H` / `--highlight` emphasis) without disturbing `_wrap_table_row()` display-width calculations.
 
 # ⚪ [NEW] D6: Design repo-exclusive parallel execution lanes and critical-path metrics in Quest-Log
