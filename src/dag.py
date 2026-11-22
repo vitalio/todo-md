@@ -4,16 +4,20 @@ def resolve_dependency_statuses(
     explicit_dir: str | None = None,
 ) -> list[tuple[str, str, str]]:
     results: list[tuple[str, str, str]] = []
-    ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
-    cache: dict[Path, dict[str, str]] = {}
+    ws_root = _workspace_root_cached(base_dir, explicit_dir=explicit_dir)
+    shared = _ACTIVE_DISCOVERY
+    task_cache: dict[Path, dict[str, dict[str, object]]] = (
+        shared.task_maps if shared is not None else {}
+    )
 
-    def _task_statuses(proj_dir: Path) -> dict[str, str]:
-        if proj_dir not in cache:
-            mapping: dict[str, str] = {}
-            for t in collect_all_tasks(proj_dir):
-                mapping[str(t["id"]).upper()] = str(t["status"])
-            cache[proj_dir] = mapping
-        return cache[proj_dir]
+    def _task_map(proj_dir: Path) -> dict[str, dict[str, object]]:
+        p_res = proj_dir.resolve()
+        if p_res not in task_cache:
+            mapping: dict[str, dict[str, object]] = {}
+            for t in collect_all_tasks(p_res):
+                mapping[str(t["id"]).upper()] = t
+            task_cache[p_res] = mapping
+        return task_cache[p_res]
 
     for ref in deps:
         pm = PROJECT_TASK_RE.match(ref)
@@ -34,11 +38,11 @@ def resolve_dependency_statuses(
         else:
             target_dir = base_dir
             tid = ref.upper()
-        statuses = _task_statuses(target_dir)
-        st = statuses.get(tid)
-        if st is None:
+        t = _task_map(target_dir).get(tid)
+        if t is None:
             results.append((ref, "MISSING", ""))
         else:
+            st = str(t["status"])
             results.append((ref, st, VALID_STATUSES.get(st, "")))
     return results
 
@@ -78,7 +82,7 @@ def build_dependency_dag(
                 if is_todo_project(alt):
                     cand = alt
             if not is_todo_project(cand):
-                alias = lookup_external_alias(base_dir, ws_resolved, proj_name)
+                alias = lookup_external_alias(cur_dir, ws_resolved, proj_name)
                 if alias is not None:
                     cand = alias
             return cand, pm.group(2).upper()
@@ -111,7 +115,7 @@ def build_dependency_dag(
 
     orch_cache: dict[Path, list[Path]] = {}
     orch_edge_cache: dict[Path, dict[tuple[Path, str], list[tuple[Path, str]]]] = (
-        shared.stage_edges.setdefault((ws_resolved, disp_resolved), {})
+        shared.stage_edges.setdefault(ws_resolved, {})
         if shared is not None
         else {}
     )

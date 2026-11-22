@@ -23,7 +23,7 @@ import unicodedata
 from datetime import date
 from pathlib import Path
 
-VERSION = "0.42.4"
+VERSION = "0.42.5"
 REPO_MARKER = "todo_md-repo: vitalio/todo_md"
 DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/vitalio/todo_md/main/todo_md"
 FENCE = chr(96) * 3
@@ -1700,16 +1700,20 @@ def resolve_dependency_statuses(
     explicit_dir: str | None = None,
 ) -> list[tuple[str, str, str]]:
     results: list[tuple[str, str, str]] = []
-    ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
-    cache: dict[Path, dict[str, str]] = {}
+    ws_root = _workspace_root_cached(base_dir, explicit_dir=explicit_dir)
+    shared = _ACTIVE_DISCOVERY
+    task_cache: dict[Path, dict[str, dict[str, object]]] = (
+        shared.task_maps if shared is not None else {}
+    )
 
-    def _task_statuses(proj_dir: Path) -> dict[str, str]:
-        if proj_dir not in cache:
-            mapping: dict[str, str] = {}
-            for t in collect_all_tasks(proj_dir):
-                mapping[str(t["id"]).upper()] = str(t["status"])
-            cache[proj_dir] = mapping
-        return cache[proj_dir]
+    def _task_map(proj_dir: Path) -> dict[str, dict[str, object]]:
+        p_res = proj_dir.resolve()
+        if p_res not in task_cache:
+            mapping: dict[str, dict[str, object]] = {}
+            for t in collect_all_tasks(p_res):
+                mapping[str(t["id"]).upper()] = t
+            task_cache[p_res] = mapping
+        return task_cache[p_res]
 
     for ref in deps:
         pm = PROJECT_TASK_RE.match(ref)
@@ -1730,11 +1734,11 @@ def resolve_dependency_statuses(
         else:
             target_dir = base_dir
             tid = ref.upper()
-        statuses = _task_statuses(target_dir)
-        st = statuses.get(tid)
-        if st is None:
+        t = _task_map(target_dir).get(tid)
+        if t is None:
             results.append((ref, "MISSING", ""))
         else:
+            st = str(t["status"])
             results.append((ref, st, VALID_STATUSES.get(st, "")))
     return results
 
@@ -1774,7 +1778,7 @@ def build_dependency_dag(
                 if is_todo_project(alt):
                     cand = alt
             if not is_todo_project(cand):
-                alias = lookup_external_alias(base_dir, ws_resolved, proj_name)
+                alias = lookup_external_alias(cur_dir, ws_resolved, proj_name)
                 if alias is not None:
                     cand = alias
             return cand, pm.group(2).upper()
@@ -1807,7 +1811,7 @@ def build_dependency_dag(
 
     orch_cache: dict[Path, list[Path]] = {}
     orch_edge_cache: dict[Path, dict[tuple[Path, str], list[tuple[Path, str]]]] = (
-        shared.stage_edges.setdefault((ws_resolved, disp_resolved), {})
+        shared.stage_edges.setdefault(ws_resolved, {})
         if shared is not None
         else {}
     )
@@ -3893,26 +3897,35 @@ def cmd_last(base_dir: Path, filt: str | None = None) -> int:
 def cmd_show(base_dir: Path, task_id: str) -> int:
     target = task_id.strip().upper()
     top = highest_ids_in_use(base_dir)
-    workdir = str(base_dir.resolve())
-    for t in collect_all_tasks(base_dir):
-        if str(t["id"]).upper() == target:
-            tid = str(t["id"]).upper()
-            base_title, _ = _strip_heading_note(str(t["title"]))
-            section = str(t["section"])
-            role = resolve_task_role(tid, section, status=str(t.get("status", "")))
-            header_lines = [
-                f"Task: {tid}",
-                f"Title: {base_title}",
-                f"Role: {role}",
-                f"Workdir: {workdir}",
-            ]
-            headers = "\n".join(header_lines)
-            dep_line = format_dependency_summary(base_dir, section, task=t)
-            dep_block = f"\n{dep_line}" if dep_line else ""
-            sys.stdout.write(
-                f"{headers}\n\n# {t['file']}:{t['line']}\n{section}{dep_block}\n\n---\nIDs in use: {format_ids_summary(top)}\n"
-            )
-            return 0
+    p_res = base_dir.resolve()
+    workdir = str(p_res)
+    shared = _ACTIVE_DISCOVERY
+    task_cache: dict[Path, dict[str, dict[str, object]]] = (
+        shared.task_maps if shared is not None else {}
+    )
+    if p_res not in task_cache:
+        task_cache[p_res] = {
+            str(t["id"]).upper(): t for t in collect_all_tasks(p_res)
+        }
+    t = task_cache[p_res].get(target)
+    if t is not None:
+        tid = str(t["id"]).upper()
+        base_title, _ = _strip_heading_note(str(t["title"]))
+        section = str(t["section"])
+        role = resolve_task_role(tid, section, status=str(t.get("status", "")))
+        header_lines = [
+            f"Task: {tid}",
+            f"Title: {base_title}",
+            f"Role: {role}",
+            f"Workdir: {workdir}",
+        ]
+        headers = "\n".join(header_lines)
+        dep_line = format_dependency_summary(base_dir, section, task=t)
+        dep_block = f"\n{dep_line}" if dep_line else ""
+        sys.stdout.write(
+            f"{headers}\n\n# {t['file']}:{t['line']}\n{section}{dep_block}\n\n---\nIDs in use: {format_ids_summary(top)}\n"
+        )
+        return 0
     sys.stderr.write(f"{prog_name()}: task {target!r} not found in TODO*.md under {base_dir}\n")
     return 1
 
@@ -6052,6 +6065,7 @@ def cmd_append(base_dir: Path, argv: list[str], commit: bool = False, no_commit:
     sys.stderr.write(f"{prog}: task {target!r} not found in TODO*.md under {base_dir}\n")
     return 1
 
+@_discovery_scoped
 def resolve_top_task_id(
     base_dir: Path,
     role: str | None = None,
@@ -6073,6 +6087,7 @@ def resolve_top_task_id(
             return str(t["id"]).upper()
     return None
 
+@_discovery_scoped
 def cmd_next_id(
     base_dir: Path,
     target_dir: Path | None = None,
@@ -6694,6 +6709,7 @@ def _render_overview(base_dir: Path, explicit_dir: str | None, workspace: bool, 
     return cmd_summary(base_dir, full=full)
 
 
+@_discovery_scoped
 def _show_tasks(base_dir: Path, refs: list[str], explicit_dir: str | None, bundle: BundleOptions) -> int:
     if bundle.enabled and len(refs) == 1:
         tdir, tid = resolve_project_task_ref(base_dir, refs[0], explicit_dir=explicit_dir)

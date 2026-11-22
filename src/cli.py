@@ -397,6 +397,7 @@ def _render_overview(base_dir: Path, explicit_dir: str | None, workspace: bool, 
     return cmd_summary(base_dir, full=full)
 
 
+@_discovery_scoped
 def _show_tasks(base_dir: Path, refs: list[str], explicit_dir: str | None, bundle: BundleOptions) -> int:
     if bundle.enabled and len(refs) == 1:
         tdir, tid = resolve_project_task_ref(base_dir, refs[0], explicit_dir=explicit_dir)

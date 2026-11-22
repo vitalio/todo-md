@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Tests for workspace discovery, dependency DAG sequencing, list topological order, and unlock reporting."""
 
+import contextlib
+import io
 import unittest
+import unittest.mock
 from tests.helpers import ROOT, SCRIPT, TodoMdTestCase
 
 
@@ -494,20 +497,56 @@ class TestDeps(TodoMdTestCase):
 
         mod = self.todo_md_mod
         md_tasks = [t for t in mod.collect_all_tasks(todo_md_p) if t["file"] == "TODO.md"]
-        with mod.discovery_session() as cache:
-            def _query_pass() -> None:
-                for t in md_tasks:
-                    mod._task_dag(todo_md_p, t)
-                    mod._is_task_blocked(todo_md_p, t)
-                    mod._task_dependency_info(todo_md_p, t)
+        flow_tasks = [t for t in mod.collect_all_tasks(todo_flow) if t["file"] == "TODO.md"]
+        with unittest.mock.patch.object(
+            mod, "collect_all_tasks", wraps=mod.collect_all_tasks
+        ) as mock_collect:
+            with mod.discovery_session() as cache:
+                def _query_pass() -> None:
+                    for t in md_tasks:
+                        mod._task_dag(todo_md_p, t)
+                        mod._is_task_blocked(todo_md_p, t)
+                        mod._task_dependency_info(todo_md_p, t)
+                    for ft in flow_tasks:
+                        mod._task_dag(todo_flow, ft)
+                    mod.resolve_dependency_statuses(todo_flow, ["F1", "todo_md:F1"])
+                    mod.resolve_dependency_statuses(todo_md_p, ["F1", "todo_flow:F1"])
+                    self.assertIsNone(mod.resolve_top_task_id(todo_md_p))
+                    self.assertEqual(mod.resolve_top_task_id(todo_flow), "F1")
+                    buf = io.StringIO()
+                    with contextlib.redirect_stdout(buf):
+                        rc = mod._show_tasks(
+                            todo_flow,
+                            ["F1", "F2", "todo_md:F1"],
+                            None,
+                            mod.BundleOptions(enabled=False),
+                        )
+                    self.assertEqual(rc, 0)
 
-            _query_pass()
-            first_scans = dict(cache.scans)
-            self.assertEqual(first_scans["projects"], 1)
-            self.assertLessEqual(first_scans["orchestrators"], 2)
-            _query_pass()
-            _query_pass()
-            self.assertEqual(cache.scans, first_scans)
+                _query_pass()
+                first_scans = dict(cache.scans)
+                first_collects = mock_collect.call_count
+                self.assertEqual(first_scans["projects"], 1)
+                self.assertLessEqual(first_scans["orchestrators"], 2)
+                self.assertEqual(first_collects, 2)
+                self.assertEqual(list(cache.stage_edges.keys()), [ws.resolve()])
+                self.assertIn(todo_flow.resolve(), cache.stage_edges[ws.resolve()])
+                _query_pass()
+                _query_pass()
+                self.assertEqual(cache.scans, first_scans)
+                self.assertEqual(mock_collect.call_count, first_collects)
+
+            mock_collect.reset_mock()
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = mod._show_tasks(
+                    todo_flow,
+                    ["F1", "F2", "todo_md:F1"],
+                    None,
+                    mod.BundleOptions(enabled=False),
+                )
+            self.assertEqual(rc, 0)
+            self.assertEqual(mock_collect.call_count, 2)
 
         self._run([str(SCRIPT), "done", "todo_flow:F1", "-m", "done"], cwd=str(ws), check=True)
         self.assertNotIn("Dependencies (blocked)", _md_overview_section())

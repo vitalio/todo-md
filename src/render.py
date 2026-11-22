@@ -183,26 +183,35 @@ def cmd_last(base_dir: Path, filt: str | None = None) -> int:
 def cmd_show(base_dir: Path, task_id: str) -> int:
     target = task_id.strip().upper()
     top = highest_ids_in_use(base_dir)
-    workdir = str(base_dir.resolve())
-    for t in collect_all_tasks(base_dir):
-        if str(t["id"]).upper() == target:
-            tid = str(t["id"]).upper()
-            base_title, _ = _strip_heading_note(str(t["title"]))
-            section = str(t["section"])
-            role = resolve_task_role(tid, section, status=str(t.get("status", "")))
-            header_lines = [
-                f"Task: {tid}",
-                f"Title: {base_title}",
-                f"Role: {role}",
-                f"Workdir: {workdir}",
-            ]
-            headers = "\n".join(header_lines)
-            dep_line = format_dependency_summary(base_dir, section, task=t)
-            dep_block = f"\n{dep_line}" if dep_line else ""
-            sys.stdout.write(
-                f"{headers}\n\n# {t['file']}:{t['line']}\n{section}{dep_block}\n\n---\nIDs in use: {format_ids_summary(top)}\n"
-            )
-            return 0
+    p_res = base_dir.resolve()
+    workdir = str(p_res)
+    shared = _ACTIVE_DISCOVERY
+    task_cache: dict[Path, dict[str, dict[str, object]]] = (
+        shared.task_maps if shared is not None else {}
+    )
+    if p_res not in task_cache:
+        task_cache[p_res] = {
+            str(t["id"]).upper(): t for t in collect_all_tasks(p_res)
+        }
+    t = task_cache[p_res].get(target)
+    if t is not None:
+        tid = str(t["id"]).upper()
+        base_title, _ = _strip_heading_note(str(t["title"]))
+        section = str(t["section"])
+        role = resolve_task_role(tid, section, status=str(t.get("status", "")))
+        header_lines = [
+            f"Task: {tid}",
+            f"Title: {base_title}",
+            f"Role: {role}",
+            f"Workdir: {workdir}",
+        ]
+        headers = "\n".join(header_lines)
+        dep_line = format_dependency_summary(base_dir, section, task=t)
+        dep_block = f"\n{dep_line}" if dep_line else ""
+        sys.stdout.write(
+            f"{headers}\n\n# {t['file']}:{t['line']}\n{section}{dep_block}\n\n---\nIDs in use: {format_ids_summary(top)}\n"
+        )
+        return 0
     sys.stderr.write(f"{prog_name()}: task {target!r} not found in TODO*.md under {base_dir}\n")
     return 1
 

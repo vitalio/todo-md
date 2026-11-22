@@ -1,3 +1,12 @@
+# ✅ [DONE] F71: Extend discovery_session reuse to resolve_dependency_statuses, cross-project stage edges, and multi-task show/top-id queries — *2026-11-22*
+
+- Depends on: F64, F62
+- In `src/dag.py` (`resolve_dependency_statuses()`), use `_workspace_root_cached(base_dir, explicit_dir=explicit_dir)` instead of `resolve_workspace_root()` and reuse `_ACTIVE_DISCOVERY.task_maps` (populating `task_maps[p_res]` via `collect_all_tasks(p_res)` on cache miss, matching `_task_map()` in `build_dependency_dag()`) so `_is_task_blocked()`, `_task_dependency_info()`, and `format_dependency_summary()` do not re-read `TODO*.md` on every call.
+- In `src/dag.py` (`build_dependency_dag()`), pass `cur_dir` instead of `base_dir` to `lookup_external_alias(cur_dir, ws_resolved, proj_name)` inside `_resolve_ref()`, and key `shared.stage_edges` by `ws_resolved` instead of `(ws_resolved, disp_resolved)` so workspace views (`overview -w`, `list -w`) reuse orchestrator stage edges across all child projects within one `discovery_session()`.
+- In `src/commands.py` (`resolve_top_task_id()`, `cmd_next_id()`), `src/render.py` (`cmd_show()`), and `src/cli.py` (`_show_tasks()`), wrap `resolve_top_task_id`, `cmd_next_id`, and `_show_tasks` in `discovery_session()` (`@_discovery_scoped`) and reuse `_ACTIVE_DISCOVERY.task_maps` in `cmd_show()` so multi-candidate `resolve_top_task_id()` checks and multi-ID `show` loops share cached project discovery and task maps.
+- Expand `test_orchestrator_inbound_edges_in_queue_next_id_list_and_show` in `tests/test_deps.py` to assert `discovery_session` cache reuse across `resolve_dependency_statuses()`, cross-project `stage_edges`, `resolve_top_task_id()`, and multi-task `show`.
+- Target files: `src/dag.py:resolve_dependency_statuses.._is_task_blocked`, `src/commands.py:resolve_top_task_id..cmd_next_id`, `src/render.py:cmd_show`, `src/cli.py:_show_tasks`, `tests/test_deps.py:test_orchestrator_inbound_edges_in_queue_next_id_list_and_show`.
+
 # ✅ [DONE] F70: Refresh stale module references in backlog items after the module split — *2026-11-22, Updated post-F62 module references in D2, D3, D5, D6, and F42*
 
 Other backlog items still point Target files and symbol locations at src/commands.py and src/parser.py for code that now lives in src/render.py, src/render_chain.py, src/chains.py, src/dag.py and src/workspace.py (for example _style_task_row at src/commands.py:1170-1340 and the extract_task_files overlap note naming src/commands.py). Impact: todo_md files and task bundles for those items resolve to wrong or empty slices.

@@ -916,6 +916,7 @@ def cmd_append(base_dir: Path, argv: list[str], commit: bool = False, no_commit:
     sys.stderr.write(f"{prog}: task {target!r} not found in TODO*.md under {base_dir}\n")
     return 1
 
+@_discovery_scoped
 def resolve_top_task_id(
     base_dir: Path,
     role: str | None = None,
@@ -937,6 +938,7 @@ def resolve_top_task_id(
             return str(t["id"]).upper()
     return None
 
+@_discovery_scoped
 def cmd_next_id(
     base_dir: Path,
     target_dir: Path | None = None,
