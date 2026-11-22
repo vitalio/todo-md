@@ -1,3 +1,19 @@
+# 🎯 [NEXT] F75: Add todo_md rename subcommand and extend batch <ID>... support across edit, append, archive, queue, and files
+
+- Implement `todo_md rename <OLD> <NEW|PREFIX> | <OLD>=<NEW|PREFIX>... [-c]` across `TODO.md` and `TODO_ARCHIVE.md`:
+  - Accept either a single rename pair (`todo_md rename <OLD> <NEW|PREFIX>`, supporting `<project>:<OLD>`) or one or more `<OLD>=<NEW|PREFIX>` pairs (space- or comma-separated).
+  - When a target is a single-letter prefix (`A-Z`), assign the next free ID for that prefix accounting for IDs freed and allocated across the batch; when a target is an explicit `<NEW_ID>`, verify that the final ID set across `TODO.md` and `TODO_ARCHIVE.md` has no collisions (allowing swaps and cycles such as `A1=A2 A2=A1` within one batch).
+  - Atomically rewrite task headings (`# <emoji> [<STATUS>] <ID>: <title>`) and all `- Depends on:` tokens across `TODO.md` and `TODO_ARCHIVE.md` in a single in-memory pass (plus `<project>:<OLD>` dependency references in a workspace orchestrator's `TODO*.md` when present) before calling `_finalize_mutation()`.
+- Extend batch `<ID>...` support (space- and comma-separated task refs via `_expand_task_id_args()`) to the remaining single-ID commands:
+  - `todo_md edit <ID>... [-t TITLE] [-m NOTE] [-b BODY|-] [--depends SPEC] [-c]`
+  - `todo_md append <ID>... [-b TEXT|-] [-c]`
+  - `todo_md archive [<ID>...] [-m NOTE] [--canceled] [-c]`
+  - `todo_md queue <ID>... [--all]`
+  - `todo_md files [<ID>...] [--max-lines N] [--max-total-lines N] [--max-bytes N] [--max-total-bytes N]` (merging and normalizing `- Target files:` entries across all specified tasks under shared budgets).
+- Keep every module under `src/` below 1000 lines by extracting or relocating functions from `src/commands.py` (currently 1088 lines, e.g. moving read-only `resolve_top_task_id`, `cmd_next_id`, and `cmd_files` out of `src/commands.py`) and updating `build.py` / `AGENTS.md` if module boundaries change.
+- Update `src/header.py` (`--help`), `agents/todo_md.md`, `README.md`, `AGENTS.md`, and unit tests in `tests/test_commands.py` and `tests/test_cli.py`, and rebuild `./todo_md` via `python3 build.py`.
+- Target files: `src/header.py`, `src/parser.py:highest_ids_in_use..select_task_files`, `src/commands.py:_expand_task_id_args..cmd_files`, `src/cli.py:main`, `agents/todo_md.md`, `README.md`, `AGENTS.md`, `tests/test_commands.py`, `tests/test_cli.py`.
+
 # 🎯 [NEXT] F74: Emit canonical kind="prompt" for task and overview fragments in context-bundle-protocol
 
 - Depends on: F72
@@ -24,7 +40,7 @@
 
 # 🎯 [NEXT] D2: Design standalone task file mode (-F / --file) for shortlists and ad-hoc task files
 
-- Depends on: F55
+- Depends on: F55, F75
 - Explore and specify `-F <path>` / `--file <path>` support across `todo_md` subcommands (`overview`, `list`, `show`, `next-id`, `queue`, `files`, `check`, `add`, `edit`, `append`, `status`, `next`) so `todo_md` can inspect and manipulate any Markdown task file (such as a temporary shortlist generated during planning or dispatch) outside a repository's `TODO.md` (keeping `-f` reserved for `--filter`).
 - Define behavior when `TODO_ARCHIVE.md` is absent beside the target file: allow read/check and in-file status mutations without requiring an archive file, and specify explicit error or `--archive <path>` handling for `done` / `cancel` / `archive`.
 - Define interaction and precedence with `-C <dir|project>` (`F20`), `TODO_MD_CWD`, positional `.md` paths, and cross-project `<project>:<ID>` dependency lookups via `TODO_MD_WORKSPACE` when inspecting a shortlist in `/tmp` or another directory.
@@ -33,7 +49,7 @@
 
 # ⚪ [NEW] F42: Rename project to todo-md and CLI utility to todo
 
-- Depends on: F72
+- Depends on: F72, F75
 - Rename project/repository references from `todo_md` to `todo-md` and CLI entrypoint from `todo_md` to `todo` (preserving `TODO.md`/`TODO_ARCHIVE.md` task-file conventions and applying agreed env-var/alias decisions from `todo_flow:D8` and ADR 0003).
 - Acceptance criteria: `build.py` outputs `todo`, `install.sh` installs `todo` (plus any agreed compatibility alias), `--help`/rules/docs/tests reflect `todo-md` and `todo`, and `python3 -m unittest discover -s tests` passes.
 - Target files: `build.py`, `install.sh`, `src/header.py`, `src/workspace.py`, `src/parser.py`, `src/dag.py`, `src/chains.py`, `src/render.py`, `src/render_chain.py`, `src/commands.py`, `src/bundle.py`, `src/cli.py`, `agents/todo_md.md`, `.agents_bundle`, `AGENTS.md`, `README.md`, `VERSION`, `tests/helpers.py`, `tests/test_*.py`, and `.github/`.
