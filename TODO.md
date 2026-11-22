@@ -42,3 +42,12 @@ Allow exporting parsed tasks as JSON for scripting.
 # ⚪ [NEW] F70: Refresh stale module references in backlog items after the module split
 
 Other backlog items still point Target files and symbol locations at src/commands.py and src/parser.py for code that now lives in src/render.py, src/render_chain.py, src/chains.py, src/dag.py and src/workspace.py (for example _style_task_row at src/commands.py:1170-1340 and the extract_task_files overlap note naming src/commands.py). Impact: todo_md files and task bundles for those items resolve to wrong or empty slices.
+
+# ⚪ [NEW] F71: Extend discovery_session reuse to resolve_dependency_statuses, cross-project stage edges, and multi-task show/top-id queries
+
+- Depends on: F64, F62
+- Observed in F64 review after the F62 module split:
+  - In `src/dag.py` (`resolve_dependency_statuses()`), `resolve_workspace_root()` and `collect_all_tasks()` are still called directly into a per-call dictionary instead of reusing `_workspace_root_cached()` and `_ACTIVE_DISCOVERY.task_maps`, re-reading task files on each `_is_task_blocked()`, `_task_dependency_info()`, and `format_dependency_summary()` call for tasks with own `- Depends on:` lines.
+  - In `src/dag.py` (`build_dependency_dag()`), `shared.stage_edges` is keyed by `(ws_resolved, disp_resolved)` where `disp_resolved = base_dir.resolve()`, and `_resolve_ref()` passes `base_dir` to `lookup_external_alias()`, so workspace views (`overview -w`, `list -w`) that iterate across projects rebuild orchestrator stage edges once per child project instead of sharing them per orchestrator across the workspace render pass.
+  - In `src/commands.py` (`resolve_top_task_id()`) and `src/cli.py` (multi-ID `cmd_show()` loops), per-candidate `_is_task_blocked()` checks and multi-task `show` invocations run outside a shared `discovery_session()`.
+- Impact: redundant task file reads and orchestrator edge extractions during workspace renders, `resolve_top_task_id()`, and multi-task `show` commands.
