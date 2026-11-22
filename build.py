@@ -21,7 +21,12 @@ RULE_WORK_FILE = ROOT / "agents" / "todo_md_work.md"
 
 MODULE_ORDER = [
     "header.py",
+    "workspace.py",
     "parser.py",
+    "dag.py",
+    "chains.py",
+    "render.py",
+    "render_chain.py",
     "commands.py",
     "bundle.py",
     "cli.py",

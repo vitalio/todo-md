@@ -1,17 +1,3 @@
-# 🎯 [NEXT] F62: Decompose monolithic src/parser.py and src/commands.py into focused domain modules
-
-- Depends on: B2, B3, B4, B5, F57, F63, F67, F68, F69 -> F64
-- Refactor `src/parser.py` (3,600+ lines) and `src/commands.py` (1,800+ lines) into cohesive domain modules (~300-800 lines each) with clean layer boundaries:
-  - `src/header.py` (`1-353`): imports, constants, regular expressions, `prog_name()`, and `usage_text()`.
-  - `src/workspace.py` (from `src/parser.py:1-299` and `src/parser.py:1833-2139`): project and workspace root resolution (`is_todo_project()`, `resolve_target_dir()`, `resolve_workspace_root()`, `discover_projects()`, `project_label()`, `lookup_external_alias()`, `resolve_project_dir()`, `resolve_project_or_dir()`, `resolve_project_task_ref()`, `resolve_filter_task_ref()`, `.todo_projects` and nested orchestrator discovery `read_configured_todo_projects()`, `is_orchestrator_project()`, `discover_orchestrators_for_project()`, `resolve_workspace_chain_projects()`).
-  - `src/parser.py` (from `src/parser.py:300-432`, `730-1043`, `1511-1629`, and `src/commands.py:1011-1102`): Markdown section parsing (`parse_tasks_in_text()`, `collect_all_tasks()`), dependency clause syntax parsing (`parse_depends_clause()`, `parse_dependency_clauses()`), role resolution (`resolve_task_role()`), file extraction (`split_line_slice()`, `split_file_spec()`, `extract_task_files()`), ID tracking (`highest_ids_in_use()`, `next_free_id()`), search (`search_tasks()`), and file validation (`validate_all()`).
-  - `src/dag.py` (from `src/parser.py:433-729` and `src/parser.py:2140-3626`): unified dependency DAG construction and chain planning/ranking (`build_dependency_dag()`, `_first_actionable_in_dag()`, `_task_dependency_info()`, `build_execution_chain_dag()`, `compute_unblock_counts()`, `build_chain_milestone_tree()`, `plan_execution_chains()`, `plan_execution_chains_by_role()`, `find_newly_unblocked_tasks()`).
-  - `src/render.py` (from `src/parser.py:749-792`, `921-1510`, `1630-1832`, and `src/commands.py:294-302`, `1147-1839`): terminal display width, ANSI styling, table wrapping (`_display_width()`, `_style_task_row()`, `_wrap_table_row()`), and read-only view renderers (`format_dependency_summary()`, `cmd_chain()`, `cmd_list()`, `cmd_show()`, `cmd_summary()`, `cmd_ids()`, `cmd_last()`, `cmd_last_id()`, `cmd_archive_view()`, `cmd_projects()`, `cmd_workspace_summary()`, `cmd_workspace_list()`, `cmd_workspace_check()`).
-  - `src/commands.py` (from `src/commands.py:1-293`, `303-1010`, `1103-1146`): backlog file sorting, Git auto-commit helpers, and mutating/query CLI commands (`cmd_check()`, `cmd_init()`, `cmd_add()`, `cmd_edit()`, `cmd_append()`, `cmd_transition()`, `cmd_reopen()`, `resolve_top_task_id()`, `cmd_next_id()`, `cmd_files()`).
-  - `src/cli.py` (`src/cli.py:1-399` and `src/cli.py:399-759`): self-update commands (`cmd_check_update()`, `cmd_update()`), CLI argument parsing (`_parse_quest_log_args()`), and `main()`.
-- Update `MODULE_ORDER` in `build.py`, regenerate standalone `./todo_md`, align `AGENTS.md` module descriptions, and verify all unit tests in `tests/test_*.py` pass without behavioral regressions.
-- Target files: `build.py`, `AGENTS.md`, `src/header.py`, `src/parser.py:1-360`, `src/commands.py:1-310`, `src/cli.py:1-399`.
-
 # 🎯 [NEXT] D3: Design explicit HOLD task review workflow and reverse dependency visibility
 
 - Specify how `HOLD` tasks expose downstream blocked dependents (`Blocks: ...` in `show` / `list HOLD`, including cross-project references under `-w`) so reviewers see what unblocks when a `HOLD` condition is met.
@@ -52,3 +38,7 @@
 
 - Depends on: F62
 Allow exporting parsed tasks as JSON for scripting.
+
+# ⚪ [NEW] F70: Refresh stale module references in backlog items after the module split
+
+Other backlog items still point Target files and symbol locations at src/commands.py and src/parser.py for code that now lives in src/render.py, src/render_chain.py, src/chains.py, src/dag.py and src/workspace.py (for example _style_task_row at src/commands.py:1170-1340 and the extract_task_files overlap note naming src/commands.py). Impact: todo_md files and task bundles for those items resolve to wrong or empty slices.

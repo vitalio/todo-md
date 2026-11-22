@@ -50,17 +50,29 @@ rules are loaded via `.agents_bundle`.
 - `src/header.py` — help tables rendered by `usage_text()` (`-h`/`--help`),
   standard library imports, version placeholder (`__VERSION__`, injected from
   `VERSION` by `build.py`), and task heading regexes.
-- `src/parser.py` — `TODO.md` and `TODO_ARCHIVE.md` task parser, ID sequence
-  tracking, and structural validator (`todo_md check`).
-  Workspace/orchestrator discovery is shared per render pass through
-  `discovery_session()` (`_discovery_scoped` on `cmd_list`, `cmd_show`,
-  `cmd_summary`, `cmd_workspace_*`, `_order_active_tasks`); route new
-  discovery calls through the cached wrappers and never mutate task files
-  inside an active session.
-- `src/commands.py` — task lifecycle subcommands (`init`, `add`, `edit`,
-  `append`, `status`, `next`, `done`, `cancel`, `list`, `archive`, `ids`,
-  `check`). Keep `agents/todo_md.md`, `-h`/`--help`, and `README.md` in sync
-  in the same commit whenever commands or flags change.
+- `src/workspace.py` — project and workspace root resolution, `.todo_projects`
+  and orchestrator discovery, and the per-render `discovery_session()` cache
+  (`_discovery_scoped` on `cmd_list`, `cmd_show`, `cmd_summary`,
+  `cmd_workspace_*`, `_order_active_tasks`); route new discovery calls through
+  the cached wrappers and never mutate task files inside an active session.
+- `src/parser.py` — pure `TODO.md` / `TODO_ARCHIVE.md` parsing: task sections,
+  dependency clause syntax, role resolution, `- Target files:` extraction
+  (`extract_task_files()`, `select_task_files()`), ID tracking, search, and the
+  structural validator `validate_all()` (`todo_md check`); no terminal output.
+- `src/dag.py` — unified dependency DAG (`build_dependency_dag()`,
+  `build_execution_chain_dag()`), blocked-state info, and unblock detection.
+- `src/chains.py` — execution chain planning and ranking
+  (`plan_execution_chains()`, `plan_execution_chains_by_role()`,
+  `build_chain_milestone_tree()`, `_order_active_tasks()`).
+- `src/render.py` — terminal width, ANSI styling, table wrapping, and the
+  read-only view renderers (`cmd_list`, `cmd_show`, `cmd_summary`, `cmd_ids`,
+  `cmd_last`, `cmd_projects`, `cmd_workspace_*`); `src/render_chain.py` holds
+  the Quest-Log `cmd_chain()` renderer.
+- `src/commands.py` — backlog sorting, Git auto-commit helpers, and the
+  mutating/query subcommands (`init`, `add`, `edit`, `append`, `status`,
+  `next`, `done`, `cancel`, `archive`, `next-id`, `files`, `check`). Keep
+  `agents/todo_md.md`, `-h`/`--help`, and `README.md` in sync in the same
+  commit whenever commands or flags change.
 - `agents/todo_md.md` — agent rule embedded into the compiled `todo_md` by
   `build.py` (`EMBEDDED_RULE_TODO_MD`, `get_embedded_todo_rule()`) and emitted
   as `todo_md:todo_md` in bundle mode for every role except `work`; it is pure
@@ -73,7 +85,7 @@ rules are loaded via `.agents_bundle`.
   FIFO auto-detection, `role=<role>` override (`Role:` header and rule
   selection), and rule/include/task/context fragments; it never mutates
   `TODO.md`. Target files come only from `select_task_files()` and
-  `extract_task_files()` in `src/commands.py`
+  `extract_task_files()` in `src/parser.py`
   (`- Target files:` bullets); keep the stream shape aligned with `todo_flow`
   `docs/adr/0002-context-bundle-protocol-and-self-contained-producers.md`.
 - `src/cli.py` — CLI argument routing and self-update (`update`,

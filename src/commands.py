@@ -10,20 +10,16 @@ def cmd_check(base_dir: Path) -> int:
     sys.stdout.write(f"{prog_name()}: OK ({count} task(s) verified across TODO*.md)\n")
     return 0
 
-
 def _default_todo_header(base_dir: Path) -> str:
     return ""
 
-
 def _default_archive_header(base_dir: Path) -> str:
     return ""
-
 
 def _commit_enabled(commit: bool, no_commit: bool) -> bool:
     env_commit = os.environ.get("TODO_MD_COMMIT", "").strip().lower() in ("1", "true", "yes")
     env_no_commit = os.environ.get("TODO_MD_NO_COMMIT", "").strip().lower() in ("1", "true", "yes")
     return (commit or env_commit) and not no_commit and not env_no_commit
-
 
 def _git_run(base_dir: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
@@ -33,7 +29,6 @@ def _git_run(base_dir: Path, *args: str) -> subprocess.CompletedProcess[str]:
         text=True,
         check=False,
     )
-
 
 def _sync_upstream(base_dir: Path, commit: bool = False, no_commit: bool = False) -> None:
     if os.environ.get("TODO_MD_NO_GIT_PULL", "").strip().lower() in ("1", "true", "yes"):
@@ -62,7 +57,6 @@ def _sync_upstream(base_dir: Path, commit: bool = False, no_commit: bool = False
         if detail:
             msg += f"\n{detail}"
         raise SystemExit(msg)
-
 
 def _git_commit_todo(base_dir: Path, commit_msg: str) -> None:
     try:
@@ -119,7 +113,6 @@ def _git_commit_todo(base_dir: Path, commit_msg: str) -> None:
     sha = f" ({r_sha.stdout.strip()})" if r_sha.returncode == 0 and r_sha.stdout.strip() else ""
     sys.stdout.write(f"{prog_name()}: committed {', '.join(changed)}{sha}: {commit_msg}\n")
 
-
 def _sort_todo_file(todo_path: Path, promote_id: str | None = None) -> None:
     if not todo_path.is_file():
         return
@@ -140,7 +133,6 @@ def _sort_todo_file(todo_path: Path, promote_id: str | None = None) -> None:
     if new_text != raw:
         todo_path.write_text(new_text, encoding="utf-8")
 
-
 def _finalize_mutation(
     base_dir: Path,
     commit_msg: str,
@@ -157,7 +149,6 @@ def _finalize_mutation(
     if _commit_enabled(commit, no_commit):
         _git_commit_todo(base_dir, commit_msg)
     return 0
-
 
 def cmd_init(
     base_dir: Path,
@@ -201,7 +192,6 @@ def cmd_init(
     sys.stdout.write(f"{prog}: initialized {', '.join(created)} in {base_dir}\n")
     return _finalize_mutation(base_dir, f"Initialize {' and '.join(created)}", commit=commit, no_commit=no_commit)
 
-
 def _extract_and_remove_task(text: str, target_id: str) -> tuple[dict[str, object] | None, str]:
     lines = text.splitlines()
     in_fence = False
@@ -232,7 +222,6 @@ def _extract_and_remove_task(text: str, target_id: str) -> tuple[dict[str, objec
     new_text = re.sub(r"\n{3,}", "\n\n", "\n".join(remaining).rstrip()) + "\n"
     return found_info, new_text
 
-
 def _format_heading(status: str, tid: str, title: str, note: str | None = None) -> str:
     emoji = VALID_STATUSES[status]
     base_title, existing_note = _strip_heading_note(title)
@@ -240,7 +229,6 @@ def _format_heading(status: str, tid: str, title: str, note: str | None = None) 
     if final_note:
         return f"# {emoji} [{status}] {tid}: {base_title} — *{final_note}*"
     return f"# {emoji} [{status}] {tid}: {base_title}"
-
 
 def _insert_task_section(file_path: Path, section_lines: list[str], default_header: str = "", prepend: bool = False) -> None:
     if not file_path.is_file() or not file_path.read_text(encoding="utf-8").strip():
@@ -274,7 +262,6 @@ def _insert_task_section(file_path: Path, section_lines: list[str], default_head
     new_text = re.sub(r"\n{3,}", "\n\n", "\n".join(updated).rstrip()) + "\n"
     file_path.write_text(new_text, encoding="utf-8")
 
-
 def _parse_note_arg(rest: list[str]) -> tuple[list[str], str | None]:
     pos: list[str] = []
     note: str | None = None
@@ -289,16 +276,6 @@ def _parse_note_arg(rest: list[str]) -> tuple[list[str], str | None]:
             pos.append(rest[i])
             i += 1
     return pos, note
-
-
-def cmd_archive_view(base_dir: Path) -> int:
-    arch_path = base_dir / "TODO_ARCHIVE.md"
-    if not arch_path.is_file():
-        sys.stderr.write(f"{prog_name()}: no TODO_ARCHIVE.md found in {base_dir}\n")
-        return 1
-    sys.stdout.write(read_if_exists(arch_path).rstrip() + "\n")
-    return 0
-
 
 def cmd_transition(
     base_dir: Path,
@@ -453,7 +430,6 @@ def cmd_transition(
             sys.stdout.write(f"Unblocked: {', '.join(unblocked)}\n")
     return rc
 
-
 def cmd_reopen(
     base_dir: Path,
     argv: list[str],
@@ -513,7 +489,6 @@ def cmd_reopen(
         no_commit=no_commit,
     )
 
-
 def _resolve_body_arg(body: str | None) -> str | None:
     if body == "-":
         if sys.stdin.isatty():
@@ -522,7 +497,6 @@ def _resolve_body_arg(body: str | None) -> str | None:
     if body is None:
         return _read_stdin_if_piped()
     return body
-
 
 def _normalize_depends_clauses(raw_items: list[str]) -> list[str]:
     clauses: list[str] = []
@@ -536,7 +510,6 @@ def _normalize_depends_clauses(raw_items: list[str]) -> list[str]:
             )
         clauses.append(" -> ".join(", ".join(stage) for stage in stages))
     return clauses
-
 
 def _strip_plan_role_from_section_lines(sec_lines: list[str]) -> tuple[list[str], bool]:
     if not sec_lines:
@@ -564,7 +537,6 @@ def _strip_plan_role_from_section_lines(sec_lines: list[str]) -> tuple[list[str]
         return [heading], True
     return [heading, "", *body_lines], True
 
-
 def _normalize_role_arg(raw_role: str) -> str:
     if "\n" in raw_role or "\r" in raw_role:
         raise SystemExit(f"{prog_name()}: --role value must be a single line")
@@ -583,7 +555,6 @@ def _normalize_role_arg(raw_role: str) -> str:
             "expected lowercase role identifier matching ^[a-z][a-z0-9_-]*$"
         )
     return role
-
 
 def _apply_depends_to_body_lines(lines: list[str], depends_clauses: list[str] | None) -> list[str]:
     if depends_clauses is None:
@@ -604,7 +575,6 @@ def _apply_depends_to_body_lines(lines: list[str], depends_clauses: list[str] | 
         return filtered
     dep_lines = [f"- Depends on: {clause}" for clause in depends_clauses]
     return [*dep_lines, *filtered] if filtered else dep_lines
-
 
 def _fenced_matches(lines: list[str], pred) -> list[str]:
     found: list[str] = []
@@ -756,7 +726,6 @@ def cmd_add(
         promote_id=(tid if prepend else None),
     )
 
-
 def cmd_edit(
     base_dir: Path,
     argv: list[str],
@@ -877,7 +846,6 @@ def cmd_edit(
     sys.stderr.write(f"{prog}: task {target!r} not found in TODO*.md under {base_dir}\n")
     return 1
 
-
 def cmd_append(base_dir: Path, argv: list[str], commit: bool = False, no_commit: bool = False) -> int:
     prog = prog_name()
     body: str | None = None
@@ -948,7 +916,6 @@ def cmd_append(base_dir: Path, argv: list[str], commit: bool = False, no_commit:
     sys.stderr.write(f"{prog}: task {target!r} not found in TODO*.md under {base_dir}\n")
     return 1
 
-
 def resolve_top_task_id(
     base_dir: Path,
     role: str | None = None,
@@ -969,7 +936,6 @@ def resolve_top_task_id(
                 continue
             return str(t["id"]).upper()
     return None
-
 
 def cmd_next_id(
     base_dir: Path,
@@ -1037,276 +1003,6 @@ def cmd_next_id(
     sys.stdout.write(f"{next_act}\n")
     return 0
 
-
-def split_line_slice(token: str) -> tuple[str, tuple[int, int] | None]:
-    m = LINE_SLICE_RE.match(token)
-    if not m:
-        return token, None
-    start = int(m.group("a") or m.group("c"))
-    end_raw = m.group("b") or m.group("d")
-    return m.group("path"), (start, int(end_raw) if end_raw else start)
-
-
-def split_file_spec(spec: str) -> tuple[str, tuple[int, int] | None]:
-    m = FILE_SPEC_RE.match(spec)
-    if not m:
-        return spec, None
-    return m.group("path"), (int(m.group("start")), int(m.group("end")))
-
-
-def _resolve_repo_file(repo_root: Path, token: str) -> str | None:
-    p_tok = Path(token)
-    target = p_tok.resolve() if p_tok.is_absolute() else (repo_root / token).resolve()
-    try:
-        rel_posix = target.relative_to(repo_root).as_posix()
-    except ValueError:
-        return None
-    if rel_posix == "." or not target.is_file():
-        return None
-    return rel_posix
-
-
-def _expand_task_glob(repo_root: Path, pattern: str) -> list[str]:
-    if pattern.startswith("/") or ("/" not in pattern and "." not in pattern):
-        return []
-    if ".." in pattern.split("/"):
-        return []
-    try:
-        matches = sorted(repo_root.glob(pattern))
-    except (NotImplementedError, ValueError, OSError):
-        return []
-    out: list[str] = []
-    for m in matches:
-        try:
-            rel = m.resolve().relative_to(repo_root)
-        except (ValueError, OSError):
-            continue
-        if not m.is_file() or {".git", "__pycache__"} & set(rel.parts):
-            continue
-        out.append(rel.as_posix())
-    return out
-
-
-def _target_file_tokens(section_text: str) -> list[str]:
-    tokens: list[str] = []
-    in_fence = False
-    in_target = False
-    for line in section_text.splitlines():
-        if line.lstrip().startswith(FENCE):
-            in_fence = not in_fence
-            in_target = False
-            continue
-        if in_fence:
-            continue
-        if TARGET_FILES_LINE_RE.match(line):
-            in_target = True
-        elif not (in_target and line[:1].isspace() and line.strip() and not BULLET_LINE_RE.match(line)):
-            in_target = False
-        if in_target:
-            tokens.extend(BACKTICK_TOKEN_RE.findall(line))
-    return tokens
-
-
-def _line_indent(line: str) -> int:
-    return len(line) - len(line.lstrip())
-
-
-def _symbol_span_end(lines: list[str], start: int, indent: int) -> int:
-    end = start
-    for idx in range(start + 1, len(lines)):
-        line = lines[idx]
-        if not line.strip():
-            continue
-        line_indent = _line_indent(line)
-        if line_indent == indent and line.lstrip().startswith("}"):
-            end = idx
-            break
-        if line_indent <= indent and not line.lstrip().startswith((")", "]", "}")):
-            break
-        end = idx
-    return end
-
-
-def _find_symbol_span(lines: list[str], name: str, lo: int, hi: int) -> tuple[int, int] | None:
-    esc = re.escape(name)
-    patterns = (
-        re.compile(
-            rf"^(\s*)(?:async\s+def|def|class|function|fn|func|struct|enum|interface|type)\s+{esc}\b"
-        ),
-        re.compile(rf"^(\s*)(?:function\s+)?{esc}\s*\(\s*\)\s*\{{?"),
-        re.compile(rf"^(\s*){esc}\s*(?::[^=\n]+)?=(?!=)"),
-    )
-    for pat in patterns:
-        best: tuple[int, int] | None = None
-        for idx in range(lo, hi + 1):
-            m = pat.match(lines[idx])
-            if m and (best is None or len(m.group(1)) < best[0]):
-                best = (len(m.group(1)), idx)
-        if best is None:
-            continue
-        indent, idx = best
-        start = idx
-        while (
-            start > lo
-            and lines[start - 1].lstrip().startswith("@")
-            and _line_indent(lines[start - 1]) == indent
-        ):
-            start -= 1
-        return start, min(_symbol_span_end(lines, idx, indent), hi)
-    return None
-
-
-def _resolve_symbol(lines: list[str], dotted: str) -> tuple[int, int] | None:
-    lo, hi = 0, len(lines) - 1
-    span: tuple[int, int] | None = None
-    for part in dotted.split("."):
-        if lo > hi:
-            return None
-        span = _find_symbol_span(lines, part, lo, hi)
-        if span is None:
-            return None
-        lo, hi = span
-    return span
-
-
-def _resolve_symbol_range(lines: list[str], first: str, last: str | None) -> tuple[int, int] | None:
-    a = _resolve_symbol(lines, first)
-    if a is None:
-        return None
-    if last is None:
-        return a[0] + 1, a[1] + 1
-    b = _resolve_symbol(lines, last)
-    if b is None or b[1] < a[0]:
-        return None
-    return a[0] + 1, b[1] + 1
-
-
-def _normalize_file_entries(entries: list[tuple[str, tuple[int, int] | None]]) -> list[str]:
-    order: list[str] = []
-    whole: set[str] = set()
-    spans: dict[str, list[tuple[int, int]]] = {}
-    for rel, span in entries:
-        if rel not in spans:
-            order.append(rel)
-            spans[rel] = []
-        if span is None:
-            whole.add(rel)
-        else:
-            spans[rel].append(span)
-    out: list[str] = []
-    for rel in order:
-        if rel in whole:
-            out.append(rel)
-            continue
-        merged: list[tuple[int, int]] = []
-        for s, e in sorted(spans[rel]):
-            if merged and s <= merged[-1][1]:
-                merged[-1] = (merged[-1][0], max(merged[-1][1], e))
-            else:
-                merged.append((s, e))
-        out.extend(f"{rel}:{s}-{e}" for s, e in merged)
-    return out
-
-
-def extract_task_files(base_dir: Path, section_text: str) -> list[str]:
-    repo_root = base_dir.resolve()
-    entries: list[tuple[str, tuple[int, int] | None]] = []
-    cache: dict[str, list[str]] = {}
-
-    def file_lines(rel: str) -> list[str]:
-        if rel not in cache:
-            data = (repo_root / rel).read_bytes()
-            cache[rel] = [ln.decode("utf-8", "replace") for ln in data.splitlines()]
-        return cache[rel]
-
-    for raw in _target_file_tokens(section_text):
-        cand = raw.strip()
-        if not cand or any(ch.isspace() for ch in cand) or "://" in cand:
-            continue
-        if cand.startswith("-") or any(ch in cand for ch in "<>{}"):
-            continue
-        path_part, span = split_line_slice(cand)
-        if PROJECT_TASK_RE.match(cand):
-            continue
-        sym = SYMBOL_SPEC_RE.match(cand) if span is None else None
-        if sym is not None:
-            rel_sym = _resolve_repo_file(repo_root, sym.group("path"))
-            if rel_sym is None:
-                continue
-            sym_span = _resolve_symbol_range(file_lines(rel_sym), sym.group("first"), sym.group("last"))
-            if sym_span is None:
-                sys.stderr.write(
-                    f"{prog_name()}: warning: symbol slice {cand!r} not found in {rel_sym}; using whole file\n"
-                )
-                entries.append((rel_sym, None))
-                continue
-            entries.append((rel_sym, sym_span))
-            continue
-        if span is not None and (span[0] < 1 or span[1] < span[0]):
-            continue
-        if any(ch in path_part for ch in "*?["):
-            if span is None:
-                entries.extend((g, None) for g in _expand_task_glob(repo_root, path_part))
-            continue
-        rel = _resolve_repo_file(repo_root, path_part)
-        if rel is None:
-            continue
-        if span is None:
-            entries.append((rel, None))
-            continue
-        n_total = len(file_lines(rel))
-        if span[0] > n_total:
-            continue
-        entries.append((rel, (span[0], min(span[1], n_total))))
-    return _normalize_file_entries(entries)
-
-
-def select_task_files(
-    base_dir: Path,
-    task_id: str | None = None,
-    max_lines: int | None = None,
-    max_total_lines: int | None = None,
-    max_bytes: int | None = None,
-    max_total_bytes: int | None = None,
-) -> list[str] | None:
-    target = task_id.strip().upper() if task_id else resolve_top_task_id(base_dir)
-    if not target:
-        sys.stderr.write(f"{prog_name()}: no active WIP or NEXT task found in TODO.md under {base_dir}\n")
-        return None
-    has_budget = any(
-        cap is not None for cap in (max_lines, max_total_lines, max_bytes, max_total_bytes)
-    )
-    repo_root = base_dir.resolve()
-    total_lines = 0
-    total_bytes = 0
-    for t in collect_all_tasks(base_dir):
-        if str(t["id"]).upper() != target:
-            continue
-        selected: list[str] = []
-        for spec in extract_task_files(base_dir, str(t["section"])):
-            if has_budget:
-                rel_path, span = split_file_spec(spec)
-                chunks = (repo_root / rel_path).read_bytes().splitlines(keepends=True)
-                if span is not None:
-                    chunks = chunks[span[0] - 1 : span[1]]
-                n_bytes = sum(len(c) for c in chunks)
-                n_lines = len(chunks)
-                if max_bytes is not None and n_bytes > max_bytes:
-                    continue
-                if max_total_bytes is not None and total_bytes + n_bytes > max_total_bytes:
-                    continue
-                if max_lines is not None and n_lines > max_lines:
-                    continue
-                if max_total_lines is not None and total_lines + n_lines > max_total_lines:
-                    continue
-                total_bytes += n_bytes
-                total_lines += n_lines
-            selected.append(spec)
-        return selected
-    sys.stderr.write(f"{prog_name()}: task {target!r} not found in TODO*.md under {base_dir}\n")
-    return None
-
-
 def cmd_files(
     base_dir: Path,
     task_id: str | None = None,
@@ -1321,698 +1017,3 @@ def cmd_files(
     for spec in specs:
         sys.stdout.write(f"{spec}\n")
     return 0
-
-
-def cmd_chain(
-    base_dir: Path,
-    limit: int | None = None,
-    include_hold: bool = False,
-    include_done: bool = False,
-    ready: bool = False,
-    role: str | None = None,
-    by_role: bool = False,
-    workspace: bool = False,
-    explicit_dir: str | None = None,
-    targets: list[tuple[Path, str]] | None = None,
-    tree: bool = False,
-    numbered: str | None = None,
-    focus: list[tuple[Path, str]] | None = None,
-    status: frozenset[str] | None = None,
-) -> int:
-    b_res = base_dir.resolve()
-    row_scoped = status is not None or bool(focus)
-    ws_root = resolve_workspace_root(b_res, explicit_dir=explicit_dir)
-    is_orch = (not workspace) and is_orchestrator_project(b_res, ws_root, explicit_dir=explicit_dir)
-    if workspace:
-        if not resolve_workspace_chain_projects(b_res, ws_root):
-            sys.stdout.write(f"No todo_md projects found under {ws_root}\n")
-            return 0
-    elif is_orch:
-        if not read_configured_todo_projects(b_res, ws_root, include_env=True) and not (b_res / "TODO.md").is_file():
-            sys.stdout.write(f"No todo_md projects found under {ws_root}\n")
-            return 0
-    elif not (b_res / "TODO.md").is_file():
-        sys.stderr.write(f"{prog_name()}: no TODO.md found in {base_dir} (run '{prog_name()} init' to create one)\n")
-        return 1
-
-    dag = build_execution_chain_dag(
-        base_dir,
-        workspace=workspace,
-        explicit_dir=explicit_dir,
-        include_done=include_done,
-    )
-    syntax_errors: list[str] = dag["syntax_errors"]  # type: ignore[assignment]
-    if syntax_errors:
-        for e in syntax_errors:
-            sys.stderr.write(f"ERROR: {e}\n")
-        return 1
-    cycle: list[str] = dag["cycle"]  # type: ignore[assignment]
-    if cycle:
-        sys.stderr.write(f"ERROR: dependency cycle detected: {' -> '.join(cycle)}\n")
-        return 1
-
-    nodes: dict[tuple[Path, str], dict[str, object]] = dag["nodes"]  # type: ignore[assignment]
-    prereqs: dict[tuple[Path, str], list[tuple[Path, str]]] = dag["prereqs"]  # type: ignore[assignment]
-    done_nodes: dict[tuple[Path, str], set[tuple[Path, str]]] = dag.get("done_nodes", {})  # type: ignore[assignment]
-    direct_done_deps: dict[tuple[Path, str], list[tuple[Path, str]]] = dag.get("direct_done_deps", {})  # type: ignore[assignment]
-    done_graph_prereqs: dict[tuple[Path, str], list[tuple[Path, str]]] = dag.get("done_graph_prereqs", {})  # type: ignore[assignment]
-    dependents: dict[tuple[Path, str], list[tuple[Path, str]]] = dag["dependents"]  # type: ignore[assignment]
-    topo_order: list[tuple[Path, str]] = dag["topo_order"]  # type: ignore[assignment]
-    target_project: Path | None = dag.get("target_project")  # type: ignore[assignment]
-
-    archived_tasks: list[tuple[Path, str]] = dag.get("archived_tasks", [])  # type: ignore[assignment]
-
-    def _is_target_node(u: tuple[Path, str]) -> bool:
-        return target_project is None or u[0] == target_project
-
-    has_open_in_scope = bool(topo_order) and (
-        target_project is None or any(u[0] == target_project for u in topo_order)
-    )
-    has_arch_in_scope = include_done and bool(archived_tasks) and (
-        target_project is None or any(u[0] == target_project for u in archived_tasks)
-    )
-    if not has_open_in_scope and not has_arch_in_scope:
-        scope_msg = "across workspace projects" if (workspace or is_orch) else "in TODO.md"
-        sys.stdout.write(f"No open tasks {scope_msg}\n")
-        return 0
-
-    if by_role:
-        plan = plan_execution_chains_by_role(
-            dag,
-            include_hold=include_hold,
-            ready_only=ready,
-            limit=(None if (target_project is not None or row_scoped) else limit),
-            role=role,
-        )
-    else:
-        plan = plan_execution_chains(
-            dag,
-            include_hold=include_hold,
-            ready_only=ready,
-            limit=(None if (role is not None or row_scoped or target_project is not None) else limit),
-            include_done=include_done,
-        )
-    active_nodes: list[tuple[Path, str]] = plan["active_nodes"]  # type: ignore[assignment]
-    active_unblocks: dict[tuple[Path, str], int] = plan["active_unblocks"]  # type: ignore[assignment]
-    excluded_hold: set[tuple[Path, str]] = plan["excluded_hold"]  # type: ignore[assignment]
-    chain_counts: dict[tuple[Path, str], int] = plan.get("chain_counts", {})  # type: ignore[assignment]
-    done_counts: dict[tuple[Path, str], int] = plan.get("done_counts", {})  # type: ignore[assignment]
-    is_momentum_next: dict[tuple[Path, str], int] = plan.get("is_momentum_next", {})  # type: ignore[assignment]
-    immediate_ready_targets: dict[tuple[Path, str], list[tuple[Path, str]]] = plan.get("immediate_ready_targets", {})  # type: ignore[assignment]
-
-    active_set = set(active_nodes)
-    relevant_active_set: set[tuple[Path, str]] = set(active_set)
-    if target_project is not None:
-        undir: dict[tuple[Path, str], set[tuple[Path, str]]] = {u: set() for u in active_nodes}
-        for u in active_nodes:
-            for p in prereqs.get(u, []):
-                if p in active_set:
-                    undir[u].add(p)
-                    undir[p].add(u)
-        rel_vis: set[tuple[Path, str]] = set()
-        for u in active_nodes:
-            if u[0] == target_project and u not in rel_vis:
-                stk = [u]
-                rel_vis.add(u)
-                while stk:
-                    cur = stk.pop()
-                    for nb in undir[cur]:
-                        if nb not in rel_vis:
-                            rel_vis.add(nb)
-                            stk.append(nb)
-        relevant_active_set = rel_vis
-
-    had_blocker_error = False
-    for u in active_nodes:
-        if u not in relevant_active_set:
-            continue
-        st = str(nodes[u]["status"])
-        if st in ("MISSING", "CANCELED"):
-            had_blocker_error = True
-            blocked_refs = [str(nodes[v]["ref"]) for v in dependents.get(u, []) if v in relevant_active_set]
-            if blocked_refs:
-                sys.stderr.write(
-                    f"ERROR: unresolved blocker {nodes[u]['ref']} ({st}) blocks {', '.join(blocked_refs)}\n"
-                )
-            else:
-                sys.stderr.write(f"ERROR: unresolved blocker {nodes[u]['ref']} ({st})\n")
-
-    term_width = _get_terminal_columns()
-    use_color = _use_ansi_color()
-    target_set, unscoped_target_ids = _normalize_target_refs(base_dir, targets, explicit_dir=explicit_dir)
-    wanted_role = role.strip().lower() if role is not None else None
-
-    def _is_highlighted_node(u: tuple[Path, str]) -> bool:
-        return (u[0].resolve(), u[1].upper()) in target_set or u[1].upper() in unscoped_target_ids
-
-    def _matches_role(u: tuple[Path, str]) -> bool:
-        if wanted_role is None:
-            return True
-        nd = nodes[u]
-        return bool(nd.get("exists")) and _task_matches_role(nd, wanted_role)
-
-    focus_set, focus_unscoped = _normalize_target_refs(base_dir, focus, explicit_dir=explicit_dir)
-    focus_active = bool(focus_set or focus_unscoped)
-
-    def _is_focus_node(u: tuple[Path, str]) -> bool:
-        return (u[0].resolve(), u[1].upper()) in focus_set or u[1].upper() in focus_unscoped
-
-    def _status_ok(u: tuple[Path, str]) -> bool:
-        return status is None or str(nodes[u]["status"]) in status
-
-    def _row_ok(u: tuple[Path, str]) -> bool:
-        return _status_ok(u) and (not focus_active or _is_focus_node(u))
-
-    num_w_box = [1]
-
-    def _lead_cell(prefix: str, idx: int, ref: str) -> str:
-        if numbered is None:
-            return f"{prefix}{ref}"
-        width = num_w_box[0]
-        if numbered == "right":
-            return f"{prefix}{idx:>{width}} {ref}"
-        return f"{prefix}{idx:<{width}} {ref}"
-
-    def _format_row(
-        idx: int,
-        u: tuple[Path, str],
-        show_downstream: bool = False,
-        also_in_refs: list[str] | None = None,
-        tree_prefix: str = "",
-        cont_prefix: str | None = None,
-        lead_col_width: int = 24,
-    ) -> str:
-        nd = nodes[u]
-        st = str(nd["status"])
-        ref = str(nd["ref"])
-        title = str(nd["title"])
-        blockers = [str(nodes[p]["ref"]) for p in prereqs.get(u, []) if str(nodes[p]["status"]) != "DONE"]
-        role_badge = _task_role_badge(nd) if nd.get("exists") else ""
-        impact = active_unblocks.get(u, 0)
-        done_c = done_counts.get(u, len(done_nodes.get(u, set())))
-        if st == "MISSING":
-            badge = "[MISSING]"
-            status_tag = f"[blocked | unblocks: {impact}]" if impact > 0 else "[blocked]"
-        elif st == "CANCELED":
-            badge = f"{nd['emoji']} [CANCELED]"
-            if u in active_set:
-                status_tag = f"[blocked | unblocks: {impact}]" if impact > 0 else "[blocked]"
-            else:
-                status_tag = ""
-        elif st == "DONE":
-            badge = f"{nd['emoji']} [DONE]"
-            status_tag = ""
-        else:
-            emoji = "⏳" if (st in ("WIP", "NEXT") and blockers) else str(nd["emoji"])
-            badge = f"{emoji} [{st}]"
-            if blockers:
-                if impact > 0:
-                    status_tag = f"[blocked by: {', '.join(blockers)} | unblocks: {impact}]"
-                else:
-                    status_tag = f"[blocked by: {', '.join(blockers)}]"
-            else:
-                perks: list[str] = []
-                if not show_downstream:
-                    perks.append("ready")
-                if done_c > 0 and impact == 0:
-                    perks.append("FINAL")
-                elif done_c > 0 and impact > 0:
-                    perks.append("STAGE")
-                if is_momentum_next.get(u, 1) == 0:
-                    perks.append("COMBO")
-                kv_stats: list[str] = []
-                if show_downstream:
-                    n_chains = chain_counts.get(u, 0)
-                    if n_chains > 1:
-                        kv_stats.append(f"chain: {n_chains}")
-                    if impact > 0:
-                        imm_count = len(immediate_ready_targets.get(u, []))
-                        if imm_count > 0:
-                            kv_stats.append(f"ready: +{imm_count}")
-                        kv_stats.append(f"unblocks: {impact}")
-                else:
-                    if impact > 0:
-                        kv_stats.append(f"unblocks: {impact}")
-                tag_parts = list(perks)
-                if kv_stats:
-                    tag_parts.append(", ".join(kv_stats))
-                status_tag = f"[{' | '.join(tag_parts)}]" if tag_parts else ""
-        if also_in_refs:
-            also_tag = f"[also in: {', '.join(also_in_refs)}]"
-            status_tag = f"{status_tag} {also_tag}" if status_tag else also_tag
-        lead_cell = _lead_cell(tree_prefix, idx, ref)
-        prefix = (
-            f"  {_pad_display(lead_cell, lead_col_width)}  "
-            f"{_pad_display(badge, 14)}  "
-            f"{_pad_display(role_badge, 10)}  "
-        )
-        desc = f"{title}  {status_tag}" if status_tag else title
-        rendered = _wrap_table_row(prefix, desc, term_width, cont_prefix=cont_prefix) + "\n"
-        return _style_task_row(
-            rendered,
-            is_external=not _is_target_node(u),
-            is_done=(st == "DONE"),
-            is_highlighted=_is_highlighted_node(u),
-            use_color=use_color,
-        )
-
-    held_paths: list[list[tuple[Path, str]]] = []
-    if excluded_hold:
-        held_in_deg = {u: sum(1 for p in prereqs[u] if p in excluded_hold) for u in excluded_hold}
-        held_deps = {u: [v for v in dependents.get(u, []) if v in excluded_hold] for u in excluded_hold}
-        branch_roots = [u for u in topo_order if u in excluded_hold and held_in_deg[u] == 0]
-
-        def _collect_held_paths(u: tuple[Path, str], path: list[tuple[Path, str]]) -> None:
-            if len(held_paths) >= 64:
-                return
-            nxts = held_deps[u]
-            if not nxts:
-                held_paths.append(path)
-                return
-            for v in nxts:
-                _collect_held_paths(v, [*path, v])
-
-        for r in branch_roots:
-            _collect_held_paths(r, [r])
-
-        if target_project is not None:
-            held_paths = [path for path in held_paths if any(_is_target_node(k) for k in path)]
-        if wanted_role is not None:
-            held_paths = [path for path in held_paths if any(_matches_role(k) for k in path)]
-        if focus_active:
-            held_paths = [path for path in held_paths if any(_is_focus_node(k) for k in path)]
-        if status is not None:
-            held_paths = [path for path in held_paths if any(_status_ok(k) for k in path)]
-
-    scoped_excluded_hold = {
-        u
-        for u in excluded_hold
-        if _is_target_node(u) or any(u in path for path in held_paths)
-    }
-
-    if by_role:
-        queues: list[tuple[str, str, list[tuple[Path, str]]]] = plan["queues"]  # type: ignore[assignment]
-        if target_project is not None or row_scoped:
-            queues = [
-                (q_key, q_label, [u for u in q_items if _is_target_node(u) and _row_ok(u)])
-                for q_key, q_label, q_items in queues
-            ]
-            if limit is not None:
-                rem = limit
-                limited_queues: list[tuple[str, str, list[tuple[Path, str]]]] = []
-                for q_key, q_label, q_items in queues:
-                    if rem <= 0:
-                        limited_queues.append((q_key, q_label, []))
-                        continue
-                    take = q_items[:rem]
-                    limited_queues.append((q_key, q_label, take))
-                    rem -= len(take)
-                queues = limited_queues
-        non_empty_queues = [(q_label, q_items) for _, q_label, q_items in queues if q_items]
-        num_w_box[0] = len(str(max(1, sum(len(q_items) for _, q_items in non_empty_queues))))
-        matching_held = [u for u in scoped_excluded_hold if _matches_role(u) and _is_target_node(u) and _row_ok(u)]
-        if non_empty_queues:
-            row_idx = 1
-            for sec_idx, (q_label, q_items) in enumerate(non_empty_queues):
-                if sec_idx > 0:
-                    sys.stdout.write("\n")
-                sys.stdout.write(f"{q_label}:\n")
-                for u in q_items:
-                    sys.stdout.write(_format_row(row_idx, u))
-                    row_idx += 1
-        elif matching_held:
-            role_note = f" matching role={role.strip()}" if role is not None else ""
-            sys.stdout.write(
-                f"Queues: (none{role_note} — {len(matching_held)} held task(s); pass --include-hold to include)\n"
-            )
-        elif role is not None:
-            sys.stdout.write(f"Queues: (none matching role={role.strip()})\n")
-        else:
-            sys.stdout.write("Queues: (none)\n")
-    elif ready:
-        ready_tasks: list[tuple[Path, str]] = plan["ready_tasks"]  # type: ignore[assignment]
-        if target_project is not None:
-            ready_tasks = [u for u in ready_tasks if _is_target_node(u)]
-        if wanted_role is not None:
-            ready_tasks = [u for u in ready_tasks if _matches_role(u)]
-        if row_scoped:
-            ready_tasks = [u for u in ready_tasks if _row_ok(u)]
-        if (target_project is not None or wanted_role is not None or row_scoped) and limit is not None:
-            ready_tasks = ready_tasks[:limit]
-        matching_held = [u for u in scoped_excluded_hold if _matches_role(u) and _is_target_node(u) and _row_ok(u)]
-        num_w_box[0] = len(str(max(1, len(ready_tasks))))
-        if ready_tasks:
-            sys.stdout.write("Ready tasks:\n")
-            for idx, u in enumerate(ready_tasks, start=1):
-                sys.stdout.write(_format_row(idx, u, show_downstream=True))
-        elif matching_held:
-            role_note = f" matching role={role.strip()}" if role is not None else ""
-            sys.stdout.write(
-                f"Ready tasks: (none{role_note} — {len(matching_held)} held task(s); pass --include-hold to include)\n"
-            )
-        elif role is not None:
-            sys.stdout.write(f"Ready tasks: (none matching role={role.strip()})\n")
-        else:
-            sys.stdout.write("Ready tasks: (none)\n")
-    else:
-        chains: list[list[tuple[Path, str]]] = plan["chains"]  # type: ignore[assignment]
-        raw_chain_stats: list[dict[str, object]] = plan.get("chain_stats", [])  # type: ignore[assignment]
-        if len(raw_chain_stats) == len(chains):
-            chains_with_stats: list[tuple[list[tuple[Path, str]], dict[str, object]]] = list(
-                zip(chains, raw_chain_stats)
-            )
-        else:
-            chains_with_stats = [
-                (
-                    comp,
-                    {
-                        "open_count": len(comp),
-                        "done_count": 0,
-                        "total_tasks": len(comp),
-                        "progress_pct": 0,
-                    },
-                )
-                for comp in chains
-            ]
-        standalone: list[tuple[Path, str]] = plan["standalone"]  # type: ignore[assignment]
-
-        def _chain_has_target_node(
-            comp_nodes: list[tuple[Path, str]],
-            st_info: dict[str, object],
-        ) -> bool:
-            open_list = st_info.get("open_nodes")
-            if isinstance(open_list, list) and open_list:
-                return any(_is_target_node(u) for u in open_list)
-            non_done = [u for u in comp_nodes if str(nodes[u]["status"]) != "DONE"]
-            check_list = non_done if non_done else comp_nodes
-            return any(_is_target_node(u) for u in check_list)
-
-        if target_project is not None:
-            chains_with_stats = [
-                (comp, st_info)
-                for comp, st_info in chains_with_stats
-                if _chain_has_target_node(comp, st_info)
-            ]
-            standalone = [u for u in standalone if _is_target_node(u)]
-        if wanted_role is not None:
-            filtered_chains_with_stats: list[tuple[list[tuple[Path, str]], dict[str, object]]] = []
-            for comp, st_info in chains_with_stats:
-                f_comp = [u for u in comp if _matches_role(u)]
-                if f_comp and (target_project is None or any(_is_target_node(u) for u in f_comp)):
-                    filtered_chains_with_stats.append((f_comp, st_info))
-            chains_with_stats = filtered_chains_with_stats
-            standalone = [u for u in standalone if _matches_role(u)]
-        if row_scoped:
-            scoped_chains: list[tuple[list[tuple[Path, str]], dict[str, object]]] = []
-            for comp, st_info in chains_with_stats:
-                c_nodes = (
-                    set(comp)
-                    | set(st_info.get("nodes", []))  # type: ignore[arg-type]
-                    | set(st_info.get("open_nodes", []))  # type: ignore[arg-type]
-                    | set(st_info.get("done_nodes", set()))  # type: ignore[arg-type]
-                )
-                if focus_active and not any(_is_focus_node(u) for u in c_nodes):
-                    continue
-                f_comp = [u for u in comp if _status_ok(u)]
-                if f_comp:
-                    scoped_chains.append((f_comp, st_info))
-            chains_with_stats = scoped_chains
-            standalone = [u for u in standalone if _row_ok(u)]
-        if (target_project is not None or wanted_role is not None or row_scoped) and limit is not None:
-            rem = limit
-            limited_chains_with_stats: list[tuple[list[tuple[Path, str]], dict[str, object]]] = []
-            for comp, st_info in chains_with_stats:
-                if rem <= 0:
-                    break
-                take = comp[:rem]
-                limited_chains_with_stats.append((take, st_info))
-                rem -= len(take)
-            standalone = standalone[:rem] if rem > 0 else []
-            chains_with_stats = limited_chains_with_stats
-        matching_held = [u for u in scoped_excluded_hold if _matches_role(u) and _is_target_node(u) and _row_ok(u)]
-        if chains_with_stats or standalone:
-            row_idx = 1
-            wrote_section = False
-
-            def _build_chain_tree(
-                comp_nodes: list[tuple[Path, str]],
-                st_info: dict[str, object],
-            ) -> dict[str, object]:
-                r_key = st_info.get("root")
-                t_root: tuple[Path, str] = (
-                    r_key
-                    if isinstance(r_key, tuple) and r_key in nodes
-                    else (comp_nodes[-1] if comp_nodes else (b_res, ""))
-                )
-                return build_chain_milestone_tree(
-                    root=t_root,
-                    display_nodes=comp_nodes,
-                    nodes=nodes,
-                    prereqs=prereqs,
-                    done_nodes=done_nodes,
-                    direct_done_deps=direct_done_deps,
-                    done_graph_prereqs=done_graph_prereqs,
-                    include_done=include_done,
-                )
-
-            def _flat_tree_nodes(t_node: dict[str, object]) -> list[tuple[Path, str]]:
-                flat: list[tuple[Path, str]] = []
-                for ch_item in t_node.get("children", []):  # type: ignore[attr-defined]
-                    if ch_item.get("kind") == "subchain":
-                        flat.extend(_flat_tree_nodes(ch_item))
-                    else:
-                        flat.append(ch_item["node"])
-                return flat
-
-            chain_trees = [_build_chain_tree(c_nodes, c_info) for c_nodes, c_info in chains_with_stats]
-            total_rows = len(standalone) + sum(len(_flat_tree_nodes(ct)) for ct in chain_trees)
-            num_w_box[0] = len(str(max(1, total_rows)))
-            for chain_idx, (comp, st_info) in enumerate(chains_with_stats, start=1):
-                if wrote_section:
-                    sys.stdout.write("\n")
-                pct = int(st_info.get("progress_pct", 0))
-                done_c = int(st_info.get("done_count", 0))
-                open_c = int(st_info.get("open_count", len(comp)))
-                root_key = st_info.get("root")
-                if isinstance(root_key, tuple) and root_key in nodes:
-                    root_ref = str(st_info.get("root_ref") or nodes[root_key]["ref"])
-                    root_title = str(st_info.get("root_title") or nodes[root_key]["title"])
-                else:
-                    fallback_root = comp[-1] if comp else None
-                    root_ref = str(
-                        st_info.get("root_ref")
-                        or (
-                            nodes[fallback_root]["ref"]
-                            if fallback_root is not None and fallback_root in nodes
-                            else ""
-                        )
-                    )
-                    root_title = str(
-                        st_info.get("root_title")
-                        or (
-                            nodes[fallback_root]["title"]
-                            if fallback_root is not None and fallback_root in nodes
-                            else ""
-                        )
-                    )
-                also_in_map: dict[tuple[Path, str], list[str]] = st_info.get("also_in", {})  # type: ignore[assignment]
-                chain_nodes = (
-                    set(comp)
-                    | set(st_info.get("nodes", []))  # type: ignore[arg-type]
-                    | set(st_info.get("open_nodes", []))  # type: ignore[arg-type]
-                    | set(st_info.get("done_nodes", set()))  # type: ignore[arg-type]
-                )
-                chain_highlighted = any(_is_highlighted_node(u) for u in chain_nodes)
-                chain_stat_tag = (
-                    f"[{pct}% | done: {done_c}, open: {open_c}]"
-                    if done_c > 0
-                    else f"[open: {open_c}]"
-                )
-                header_line = f"Chain {chain_idx} -> {root_ref}: {root_title} {chain_stat_tag}:\n"
-                sys.stdout.write(
-                    _style_task_row(
-                        header_line,
-                        is_highlighted=chain_highlighted,
-                        use_color=use_color,
-                    )
-                )
-                chain_tree = chain_trees[chain_idx - 1]
-
-                def _max_lead_width(
-                    t_node: dict[str, object],
-                    active_bars: list[bool],
-                    sim_idx: int,
-                ) -> tuple[int, int]:
-                    max_w = 24
-                    ch_list: list[dict[str, object]] = t_node.get("children", [])  # type: ignore[assignment]
-                    for c_i, ch_item in enumerate(ch_list):
-                        is_last_c = c_i == len(ch_list) - 1
-                        if ch_item.get("kind") == "subchain":
-                            sub_w, sim_idx = _max_lead_width(
-                                ch_item,
-                                [*active_bars, not is_last_c],
-                                sim_idx,
-                            )
-                            if sub_w > max_w:
-                                max_w = sub_w
-                        else:
-                            u_node: tuple[Path, str] = ch_item["node"]  # type: ignore[assignment]
-                            bars = "".join("│   " if b else "    " for b in active_bars)
-                            is_closing = bool(ch_item.get("is_closing")) and is_last_c
-                            conn = "└─► " if is_closing else ("└── " if is_last_c else "├── ")
-                            cell = _lead_cell(f"{bars}{conn}", sim_idx, str(nodes[u_node]["ref"]))
-                            cw = _display_width(cell)
-                            if cw > max_w:
-                                max_w = cw
-                            sim_idx += 1
-                    return max_w, sim_idx
-
-                chain_lead_w, _ = _max_lead_width(chain_tree, [], row_idx)
-
-                def _render_chain_tree_children(
-                    t_node: dict[str, object],
-                    active_bars: list[bool],
-                    cur_idx: int,
-                ) -> int:
-                    ch_list: list[dict[str, object]] = t_node.get("children", [])  # type: ignore[assignment]
-                    for c_i, ch_item in enumerate(ch_list):
-                        is_last_c = c_i == len(ch_list) - 1
-                        bars = "".join("│   " if b else "    " for b in active_bars)
-                        if ch_item.get("kind") == "subchain":
-                            m_node: tuple[Path, str] = ch_item["milestone"]  # type: ignore[assignment]
-                            m_ref = str(ch_item.get("milestone_ref") or nodes[m_node]["ref"])
-                            m_title = str(ch_item.get("milestone_title") or nodes[m_node]["title"])
-                            m_pct = int(ch_item.get("progress_pct", 0))
-                            m_done = int(ch_item.get("done_count", 0))
-                            m_open = int(ch_item.get("open_count", 0))
-                            sub_nodes: set[tuple[Path, str]] = ch_item.get("subtree_nodes", {m_node})  # type: ignore[assignment]
-                            sub_hl = any(_is_highlighted_node(su) for su in sub_nodes)
-                            sub_conn = "└── " if is_last_c else "├── "
-                            sub_prefix = f"  {bars}{sub_conn}"
-                            sub_cont_bars = "".join(
-                                "│   " if b else "    " for b in [*active_bars, not is_last_c]
-                            )
-                            sub_cont_prefix = f"  {sub_cont_bars}" if sub_cont_bars.strip() else "    "
-                            sub_stat_tag = (
-                                f"[{m_pct}% | done: {m_done}, open: {m_open}]"
-                                if m_done > 0
-                                else f"[open: {m_open}]"
-                            )
-                            sub_desc = f"Sub-chain -> {m_ref}: {m_title} {sub_stat_tag}:"
-                            sub_hdr = (
-                                _wrap_table_row(
-                                    sub_prefix,
-                                    sub_desc,
-                                    term_width,
-                                    cont_prefix=sub_cont_prefix,
-                                )
-                                + "\n"
-                            )
-                            sys.stdout.write(
-                                _style_task_row(
-                                    sub_hdr,
-                                    is_external=not _is_target_node(m_node),
-                                    is_done=(str(nodes[m_node]["status"]) == "DONE"),
-                                    is_highlighted=sub_hl,
-                                    use_color=use_color,
-                                )
-                            )
-                            cur_idx = _render_chain_tree_children(
-                                ch_item,
-                                [*active_bars, not is_last_c],
-                                cur_idx,
-                            )
-                        else:
-                            u_node: tuple[Path, str] = ch_item["node"]  # type: ignore[assignment]
-                            is_closing = bool(ch_item.get("is_closing")) and is_last_c
-                            conn = "└─► " if is_closing else ("└── " if is_last_c else "├── ")
-                            t_pref = f"{bars}{conn}"
-                            row_bars = [*active_bars, not is_last_c]
-                            cont_bars_str = "".join("│   " if b else "    " for b in row_bars)
-                            c_pref = f"  {cont_bars_str}" if any(row_bars) else None
-                            sys.stdout.write(
-                                _format_row(
-                                    cur_idx,
-                                    u_node,
-                                    also_in_refs=also_in_map.get(u_node),
-                                    tree_prefix=t_pref,
-                                    cont_prefix=c_pref,
-                                    lead_col_width=chain_lead_w,
-                                )
-                            )
-                            cur_idx += 1
-                    return cur_idx
-
-                if tree:
-                    row_idx = _render_chain_tree_children(chain_tree, [], row_idx)
-                else:
-                    flat_nodes = _flat_tree_nodes(chain_tree)
-                    flat_w = max(
-                        [
-                            24,
-                            *(
-                                _display_width(_lead_cell("", row_idx + k, str(nodes[fu]["ref"])))
-                                for k, fu in enumerate(flat_nodes)
-                            ),
-                        ]
-                    )
-                    for fu in flat_nodes:
-                        sys.stdout.write(
-                            _format_row(
-                                row_idx,
-                                fu,
-                                also_in_refs=also_in_map.get(fu),
-                                lead_col_width=flat_w,
-                            )
-                        )
-                        row_idx += 1
-                wrote_section = True
-            if standalone:
-                if wrote_section:
-                    sys.stdout.write("\n")
-                sys.stdout.write("Standalone tasks:\n")
-                for u in standalone:
-                    sys.stdout.write(_format_row(row_idx, u))
-                    row_idx += 1
-        elif matching_held:
-            role_note = f" matching role={role.strip()}" if role is not None else ""
-            sys.stdout.write(
-                f"Chain: (none{role_note} — {len(matching_held)} held task(s); pass --include-hold to include)\n"
-            )
-        elif role is not None:
-            sys.stdout.write(f"Chain: (none matching role={role.strip()})\n")
-        else:
-            sys.stdout.write("Chain: (none)\n")
-
-    if held_paths:
-        sys.stdout.write("\nHeld branches:\n")
-        for path in held_paths:
-            parts: list[str] = []
-            for k in path:
-                token = _style_task_row(
-                    f"{nodes[k]['ref']} ({nodes[k]['status']})",
-                    is_external=not _is_target_node(k),
-                    is_done=(str(nodes[k]["status"]) == "DONE"),
-                    is_highlighted=_is_highlighted_node(k),
-                    use_color=use_color,
-                )
-                parts.append(token)
-            rendered = " -> ".join(parts)
-            sys.stdout.write(f"  {rendered}\n")
-
-    if focus is not None and len(focus) == 1:
-        f_dir, raw_f_tid = focus[0]
-        f_tid = raw_f_tid[2:].strip().upper() if raw_f_tid.startswith(".:") else raw_f_tid.split(":")[-1].strip().upper()
-        cand_key = (f_dir.resolve(), f_tid)
-        if cand_key not in nodes or not nodes[cand_key].get("exists"):
-            matched_nodes = [u for u in nodes if _is_focus_node(u) and nodes[u].get("exists")]
-            if len(matched_nodes) == 1:
-                f_dir, f_tid = matched_nodes[0]
-        f_dag = build_dependency_dag(base_dir, f_dir, f_tid, explicit_dir=explicit_dir, stop_at_done=True)
-        f_nodes: dict[tuple[Path, str], dict[str, object]] = f_dag["nodes"]  # type: ignore[assignment]
-        f_root: tuple[Path, str] = f_dag["root"]  # type: ignore[assignment]
-        if f_nodes[f_root]["exists"] and not f_dag["syntax_errors"] and not f_dag["cycle"]:
-            f_next = _first_actionable_in_dag(f_dag)
-            sys.stdout.write(f"\nNext actionable: {f_next or 'none'}\n")
-
-    return 1 if had_blocker_error else 0
