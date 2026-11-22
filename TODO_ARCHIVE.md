@@ -1,3 +1,7 @@
+# ✅ [DONE] F70: Refresh stale module references in backlog items after the module split — *2026-11-22, Updated post-F62 module references in D2, D3, D5, D6, and F42*
+
+Other backlog items still point Target files and symbol locations at src/commands.py and src/parser.py for code that now lives in src/render.py, src/render_chain.py, src/chains.py, src/dag.py and src/workspace.py (for example _style_task_row at src/commands.py:1170-1340 and the extract_task_files overlap note naming src/commands.py). Impact: todo_md files and task bundles for those items resolve to wrong or empty slices.
+
 # ✅ [DONE] F62: Decompose monolithic src/parser.py and src/commands.py into focused domain modules — *2026-11-22*
 
 - Depends on: B2, B3, B4, B5, F57, F63, F67, F68, F69 -> F64
