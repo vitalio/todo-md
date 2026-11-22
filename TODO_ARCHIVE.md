@@ -1,3 +1,10 @@
+# ✅ [DONE] F69: Keep todo_md --help lines within 100 display columns and 100 UTF-8 bytes — *2026-11-22*
+
+- In `src/header.py`, update `_help_wrap()` so wrapped `--help` lines stay within `width` both by terminal display columns (`help_display_width(cand) <= width`) and by UTF-8 byte length (`len(cand.encode("utf-8")) <= width`), preventing false positives when checking `todo_md -h` with byte-oriented tools such as `mawk 'length($0) > 100'` on lines containing multi-byte status emoji (`next` and `TODO.md`).
+- In `tests/test_cli.py` (`_assert_help_aligned()`), assert both `width(ln) <= 100` and `len(ln.encode("utf-8")) <= 100` for every line of `--help` output.
+- Regenerate standalone `./todo_md` via `python3 build.py`, verify `python3 build.py --check`, reinstall locally, and bump `VERSION` (`PATCH`).
+- Target files: `src/header.py`, `tests/test_cli.py:TestCli._assert_help_aligned..TestCli.test_help_structured_sections_and_alignment`.
+
 # ✅ [DONE] B5: Support POSIX sh/Bash and multi-language symbol slices with whole-file fallback in todo_md files — *2026-11-22*
 
 - In `_find_symbol_span()` in `src/commands.py`, extend symbol declaration patterns beyond Python (`async def`, `def`, `class`, and assignment) to also match common multi-language declarations (`function`, `fn`, `func`, `struct`, `enum`, `interface`, `type`) and POSIX sh / Bash function headers (`^(\s*)(?:function\s+)?{esc}\s*\(\s*\)\s*\{?`).

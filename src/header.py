@@ -347,12 +347,15 @@ def help_display_width(text: str) -> int:
             width += 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
     return width
 
+def _help_fits(text: str, width: int) -> bool:
+    return help_display_width(text) <= width and len(text.encode("utf-8")) <= width
+
 def _help_wrap(text: str, width: int) -> list[str]:
     lines: list[str] = []
     cur = ""
     for word in text.split():
         cand = f"{cur} {word}" if cur else word
-        if cur and help_display_width(cand) > width:
+        if cur and not _help_fits(cand, width):
             lines.append(cur)
             cur = word
         else:

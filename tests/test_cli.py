@@ -93,6 +93,8 @@ class TestCli(TodoMdTestCase):
         width = self.todo_md_mod.help_display_width
         too_long = [ln for ln in lines if width(ln) > 100]
         self.assertEqual(too_long, [])
+        too_many_bytes = [ln for ln in lines if len(ln.encode("utf-8")) > 100]
+        self.assertEqual(too_many_bytes, [])
         titles = (
             "Commands:",
             "Global options:",

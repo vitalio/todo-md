@@ -1,10 +1,3 @@
-# 🎯 [NEXT] F69: Keep todo_md --help lines within 100 display columns and 100 UTF-8 bytes
-
-- In `src/header.py`, update `_help_wrap()` so wrapped `--help` lines stay within `width` both by terminal display columns (`help_display_width(cand) <= width`) and by UTF-8 byte length (`len(cand.encode("utf-8")) <= width`), preventing false positives when checking `todo_md -h` with byte-oriented tools such as `mawk 'length($0) > 100'` on lines containing multi-byte status emoji (`next` and `TODO.md`).
-- In `tests/test_cli.py` (`_assert_help_aligned()`), assert both `width(ln) <= 100` and `len(ln.encode("utf-8")) <= 100` for every line of `--help` output.
-- Regenerate standalone `./todo_md` via `python3 build.py`, verify `python3 build.py --check`, reinstall locally, and bump `VERSION` (`PATCH`).
-- Target files: `src/header.py`, `tests/test_cli.py:TestCli._assert_help_aligned..TestCli.test_help_structured_sections_and_alignment`.
-
 # 🎯 [NEXT] B4: Preserve existing '- Depends on:' and '- Target files:' lines in 'todo_md edit -b'
 
 - In `_apply_depends_to_body_lines()` and `cmd_edit()` in `src/commands.py`, when `body is not None` (`-b` / `--body` or piped `stdin`) and `depends_clauses is None` (`--depends` was not passed), automatically preserve any existing `- Depends on:` lines from the previous task body (`old_sec[1:]`) whenever the new `body` does not already include its own `- Depends on:` lines; clear existing `- Depends on:` lines only when `--depends ""` is explicitly passed.
