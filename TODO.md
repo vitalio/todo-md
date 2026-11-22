@@ -1,3 +1,26 @@
+# 🎯 [NEXT] B6: Keep ready NEXT tasks at the top of flat chains and dynamically re-rank unemitted subtrees in --tree
+
+- In `_prepare_active_plan()` (`src/chains.py`), rank currently ready tasks
+  (`initial_in_deg == 0`) ahead of blocked tasks within the same status and
+  role ease so ready `NEXT` tasks (such as `F55`) precede blocked `NEXT` tasks
+  (such as `F51`, `F16`) in `ranked_active`.
+- In `build_chain_milestone_tree()` (`src/chains.py`), select the next child
+  subtree from `direct_children` dynamically on each iteration after updating
+  `emitted` (recomputing `_child_subtree_sort_key()` over unemitted nodes
+  `u not in emitted`), so sibling branches that only shared an already-emitted
+  high-priority ancestor do not retain a stale `min_pos` ahead of branches
+  with remaining unemitted `NEXT`/`WIP` tasks.
+- In `plan_execution_chains()` (`src/chains.py`) and `cmd_chain()`
+  (`src/render_chain.py`), render default flat chains (without `--tree`) in
+  priority-topological execution order (`base_display_nodes` from
+  `ranked_active`, with any `--all` completed tasks ordered before their
+  dependents) so lower-priority `NEW` tails of one branch never push ready or
+  blocked `NEXT` tasks of a parallel branch down to the bottom of the chain,
+  while preserving `chain_tree` DFS milestone grouping under `--tree` / `-t`.
+- Target files: `src/chains.py:_prepare_active_plan..plan_execution_chains`,
+  `src/render_chain.py:cmd_chain`,
+  `tests/test_chain.py:test_root_anchored_chains_quest_momentum_also_in_and_all_done_tasks..test_flat_default_tree_flag_numbered_alignment_and_short_limit`.
+
 # 🎯 [NEXT] D3: Design explicit HOLD task review workflow and reverse dependency visibility
 
 - Specify how `HOLD` tasks expose downstream blocked dependents (`Blocks: ...` in `show` / `list HOLD`, including cross-project references under `-w`) so reviewers see what unblocks when a `HOLD` condition is met.
