@@ -20,7 +20,7 @@
 - Depends on: F72
 - Rename project/repository references from `todo_md` to `todo-md` and CLI entrypoint from `todo_md` to `todo` (preserving `TODO.md`/`TODO_ARCHIVE.md` task-file conventions and applying agreed env-var/alias decisions from `todo_flow:D8` and ADR 0003).
 - Acceptance criteria: `build.py` outputs `todo`, `install.sh` installs `todo` (plus any agreed compatibility alias), `--help`/rules/docs/tests reflect `todo-md` and `todo`, and `python3 -m unittest discover -s tests` passes.
-- Target files: `build.py`, `install.sh`, `install.ps1`, `src/header.py`, `src/workspace.py`, `src/parser.py`, `src/dag.py`, `src/chains.py`, `src/render.py`, `src/render_chain.py`, `src/commands.py`, `src/bundle.py`, `src/cli.py`, `agents/todo_md.md`, `agents/todo_md_work.md`, `.agents_bundle`, `AGENTS.md`, `README.md`, `VERSION`, `tests/helpers.py`, `tests/test_*.py`, and `.github/`.
+- Target files: `build.py`, `install.sh`, `src/header.py`, `src/workspace.py`, `src/parser.py`, `src/dag.py`, `src/chains.py`, `src/render.py`, `src/render_chain.py`, `src/commands.py`, `src/bundle.py`, `src/cli.py`, `agents/todo_md.md`, `.agents_bundle`, `AGENTS.md`, `README.md`, `VERSION`, `tests/helpers.py`, `tests/test_*.py`, and `.github/`.
 
 # ⚪ [NEW] D5: Design cohesive Quest-Log ANSI color palette and typography for RPG perks (FINAL, STAGE, COMBO), stats, prefixes, and statuses
 
