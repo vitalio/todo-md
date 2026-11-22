@@ -1,3 +1,11 @@
+# 🎯 [NEXT] F67: Slim agents/todo_md.md embedded rule, strip '# Description:', and emit compact role=work slice
+
+- Strip any leading `# Description:` line in `get_embedded_todo_rule()` (`src/header.py`) and ensure `agents/todo_md.md` uses `[if role=work]` / `[if role!=work]` (or role-aware selection in `get_embedded_todo_rule(role=...)` / `_write_stream()` in `src/bundle.py`) so `todo_md` bundle streams never leak `# Description:` metadata or overload `role=work` sessions with 14.5k chars of planning/CLI-reference text:
+  - For `role=work` (`Role: work` header in `emit_task_bundle()`), emit a compact ~12-15 line `todo_md:todo_md` rule covering only worker invariants: inspect/modify `TODO*.md` exclusively via `todo_md` (never `cat` or manual edits), close the active task via `todo_md done <ID>` inside the final guarded code commit (without `-c` / `--commit`, staging `TODO.md` and `TODO_ARCHIVE.md` atomically with code changes), and record out-of-scope findings via `todo_md add "<title>" -b "<problem_and_impact>"` in default `NEW` status without `--depends` (pointing to `todo_md -h` for full CLI flags).
+  - For `role=plan`, `role=design`, `role=review`, and role-less context streams (`emit_context_bundle()`), emit a concise ~35-45 line rule (~2.5k-3.5k chars instead of 14.5k chars) covering task status lifecycle (`WIP -> NEXT -> QUESTION -> NEW -> HOLD`), prefix/status role derivation (`D* -> design`, non-`D` `WIP/NEXT -> work`, `NEW/QUESTION/HOLD -> plan`), core inspection/mutation commands (`todo_md [opts] [-w]`, `show`, `list`, `chain`, `files`, `add`, `edit`, `append`, `next`, `status`, `done`, `cancel`, `check`), dependency syntax (`,` and `->`), bidirectional chain integration, and the `- Target files:` contract (pointing to `todo_md -h` for full option lists instead of duplicating TUI rendering internals).
+- Update `tests/test_bundle.py` to verify that `# Description:` is stripped, `Role: work` task bundles emit the compact worker rule slice, and `Role: plan` / `design` / context bundles emit the full planning rule including `Target files contract`.
+- Target files: `agents/todo_md.md`, `src/header.py`, `src/bundle.py`, `tests/test_bundle.py`.
+
 # 🎯 [NEXT] B4: Preserve existing '- Depends on:' and '- Target files:' lines in 'todo_md edit -b'
 
 - In `_apply_depends_to_body_lines()` and `cmd_edit()` in `src/commands.py`, when `body is not None` (`-b` / `--body` or piped `stdin`) and `depends_clauses is None` (`--depends` was not passed), automatically preserve any existing `- Depends on:` lines from the previous task body (`old_sec[1:]`) whenever the new `body` does not already include its own `- Depends on:` lines; clear existing `- Depends on:` lines only when `--depends ""` is explicitly passed.
@@ -33,7 +41,7 @@
 
 # 🎯 [NEXT] F62: Decompose monolithic src/parser.py and src/commands.py into focused domain modules
 
-- Depends on: B2, B3, B4, F57, F63 -> F64
+- Depends on: B2, B3, B4, F57, F63, F67 -> F64
 - Refactor `src/parser.py` (3,600+ lines) and `src/commands.py` (1,800+ lines) into cohesive domain modules (~300-800 lines each) with clean layer boundaries:
   - `src/header.py` (`1-353`): imports, constants, regular expressions, `prog_name()`, and `usage_text()`.
   - `src/workspace.py` (from `src/parser.py:1-299` and `src/parser.py:1833-2139`): project and workspace root resolution (`is_todo_project()`, `resolve_target_dir()`, `resolve_workspace_root()`, `discover_projects()`, `project_label()`, `lookup_external_alias()`, `resolve_project_dir()`, `resolve_project_or_dir()`, `resolve_project_task_ref()`, `resolve_filter_task_ref()`, `.todo_projects` and nested orchestrator discovery `read_configured_todo_projects()`, `is_orchestrator_project()`, `discover_orchestrators_for_project()`, `resolve_workspace_chain_projects()`).
