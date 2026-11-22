@@ -49,7 +49,7 @@ class TestBundle(TodoMdTestCase):
         self.assertEqual(headers["Title"], "Bundle task")
         self.assertEqual(headers["Files"], "app.py")
         self.assertEqual(headers["Workdir"], str(self.tmp.resolve()))
-        self.assertEqual([m["kind"] for m, _ in parts], ["rule", "task"])
+        self.assertEqual([m["kind"] for m, _ in parts], ["rule", "prompt"])
         rule_meta, rule_body = parts[0]
         self.assertEqual(rule_meta, {"kind": "rule", "id": "todo_md:todo_md", "chain": ["todo_md"]})
         self.assertNotIn("# Description:", rule_body)
@@ -58,7 +58,7 @@ class TestBundle(TodoMdTestCase):
         self.assertIn("`L` is a", rule_body)
         task_meta, task_body = parts[1]
         self.assertEqual(
-            task_meta, {"kind": "task", "id": "F1", "name": "TODO.md:F1", "chain": ["todo_md"]}
+            task_meta, {"kind": "prompt", "id": "F1", "name": "TODO.md:F1", "chain": ["todo_md"]}
         )
         self.assertTrue(task_body.startswith("===== Prompt ====="))
         self.assertIn("# 🎯 [NEXT] F1:", task_body)
@@ -75,14 +75,14 @@ class TestBundle(TodoMdTestCase):
         r = self._run([str(SCRIPT), "--bundle", "F1"], check=True)
         headers, parts = self._parse(r.stdout)
         self.assertEqual(headers["Files"], "big.py:3-5 app.py")
-        self.assertEqual([m["kind"] for m, _ in parts], ["rule", "task"])
+        self.assertEqual([m["kind"] for m, _ in parts], ["rule", "prompt"])
 
     def test_bundle_no_files(self):
         self._setup_task()
         r = self._run([str(SCRIPT), "--bundle", "--no-files", "F1"], check=True)
         headers, parts = self._parse(r.stdout)
         self.assertNotIn("Files", headers)
-        self.assertEqual([m["kind"] for m, _ in parts], ["rule", "task"])
+        self.assertEqual([m["kind"] for m, _ in parts], ["rule", "prompt"])
         self.assertIn("# 🎯 [NEXT] F1:", self._todo())
 
     def test_plain_calls_never_mutate_status(self):
@@ -137,10 +137,12 @@ class TestBundle(TodoMdTestCase):
                 self.assertNotIn("Task", headers)
                 self.assertNotIn("Role", headers)
                 self.assertEqual(headers["Workdir"], str(self.tmp.resolve()))
-                self.assertEqual([m["kind"] for m, _ in parts], ["rule", "context"])
+                self.assertEqual([m["kind"] for m, _ in parts], ["rule", "prompt"])
                 self.assertNotIn("# Description:", parts[0][1])
                 self.assertIn("Target files contract", parts[0][1])
-                self.assertEqual(parts[1][0]["name"], "todo_md")
+                self.assertEqual(
+                    parts[1][0], {"kind": "prompt", "name": "todo_md", "chain": ["todo_md"]}
+                )
                 self.assertIn("F1", parts[1][1])
 
     def test_fifo_auto_detection(self):

@@ -86,7 +86,7 @@ def emit_context_bundle(opts: BundleOptions, base_dir: Path, render) -> int:
     if rc != 0 or not out.strip():
         sys.stdout.write(out)
         return rc
-    meta = {"kind": "context", "name": "todo_md", "chain": BUNDLE_CHAIN}
+    meta = {"kind": "prompt", "name": "todo_md", "chain": BUNDLE_CHAIN}
     _write_stream(opts, [f"Workdir: {base_dir.resolve()}"], [], meta, out)
     return 0
 
@@ -105,7 +105,7 @@ def emit_task_bundle(opts: BundleOptions, task_dir: Path, task_id: str | None, r
             task_dir, tid, BUNDLE_MAX_LINES, BUNDLE_MAX_TOTAL_LINES, BUNDLE_MAX_BYTES
         ) or []
     meta = {
-        "kind": "task",
+        "kind": "prompt",
         "id": tid,
         "name": f"{src.group(1) if src else 'TODO.md'}:{tid}",
         "chain": BUNDLE_CHAIN,

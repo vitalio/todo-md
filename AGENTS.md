@@ -83,8 +83,9 @@ rules are loaded via `.agents_bundle`.
   `bundle_mode_enabled()`, `emit_task_bundle()`, `emit_context_bundle()`):
   FIFO auto-detection, `Bundle-Name: todo_md`, native task preamble headers
   (`Task`, `Prefix`, `Status`, `Title`, `Files`, `Workdir`, plus `Role` only on
-  explicit `role=<role>` CLI override), and rule/task/context fragments without
-  streaming `include` file contents; it never mutates `TODO.md`. Target file
+  explicit `role=<role>` CLI override), and canonical `rule` and `prompt`
+  fragments without streaming `include` file contents; it never mutates
+  `TODO.md`. Target file
   specs come only from `select_task_files()` and `extract_task_files()` in
   `src/parser.py` (`- Target files:` bullets); keep the stream shape aligned
   with `todo_flow`

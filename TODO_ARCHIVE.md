@@ -1,3 +1,12 @@
+# ✅ [DONE] F74: Emit canonical kind="prompt" for task and overview fragments in context-bundle-protocol — *2026-11-23*
+
+- Depends on: F72
+- Replace tool-specific `kind: "task"` and `kind: "context"` fragment markers in `src/bundle.py` with the canonical `context-bundle-protocol` v1 prompt fragment kind (`kind: "prompt"`), keeping the 4 protocol fragment kinds strictly 1:1 with `.bundle` content directives (`rule`, `file`, `cmd`, `prompt`):
+  - In `emit_task_bundle()`, emit `{"kind": "prompt", "id": tid, "name": f"{src_file}:{tid}", "chain": ["todo_md"]}`.
+  - In `emit_context_bundle()`, emit `{"kind": "prompt", "name": "todo_md", "chain": ["todo_md"]}`.
+  - Update `tests/test_bundle.py`, `README.md`, and `AGENTS.md` to reference canonical `rule` and `prompt` fragments.
+- Target files: `src/bundle.py`, `tests/test_bundle.py`, `README.md`.
+
 # ✅ [DONE] F75: Add todo_md rename subcommand and extend batch <ID>... support across edit, append, archive, queue, and files — *2026-11-23, implemented todo_md rename and batch <ID>... across edit, append, archive, queue, and files*
 
 - Implement `todo_md rename <OLD> <NEW|PREFIX> | <OLD>=<NEW|PREFIX>... [-c]` across `TODO.md` and `TODO_ARCHIVE.md`:

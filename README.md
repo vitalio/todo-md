@@ -107,9 +107,10 @@ prints `Bundle-*` transport headers (`Bundle-Protocol: 1`,
 preamble headers (`Task: <ID>`, `Prefix: <P>`, `Status: <S>`, `Title: <title>`,
 `Files: <space-separated path or path:start-end specs>`, `Workdir: <dir>`, plus
 `Role: <role>` only when an explicit `role=<role>` CLI override is passed),
-the embedded `agents/todo_md.md` rule as `todo_md:todo_md`, and the task
-section (or the Quest-Log / overview for `todo_md [-w]` and
-`todo_md overview`). Target file reading and span deduplication are left to
+the embedded `agents/todo_md.md` rule fragment (`kind: "rule"`,
+`id: "todo_md:todo_md"`), and the task section (or the Quest-Log / overview for
+`todo_md [-w]` and `todo_md overview`) as a prompt fragment (`kind: "prompt"`).
+Target file reading and span deduplication are left to
 `agents_bundle` (`file {todo_md.files:}`).
 
 - Bundle mode is on with `--bundle` (`TODO_MD_BUNDLE=1`), or automatically when
