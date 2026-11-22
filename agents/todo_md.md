@@ -22,14 +22,16 @@
     `todo_md [opts] [-w]`, `todo_md overview [--full] [-w]`, `todo_md projects`,
     `todo_md [show] <ID>...`, `todo_md last[-id] [<STATUS|archive>]`,
     `todo_md list [active|archive|all|<STATUS>] [<ID>...] [--prefix <P>] [--status <S>] [-r|--ready] [--limit N] [--full]`,
-    `todo_md archive`, `todo_md ids`, `todo_md queue <ID> [--all]` (alias for `todo_md chain <ID> [--all]`),
+    `todo_md archive [<ID>...] [-m "<note>"] [--canceled] [-c]`, `todo_md ids`,
+    `todo_md queue <ID>... [--all]` (alias for `todo_md chain <ID>... [--all]`),
     `todo_md chain [<ID>...] [--all] [--prefix <P>] [--status <S>] [--ready] [-l N|--limit N] [--include-hold] [--tree] [--numbered[=left|right]] [-f <ID>...] [-H] [-s <QUERY>]`,
     `todo_md next-id [<ID>] [--prefix <P>] [--status <S>]`,
-    `todo_md files [<ID>] [--max-lines N] [--max-total-lines N] [--max-bytes N] [--max-total-bytes N]`.
+    `todo_md files [<ID>...] [--max-lines N] [--max-total-lines N] [--max-bytes N] [--max-total-bytes N]`.
   - Mutate & validate: `todo_md add [<PROJECT>] [<PREFIX>] "<title>" [-p <P>]
     [--next] [--status <S>] [-m "<note>"] [-b "<body_md>"|-] [--depends <spec>]
-    [-c]`, `todo_md edit <ID> [-t "<title>"] [-m "<note>"] [-b "<body_md>"|-]
-    [--depends <spec>] [-c]`, `todo_md append <ID> [-b "<text>"|-] [-c]`,
+    [-c]`, `todo_md edit <ID>... [-t "<title>"] [-m "<note>"] [-b "<body_md>"|-]
+    [--depends <spec>] [-c]`, `todo_md append <ID>... [-b "<text>"|-] [-c]`,
+    `todo_md rename <OLD> <NEW|PREFIX> | <OLD>=<NEW|PREFIX>... [-c]`,
     `todo_md next <ID>... [-m "<note>"] [--reopen] [-c]`,
     `todo_md status <ID>... <STATUS> [-m "<note>"] [--reopen] [-c]`,
     `todo_md reopen <ID>... [--status <S>] [-m "<note>"] [-c]`,

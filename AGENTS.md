@@ -65,12 +65,13 @@ rules are loaded via `.agents_bundle`.
   (`plan_execution_chains()`, `build_chain_milestone_tree()`,
   `_order_active_tasks()`).
 - `src/render.py` — terminal width, ANSI styling, table wrapping, and the
-  read-only view renderers (`cmd_list`, `cmd_show`, `cmd_summary`, `cmd_ids`,
-  `cmd_last`, `cmd_projects`, `cmd_workspace_*`); `src/render_chain.py` holds
-  the Quest-Log `cmd_chain()` renderer.
+  read-only view and query renderers (`cmd_list`, `cmd_show`, `cmd_summary`,
+  `cmd_ids`, `cmd_last`, `cmd_projects`, `cmd_workspace_*`,
+  `resolve_top_task_id`, `cmd_next_id`, `cmd_files`); `src/render_chain.py`
+  holds the Quest-Log `cmd_chain()` renderer.
 - `src/commands.py` — backlog sorting, Git auto-commit helpers, and the
-  mutating/query subcommands (`init`, `add`, `edit`, `append`, `status`,
-  `next`, `done`, `cancel`, `archive`, `next-id`, `files`, `check`). Keep
+  mutating/validation subcommands (`init`, `add`, `edit`, `append`, `rename`,
+  `status`, `next`, `reopen`, `done`, `cancel`, `archive`, `check`). Keep
   `agents/todo_md.md`, `-h`/`--help`, and `README.md` in sync in the same
   commit whenever commands or flags change.
 - `agents/todo_md.md` — agent rule embedded into the compiled `todo_md` by

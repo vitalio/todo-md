@@ -69,12 +69,22 @@ class TestCli(TodoMdTestCase):
             with self.subTest(help_frag=help_frag):
                 self.assertIn(help_frag, rh.stdout)
         self.assertIn("next-id [<ID>] [--prefix P] [--status S]", rh.stdout)
-        self.assertIn("queue <ID> [--all]", rule_txt)
+        self.assertIn("rename <OLD> <NEW|P> | <OLD>=<NEW|P>...", rh.stdout)
+        self.assertIn("edit <ID>... [opts]", rh.stdout)
+        self.assertIn("append <ID>... [-b TEXT|-]", rh.stdout)
+        self.assertIn("archive [<ID>...] [-m NOTE] [--canceled]", rh.stdout)
+        self.assertIn("files [<ID>...] | --files [<ID>...]", rh.stdout)
+        self.assertIn("queue <ID>... [--all]", rule_txt)
+        self.assertIn("rename <OLD> <NEW|PREFIX> | <OLD>=<NEW|PREFIX>... [-c]", rule_txt)
+        self.assertIn("edit <ID>...", rule_txt)
+        self.assertIn("append <ID>...", rule_txt)
+        self.assertIn("archive [<ID>...]", rule_txt)
+        self.assertIn("files [<ID>...]", rule_txt)
         self.assertIn(
             "chain [<ID>...] [--all] [--prefix <P>] [--status <S>] [--ready] [-l N|--limit N] [--include-hold] [--tree] [--numbered[=left|right]]",
             rule_txt,
         )
-        self.assertIn("alias for `todo_md chain <ID> [--all]`", rule_txt)
+        self.assertIn("alias for `todo_md chain <ID>... [--all]`", rule_txt)
         self.assertIn("next-id [<ID>] [--prefix <P>] [--status <S>]", rule_txt)
         self.assertIn("A -> B -> C", rule_txt)
         self.assertIn("do not introduce a separate `- Order:` field", rule_txt)
@@ -462,6 +472,23 @@ class TestCli(TodoMdTestCase):
         self.assertIn("# 🎯 [NEXT] F3: Third — *back*", todo_txt)
         self.assertIn("F2: Second", arch_txt)
         self.assertIn("F4: Fourth", arch_txt)
+
+        # Batch archive with --canceled and space/comma-separated IDs, plus multi-ID queue
+        with mock.patch.object(self.todo_md_mod, "_sync_upstream") as m_sync2:
+            self._run([str(SCRIPT), "archive", "F1,F3", "--canceled", "-m", "archived batch"], cwd=str(proj), check=True)
+            self.assertEqual(m_sync2.call_count, 1)
+        arch_txt2 = (proj / "TODO_ARCHIVE.md").read_text(encoding="utf-8")
+        self.assertIn("# ❌ [CANCELED] F1: First — *archived batch*", arch_txt2)
+        self.assertIn("# ❌ [CANCELED] F3: Third — *archived batch*", arch_txt2)
+
+        self._run([str(SCRIPT), "reopen", "F1,F2,F3", "--status", "NEXT"], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "edit", "F2", "--depends", "F1"], cwd=str(proj), check=True)
+        r_q_multi = self._run([str(SCRIPT), "queue", "F2,F3"], cwd=str(proj), check=True)
+        self.assertIn("F2: Second", r_q_multi.stdout)
+        self.assertIn("Third", r_q_multi.stdout)
+        r_q_space = self._run([str(SCRIPT), "queue", "F2", "F3", "--all"], cwd=str(proj), check=True)
+        self.assertIn("F2: Second", r_q_space.stdout)
+        self.assertIn("Third", r_q_space.stdout)
 
 
 if __name__ == "__main__":

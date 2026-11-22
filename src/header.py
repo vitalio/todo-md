@@ -155,15 +155,19 @@ HELP_COMMANDS: tuple[tuple[str, str], ...] = (
     ("{prog} list [filter] [<ID>...] [opts]",
      "List tasks; filter is active | archive | all | <STATUS>; <ID>... are highlighted. "
      "Options: --prefix PREFIX, --status STATUS, -r/--ready, --limit N, --full"),
-    ("{prog} archive [<ID>] [-m NOTE]", "Print TODO_ARCHIVE.md, or archive task <ID>"),
+    ("{prog} archive [<ID>...] [-m NOTE] [--canceled]",
+     "Print TODO_ARCHIVE.md, or archive task(s) <ID>... (as DONE, or CANCELED with --canceled)"),
     ("{prog} add [<PROJ>] [<PREFIX>] <TITLE>",
      "Add a task with an auto-assigned ID; body comes from -b or stdin. Options: "
      "-p PREFIX (default: F), --next, --status STATUS, -m NOTE, -b BODY|-, --depends SPEC"),
-    ("{prog} edit <ID> [opts]",
-     "Update a task. Options: -t TITLE, -m NOTE, -b BODY|-, --depends SPEC. A new body keeps "
-     "existing '- Depends on:' and '- Target files:' lines it omits; --depends '' clears dependencies"),
-    ("{prog} append <ID> [-b TEXT|-]",
-     "Append text to the body of task <ID> (from -b TEXT|- or stdin)"),
+    ("{prog} edit <ID>... [opts]",
+     "Update task(s) <ID>.... Options: -t TITLE, -m NOTE, -b BODY|-, --depends SPEC. A new body "
+     "keeps existing '- Depends on:' and '- Target files:' lines it omits; --depends '' clears dependencies"),
+    ("{prog} append <ID>... [-b TEXT|-]",
+     "Append text to the body of task(s) <ID>... (from -b TEXT|- or stdin)"),
+    ("{prog} rename <OLD> <NEW|P> | <OLD>=<NEW|P>...",
+     "Rename task ID(s) across TODO*.md and rewrite '- Depends on:' references (target can be "
+     "an explicit ID or a single-letter prefix A-Z for next free ID)"),
     ("{prog} status <ID>... <STATUS> [opts]",
      "Set task status (WIP, NEXT, NEW, HOLD, QUESTION, DONE, CANCELED). Options: -m NOTE, --reopen"),
     ("{prog} next <ID>... [-m NOTE] [--reopen]",
@@ -182,8 +186,8 @@ HELP_COMMANDS: tuple[tuple[str, str], ...] = (
      "ready tasks (see Quest-Log options)"),
     ("{prog} next-id [<ID>] [--prefix P] [--status S] | --top",
      "Print the top ready WIP/NEXT ID (or matching --status), or the first ready ID in <ID>'s queue"),
-    ("{prog} files [<ID>] | --files [<ID>]",
-     "List files named on the '- Target files:' bullet of task <ID>: paths, glob patterns, "
+    ("{prog} files [<ID>...] | --files [<ID>...]",
+     "List files named on the '- Target files:' bullet of task(s) <ID>...: paths, glob patterns, "
      "symbol slices (path:SYMBOL, path:SYM1..SYM2; Python, sh/Bash and brace languages; "
      "a symbol not found falls back to the whole file with a warning) and line slices "
      "(path:START-END, path:LINE, "

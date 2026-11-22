@@ -787,6 +787,125 @@ class TestCommands(TodoMdTestCase):
         self.assertNotEqual(r.returncode, 0, msg=r.stdout)
         self.assertIn("unknown option for list: --tree", r.stderr)
 
+    def test_rename_subcommand_swaps_prefixes_dependencies_and_orchestrator(self):
+        ws = self.tmp / "ws_rename"
+        orch = ws / "orch"
+        child = ws / "child"
+        orch.mkdir(parents=True)
+        child.mkdir(parents=True)
+        self._run([str(SCRIPT), "init"], cwd=str(orch), check=True)
+        self._run([str(SCRIPT), "init"], cwd=str(child), check=True)
+        (orch / ".todo_projects").write_text("child\n", encoding="utf-8")
+
+        self._run([str(SCRIPT), "add", "F", "First active"], cwd=str(child), check=True)
+        self._run([str(SCRIPT), "add", "F", "Second active", "--depends", "F1"], cwd=str(child), check=True)
+        self._run([str(SCRIPT), "add", "D", "Archived design"], cwd=str(child), check=True)
+        self._run([str(SCRIPT), "done", "D1", "-m", "done design"], cwd=str(child), check=True)
+        self._run([str(SCRIPT), "add", "F", "Third active", "--depends", "D1 -> F1, F2"], cwd=str(child), check=True)
+        self._run(
+            [str(SCRIPT), "add", "F", "Orchestrator wave", "--depends", "child:D1 -> child:F1, child:F2"],
+            cwd=str(orch),
+            check=True,
+        )
+
+        # 1. Single pair rename (<OLD> <NEW_ID>) across archive and dependencies + orchestrator
+        r_single = self._run([str(SCRIPT), "rename", "D1", "D5"], cwd=str(child), check=True)
+        self.assertIn("renamed D1 -> D5", r_single.stdout)
+        self.assertIn("# ✅ [DONE] D5: Archived design", (child / "TODO_ARCHIVE.md").read_text(encoding="utf-8"))
+        self.assertIn("- Depends on: D5 -> F1, F2", (child / "TODO.md").read_text(encoding="utf-8"))
+        self.assertIn("- Depends on: child:D5 -> child:F1, child:F2", (orch / "TODO.md").read_text(encoding="utf-8"))
+
+        # 2. Swap cycle (F1=F2 F2=F1) and prefix auto-allocation (F3=B, D5=B) in one batch
+        r_swap = self._run([str(SCRIPT), "rename", "F1=F2,F2=F1", "F3=B", "D5=B"], cwd=str(child), check=True)
+        self.assertIn("renamed F1 -> F2", r_swap.stdout)
+        self.assertIn("renamed F2 -> F1", r_swap.stdout)
+        self.assertIn("renamed F3 -> B1", r_swap.stdout)
+        self.assertIn("renamed D5 -> B2", r_swap.stdout)
+        child_todo = (child / "TODO.md").read_text(encoding="utf-8")
+        child_arch = (child / "TODO_ARCHIVE.md").read_text(encoding="utf-8")
+        orch_todo = (orch / "TODO.md").read_text(encoding="utf-8")
+        self.assertIn("F2: First active", child_todo)
+        self.assertIn("F1: Second active", child_todo)
+        self.assertIn("- Depends on: F2", child_todo)
+        self.assertIn("B1: Third active", child_todo)
+        self.assertIn("- Depends on: B2 -> F2, F1", child_todo)
+        self.assertIn("B2: Archived design", child_arch)
+        self.assertIn("- Depends on: child:B2 -> child:F2, child:F1", orch_todo)
+
+        # 3. Cross-project <project>:<OLD> rename from workspace root
+        r_proj = self._run(
+            [str(SCRIPT), "rename", "child:B1", "L"],
+            cwd=str(ws),
+            env={**os.environ, "TODO_MD_WORKSPACE": str(ws)},
+            check=True,
+        )
+        self.assertIn("renamed B1 -> L1", r_proj.stdout)
+        self.assertIn("L1: Third active", (child / "TODO.md").read_text(encoding="utf-8"))
+
+        # 4. Prefix allocation reuses highest remaining ID when highest ID of that prefix was freed
+        r_free = self._run([str(SCRIPT), "rename", "B2=D", "L1=B"], cwd=str(child), check=True)
+        self.assertIn("renamed B2 -> D1", r_free.stdout)
+        self.assertIn("renamed L1 -> B1", r_free.stdout)
+
+        # 5. Error cases: collision with existing ID, duplicate target, duplicate source, missing task, bad syntax
+        for bad_args, err_sub in (
+            (["rename", "F1", "F2"], "already in use"),
+            (["rename", "F1=F9,F2=F9"], "already in use"),
+            (["rename", "F1=F8,F1=F9"], "duplicate source"),
+            (["rename", "F99", "F100"], "not found"),
+            (["rename", "F1", "INVALID"], "invalid rename target"),
+            (["rename", "BAD", "F10"], "invalid task ID"),
+            (["rename", "F1"], "usage:"),
+            (["rename", "--unknown", "F1", "F2"], "unknown option"),
+        ):
+            with self.subTest(bad_args=bad_args):
+                r_err = self._run([str(SCRIPT), *bad_args], cwd=str(child))
+                self.assertNotEqual(r_err.returncode, 0, msg=r_err.stdout)
+                self.assertIn(err_sub, r_err.stderr)
+
+        self._run([str(SCRIPT), "check"], cwd=str(child), check=True)
+        self._run([str(SCRIPT), "check"], cwd=str(orch), check=True)
+
+    def test_batch_edit_append_and_files_merging(self):
+        self._run([str(SCRIPT), "init"], check=True)
+        (self.tmp / "m.py").write_text("".join(f"line{i}\n" for i in range(1, 51)), encoding="utf-8")
+        (self.tmp / "n.py").write_text("".join(f"n{i}\n" for i in range(1, 21)), encoding="utf-8")
+        self._run(
+            [str(SCRIPT), "add", "Task 1", "-b", "- Target files: `m.py:1-10`, `n.py:1-5`."],
+            check=True,
+        )
+        self._run(
+            [str(SCRIPT), "add", "Task 2", "-b", "- Target files: `m.py:8-20`."],
+            check=True,
+        )
+        self._run(
+            [str(SCRIPT), "add", "Task 3", "-b", "- Target files: `n.py`."],
+            check=True,
+        )
+
+        # Batch edit across space- and comma-separated IDs
+        self._run([str(SCRIPT), "edit", "F1,F2", "F3", "-m", "batch note"], check=True)
+        todo_txt = (self.tmp / "TODO.md").read_text(encoding="utf-8")
+        for tid in ("F1", "F2", "F3"):
+            self.assertIn(f"{tid}: Task {tid[1]} — *batch note*", todo_txt)
+
+        # Batch append across space- and comma-separated IDs
+        self._run([str(SCRIPT), "append", "F1", "F2,F3", "-b", "- Batch bullet"], check=True)
+        todo_txt = (self.tmp / "TODO.md").read_text(encoding="utf-8")
+        self.assertEqual(todo_txt.count("- Batch bullet"), 3)
+
+        # Batch files merges overlapping ranges (m.py:1-10 + m.py:8-20 -> m.py:1-20)
+        # and whole-file absorbs slices (n.py:1-5 + n.py -> n.py)
+        r_f12 = self._run([str(SCRIPT), "files", "F1,F2"], check=True)
+        self.assertEqual(r_f12.stdout.splitlines(), ["m.py:1-20", "n.py:1-5"])
+
+        r_f123 = self._run([str(SCRIPT), "files", "F1", "F2,F3"], check=True)
+        self.assertEqual(r_f123.stdout.splitlines(), ["m.py:1-20", "n.py"])
+
+        # Shared budget across batch files
+        r_budget = self._run([str(SCRIPT), "files", "F1", "F2", "--max-total-lines", "22"], check=True)
+        self.assertEqual(r_budget.stdout.splitlines(), ["m.py:1-20"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -827,17 +827,48 @@ def cmd_edit(
             pos.append(a)
             i += 1
 
-    if len(pos) != 1:
-        raise SystemExit(f"{prog}: usage: {prog} edit <ID> [-t TITLE] [-m NOTE] [-b BODY] [--depends SPEC]")
-    base_dir, resolved_id = resolve_project_task_ref(base_dir, pos[0], explicit_dir=explicit_dir)
-    _sync_upstream(base_dir, commit, no_commit)
-    target = resolved_id.upper()
+    raw_ids = _expand_task_id_args(pos)
+    if not raw_ids:
+        raise SystemExit(f"{prog}: usage: {prog} edit <ID>... [-t TITLE] [-m NOTE] [-b BODY] [--depends SPEC]")
     body = _resolve_body_arg(body)
     depends_clauses = _normalize_depends_clauses(depends_raw) if depends_raw is not None else None
-
     if new_title is None and note is None and body is None and depends_clauses is None:
         raise SystemExit(f"{prog}: edit requires at least one of -t TITLE, -m NOTE, -b BODY, --depends, or stdin")
+    targets = [resolve_project_task_ref(base_dir, ref, explicit_dir=explicit_dir) for ref in raw_ids]
+    seen_dirs: set[Path] = set()
+    for tdir, _ in targets:
+        res_dir = tdir.resolve()
+        if res_dir not in seen_dirs:
+            seen_dirs.add(res_dir)
+            _sync_upstream(tdir, commit, no_commit)
+    for tdir, resolved_id in targets:
+        rc = _edit_single_task(
+            tdir,
+            resolved_id.upper(),
+            new_title=new_title,
+            note=note,
+            clear_note=clear_note,
+            body=body,
+            depends_clauses=depends_clauses,
+            commit=commit,
+            no_commit=no_commit,
+        )
+        if rc != 0:
+            return rc
+    return 0
 
+def _edit_single_task(
+    base_dir: Path,
+    target: str,
+    new_title: str | None,
+    note: str | None,
+    clear_note: bool,
+    body: str | None,
+    depends_clauses: list[str] | None,
+    commit: bool,
+    no_commit: bool,
+) -> int:
+    prog = prog_name()
     for fname in TASK_FILES:
         p = base_dir / fname
         if not p.is_file():
@@ -894,7 +925,13 @@ def cmd_edit(
     sys.stderr.write(f"{prog}: task {target!r} not found in TODO*.md under {base_dir}\n")
     return 1
 
-def cmd_append(base_dir: Path, argv: list[str], commit: bool = False, no_commit: bool = False) -> int:
+def cmd_append(
+    base_dir: Path,
+    argv: list[str],
+    commit: bool = False,
+    no_commit: bool = False,
+    explicit_dir: str | None = None,
+) -> int:
     prog = prog_name()
     body: str | None = None
     pos: list[str] = []
@@ -918,14 +955,33 @@ def cmd_append(base_dir: Path, argv: list[str], commit: bool = False, no_commit:
             pos.append(a)
             i += 1
 
-    if len(pos) != 1:
-        raise SystemExit(f"{prog}: usage: {prog} append <ID> [-b TEXT]")
-    target = pos[0].strip().upper()
+    raw_ids = _expand_task_id_args(pos)
+    if not raw_ids:
+        raise SystemExit(f"{prog}: usage: {prog} append <ID>... [-b TEXT]")
     body = _resolve_body_arg(body)
     if not body or not body.strip():
         raise SystemExit(f"{prog}: append requires non-empty text via -b TEXT or stdin")
+    targets = [resolve_project_task_ref(base_dir, ref, explicit_dir=explicit_dir) for ref in raw_ids]
+    seen_dirs: set[Path] = set()
+    for tdir, _ in targets:
+        res_dir = tdir.resolve()
+        if res_dir not in seen_dirs:
+            seen_dirs.add(res_dir)
+            _sync_upstream(tdir, commit, no_commit)
+    for tdir, resolved_id in targets:
+        rc = _append_single_task(tdir, resolved_id.strip().upper(), body.strip(), commit=commit, no_commit=no_commit)
+        if rc != 0:
+            return rc
+    return 0
 
-    _sync_upstream(base_dir, commit, no_commit)
+def _append_single_task(
+    base_dir: Path,
+    target: str,
+    body_text: str,
+    commit: bool,
+    no_commit: bool,
+) -> int:
+    prog = prog_name()
     for fname in TASK_FILES:
         p = base_dir / fname
         if not p.is_file():
@@ -953,7 +1009,7 @@ def cmd_append(base_dir: Path, argv: list[str], commit: bool = False, no_commit:
         sec_lines = lines[start_idx:end_idx]
         while sec_lines and not sec_lines[-1].strip():
             sec_lines.pop()
-        sec_lines.extend(["", body.strip(), ""])
+        sec_lines.extend(["", body_text, ""])
         updated_lines = lines[:start_idx] + sec_lines + lines[end_idx:]
         new_text = re.sub(r"\n{3,}", "\n\n", "\n".join(updated_lines).rstrip()) + "\n"
         p.write_text(new_text, encoding="utf-8")
@@ -964,125 +1020,242 @@ def cmd_append(base_dir: Path, argv: list[str], commit: bool = False, no_commit:
     sys.stderr.write(f"{prog}: task {target!r} not found in TODO*.md under {base_dir}\n")
     return 1
 
-@_discovery_scoped
-def resolve_top_task_id(
-    base_dir: Path,
-    prefix: str | None = None,
-    status: str | None = None,
-    explicit_dir: str | None = None,
-) -> str | None:
-    todo_path = base_dir / "TODO.md"
-    if not todo_path.is_file():
-        return None
-    active_tasks = parse_tasks_in_text(read_if_exists(todo_path), "TODO.md")
-    wanted_prefix = prefix.strip().upper() if prefix is not None else None
-    if status is not None:
-        st_up = status.strip().upper()
-        wanted_statuses: tuple[str, ...] = (
-            tuple(ACTIVE_STATUS_ORDER) if st_up in ("ACTIVE", "ALL") else (st_up,)
-        )
-    else:
-        wanted_statuses = ("WIP", "NEXT")
-    for wanted in wanted_statuses:
-        for t in active_tasks:
-            if str(t["status"]) != wanted:
-                continue
-            if wanted_prefix is not None and not _task_matches_prefix(t, wanted_prefix):
-                continue
-            if _is_task_blocked(base_dir, t, explicit_dir=explicit_dir):
-                continue
-            return str(t["id"]).upper()
-    return None
+def _parse_rename_pairs(prog: str, pos: list[str]) -> list[tuple[str, str]]:
+    usage = f"{prog}: usage: {prog} rename <OLD> <NEW|PREFIX> | <OLD>=<NEW|PREFIX>... [-c]"
+    if not pos:
+        raise SystemExit(usage)
+    if len(pos) == 2 and "=" not in pos[0] and "=" not in pos[1] and "," not in pos[0] and "," not in pos[1]:
+        return [(pos[0].strip(), pos[1].strip())]
+    tokens = _expand_task_id_args(pos)
+    if not tokens or any("=" not in tok for tok in tokens):
+        raise SystemExit(usage)
+    pairs: list[tuple[str, str]] = []
+    for tok in tokens:
+        left, right = tok.split("=", 1)
+        left, right = left.strip(), right.strip()
+        if not left or not right or "=" in right:
+            raise SystemExit(usage)
+        pairs.append((left, right))
+    return pairs
 
-@_discovery_scoped
-def cmd_next_id(
-    base_dir: Path,
-    target_dir: Path | None = None,
-    task_id: str | None = None,
-    explicit_dir: str | None = None,
-    prefix: str | None = None,
-    status: str | None = None,
-) -> int:
-    notes: list[str] = []
-    if prefix is not None:
-        notes.append(f"prefix={prefix.strip().upper()}")
-    if status is not None:
-        notes.append(f"status={status.strip().upper()}")
-    filter_note = f" ({', '.join(notes)})" if notes else ""
-    if task_id is None:
-        tid = resolve_top_task_id(base_dir, prefix=prefix, status=status, explicit_dir=explicit_dir)
-        if not tid:
-            st_label = status.strip().upper() if status is not None else "WIP or NEXT"
-            sys.stderr.write(
-                f"{prog_name()}: no active {st_label} task{filter_note} found in TODO.md under {base_dir}\n"
+def _rewrite_depends_text(
+    text: str,
+    local_map: dict[str, str] | None = None,
+    qualified_checker=None,
+) -> tuple[str, bool]:
+    lines = text.splitlines()
+    in_fence = False
+    changed = False
+    for idx, line in enumerate(lines):
+        if line.lstrip().startswith(FENCE):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        m = DEPENDS_LINE_RE.match(line)
+        if not m:
+            continue
+        stages, err = parse_depends_clause(m.group(1))
+        if err or not stages:
+            continue
+        line_changed = False
+        new_stages: list[list[str]] = []
+        for stage in stages:
+            new_stage: list[str] = []
+            seen: set[str] = set()
+            for ref in stage:
+                new_ref = ref
+                pm = PROJECT_TASK_RE.match(ref)
+                if pm:
+                    if qualified_checker is not None:
+                        mapped = qualified_checker(pm.group(1), pm.group(2).upper())
+                        if mapped is not None:
+                            new_ref = f"{pm.group(1)}:{mapped}"
+                elif local_map and ref.upper() in local_map:
+                    new_ref = local_map[ref.upper()]
+                if new_ref != ref:
+                    line_changed = True
+                if new_ref not in seen:
+                    seen.add(new_ref)
+                    new_stage.append(new_ref)
+            new_stages.append(new_stage)
+        if line_changed:
+            prefix_part = line[:line.lower().index("depends on:") + len("depends on:")]
+            clause_str = " -> ".join(", ".join(st) for st in new_stages)
+            lines[idx] = f"{prefix_part} {clause_str}"
+            changed = True
+    if not changed:
+        return text, False
+    return "\n".join(lines) + ("\n" if text.endswith("\n") else ""), True
+
+def _rewrite_project_tasks_and_deps(
+    tdir: Path,
+    rename_map: dict[str, str],
+    ws_root: Path,
+) -> None:
+    t_res = tdir.resolve()
+
+    def _qual_self(proj_part: str, tid_up: str) -> str | None:
+        if tid_up not in rename_map:
+            return None
+        r_proj = _resolve_todo_project_entry(proj_part, t_res, ws_root)
+        return rename_map[tid_up] if r_proj == t_res else None
+
+    for fname in TASK_FILES:
+        p = tdir / fname
+        if not p.is_file():
+            continue
+        raw = read_if_exists(p)
+        lines = raw.splitlines()
+        in_fence = False
+        changed = False
+        for idx, line in enumerate(lines):
+            if line.lstrip().startswith(FENCE):
+                in_fence = not in_fence
+                continue
+            if not in_fence and line.startswith("# "):
+                m = HEADING_RE.match(line)
+                if m:
+                    emoji, status, tid, title = m.groups()
+                    tid_up = tid.upper()
+                    if tid_up in rename_map and rename_map[tid_up] != tid_up:
+                        lines[idx] = f"# {emoji} [{status}] {rename_map[tid_up]}: {title}"
+                        changed = True
+        joined = "\n".join(lines) + ("\n" if raw.endswith("\n") else "")
+        rewritten, dep_changed = _rewrite_depends_text(joined, local_map=rename_map, qualified_checker=_qual_self)
+        if changed or dep_changed:
+            p.write_text(rewritten, encoding="utf-8")
+
+def _rewrite_orchestrator_deps(
+    tdir: Path,
+    rename_map: dict[str, str],
+    ws_root: Path,
+    commit: bool,
+    no_commit: bool,
+) -> None:
+    t_res = tdir.resolve()
+    orchestrators, _ = discover_orchestrators_for_project(t_res, ws_root)
+    for orch_dir in orchestrators:
+        o_res = orch_dir.resolve()
+        if o_res == t_res:
+            continue
+
+        def _qual_orch(proj_part: str, tid_up: str, _o_res: Path = o_res) -> str | None:
+            if tid_up not in rename_map or rename_map[tid_up] == tid_up:
+                return None
+            r_proj = _resolve_todo_project_entry(proj_part, _o_res, ws_root)
+            return rename_map[tid_up] if r_proj == t_res else None
+
+        orch_changed = False
+        for fname in TASK_FILES:
+            p = o_res / fname
+            if not p.is_file():
+                continue
+            raw = read_if_exists(p)
+            rewritten, dep_changed = _rewrite_depends_text(raw, local_map=None, qualified_checker=_qual_orch)
+            if dep_changed:
+                p.write_text(rewritten, encoding="utf-8")
+                orch_changed = True
+        if orch_changed:
+            summary = ", ".join(f"{o}->{n}" for o, n in rename_map.items() if o != n)
+            _finalize_mutation(
+                o_res,
+                f"Update orchestrator dependencies for renamed tasks ({summary})",
+                commit=commit,
+                no_commit=no_commit,
             )
-            return 1
-        sys.stdout.write(f"{tid}\n")
-        return 0
 
-    tdir = target_dir or base_dir
-    dag = build_dependency_dag(
-        base_dir,
-        tdir,
-        task_id,
-        explicit_dir=explicit_dir,
-        stop_at_done=True,
-    )
-    nodes: dict[tuple[Path, str], dict[str, object]] = dag["nodes"]  # type: ignore[assignment]
-    topo_order: list[tuple[Path, str]] = dag["topo_order"]  # type: ignore[assignment]
-    root_key: tuple[Path, str] = dag["root"]  # type: ignore[assignment]
-    root_node = nodes[root_key]
-    if not root_node["exists"]:
-        sys.stderr.write(f"{prog_name()}: task {root_node['ref']!r} not found in TODO*.md under {tdir}\n")
-        return 1
-    root_status = str(root_node["status"])
-    if root_status in ("DONE", "CANCELED"):
-        sys.stderr.write(f"{prog_name()}: task {root_node['ref']} is already closed ([{root_status}])\n")
-        return 1
-    syntax_errors: list[str] = dag["syntax_errors"]  # type: ignore[assignment]
-    if syntax_errors:
-        for e in syntax_errors:
-            sys.stderr.write(f"ERROR: {e}\n")
-        return 1
-    cycle: list[str] = dag["cycle"]  # type: ignore[assignment]
-    if cycle:
-        sys.stderr.write(f"{prog_name()}: dependency cycle detected: {' -> '.join(cycle)}\n")
-        return 1
-    bad_blockers = [
-        f"{nodes[u]['ref']} ({nodes[u]['status']})"
-        for u in topo_order
-        if str(nodes[u]["status"]) in ("MISSING", "CANCELED")
-    ]
-    if bad_blockers:
-        sys.stderr.write(
-            f"{prog_name()}: task {root_node['ref']} is blocked by {', '.join(bad_blockers)}\n"
-        )
-        return 1
-    wanted_st_set: frozenset[str] | None = None
-    if status is not None:
-        st_u = status.strip().upper()
-        if st_u not in ("ACTIVE", "ALL"):
-            wanted_st_set = frozenset({st_u})
-    next_act = _first_actionable_in_dag(dag, prefix=prefix, status=wanted_st_set)
-    if not next_act:
-        sys.stderr.write(
-            f"{prog_name()}: no unblocked actionable task{filter_note} found for {root_node['ref']}\n"
-        )
-        return 1
-    sys.stdout.write(f"{next_act}\n")
-    return 0
-
-def cmd_files(
+def cmd_rename(
     base_dir: Path,
-    task_id: str | None = None,
-    max_lines: int | None = None,
-    max_total_lines: int | None = None,
-    max_bytes: int | None = None,
-    max_total_bytes: int | None = None,
+    argv: list[str],
+    commit: bool = False,
+    no_commit: bool = False,
+    explicit_dir: str | None = None,
 ) -> int:
-    specs = select_task_files(base_dir, task_id, max_lines, max_total_lines, max_bytes, max_total_bytes)
-    if specs is None:
-        return 1
-    for spec in specs:
-        sys.stdout.write(f"{spec}\n")
+    prog = prog_name()
+    pos: list[str] = []
+    for a in argv:
+        if a in ("--commit", "-c"):
+            commit = True
+        elif a == "--no-commit":
+            no_commit = True
+        elif a.startswith("-"):
+            raise SystemExit(f"{prog}: unknown option for rename: {a}")
+        else:
+            pos.append(a)
+    raw_pairs = _parse_rename_pairs(prog, pos)
+    by_dir: list[tuple[Path, list[tuple[str, str]]]] = []
+    dir_map: dict[Path, list[tuple[str, str]]] = {}
+    for raw_old, raw_target in raw_pairs:
+        tdir, old_tid = resolve_project_task_ref(base_dir, raw_old, explicit_dir=explicit_dir)
+        old_up = old_tid.strip().upper()
+        if not re.fullmatch(r"[A-Z]\d+", old_up):
+            raise SystemExit(f"{prog}: invalid task ID {raw_old!r}; expected <PREFIX><NUM> (e.g. F1)")
+        target_up = raw_target.strip().upper()
+        if not re.fullmatch(r"[A-Z](?:\d+)?", target_up):
+            raise SystemExit(
+                f"{prog}: invalid rename target {raw_target!r}; expected <PREFIX><NUM> or a single-letter prefix A-Z"
+            )
+        if re.fullmatch(r"[A-Z]\d+", target_up):
+            target_up = f"{target_up[0]}{int(target_up[1:])}"
+        res_dir = tdir.resolve()
+        if res_dir not in dir_map:
+            dir_map[res_dir] = []
+            by_dir.append((tdir, dir_map[res_dir]))
+        dir_map[res_dir].append((old_up, target_up))
+
+    for tdir, _ in by_dir:
+        _sync_upstream(tdir, commit, no_commit)
+
+    resolved_batches: list[tuple[Path, list[tuple[str, str]], dict[str, str]]] = []
+    for tdir, pairs in by_dir:
+        tasks = collect_all_tasks(tdir)
+        existing_ids = {str(t["id"]).upper() for t in tasks}
+        seen_olds: set[str] = set()
+        for old_id, _ in pairs:
+            if old_id in seen_olds:
+                raise SystemExit(f"{prog}: duplicate source task ID {old_id} in rename batch")
+            seen_olds.add(old_id)
+            if old_id not in existing_ids:
+                sys.stderr.write(f"{prog}: task {old_id!r} not found in TODO*.md under {tdir}\n")
+                return 1
+        remaining_ids = existing_ids - seen_olds
+        allocated_explicit: set[str] = set()
+        for old_id, target in pairs:
+            if len(target) > 1:
+                if target in remaining_ids or target in allocated_explicit:
+                    sys.stderr.write(f"{prog}: cannot rename to {target}: task ID already in use in {tdir}\n")
+                    return 1
+                allocated_explicit.add(target)
+        occupied = set(remaining_ids) | allocated_explicit
+        max_by_prefix: dict[str, int] = {}
+        for tid in occupied:
+            p, num = tid[0], int(tid[1:])
+            max_by_prefix[p] = max(max_by_prefix.get(p, 0), num)
+        final_pairs: list[tuple[str, str]] = []
+        rename_map: dict[str, str] = {}
+        for old_id, target in pairs:
+            if len(target) == 1:
+                nxt = max_by_prefix.get(target, 0) + 1
+                while f"{target}{nxt}" in occupied:
+                    nxt += 1
+                new_id = f"{target}{nxt}"
+                max_by_prefix[target] = nxt
+                occupied.add(new_id)
+            else:
+                new_id = target
+            final_pairs.append((old_id, new_id))
+            rename_map[old_id] = new_id
+        resolved_batches.append((tdir, final_pairs, rename_map))
+
+    for tdir, final_pairs, rename_map in resolved_batches:
+        ws_root = resolve_workspace_root(tdir, explicit_dir=explicit_dir)
+        _rewrite_project_tasks_and_deps(tdir, rename_map, ws_root)
+        _rewrite_orchestrator_deps(tdir, rename_map, ws_root, commit=commit, no_commit=no_commit)
+        for old_id, new_id in final_pairs:
+            sys.stdout.write(f"{prog}: renamed {old_id} -> {new_id}\n")
+        summary = ", ".join(f"{o} -> {n}" for o, n in final_pairs)
+        rc = _finalize_mutation(tdir, f"Rename task(s): {summary}", commit=commit, no_commit=no_commit)
+        if rc != 0:
+            return rc
     return 0

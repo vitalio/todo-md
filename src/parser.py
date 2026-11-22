@@ -514,10 +514,15 @@ def _normalize_file_entries(entries: list[tuple[str, tuple[int, int] | None]]) -
         out.extend(f"{rel}:{s}-{e}" for s, e in merged)
     return out
 
-def extract_task_files(base_dir: Path, section_text: str) -> list[str]:
+def _collect_task_file_entries(
+    base_dir: Path,
+    section_text: str,
+    cache: dict[str, list[str]] | None = None,
+) -> list[tuple[str, tuple[int, int] | None]]:
     repo_root = base_dir.resolve()
     entries: list[tuple[str, tuple[int, int] | None]] = []
-    cache: dict[str, list[str]] = {}
+    if cache is None:
+        cache = {}
 
     def file_lines(rel: str) -> list[str]:
         if rel not in cache:
@@ -564,49 +569,64 @@ def extract_task_files(base_dir: Path, section_text: str) -> list[str]:
         if span[0] > n_total:
             continue
         entries.append((rel, (span[0], min(span[1], n_total))))
-    return _normalize_file_entries(entries)
+    return entries
+
+def extract_task_files(base_dir: Path, section_text: str) -> list[str]:
+    return _normalize_file_entries(_collect_task_file_entries(base_dir, section_text))
 
 def select_task_files(
     base_dir: Path,
-    task_id: str | None = None,
+    task_id: str | list[str] | None = None,
     max_lines: int | None = None,
     max_total_lines: int | None = None,
     max_bytes: int | None = None,
     max_total_bytes: int | None = None,
 ) -> list[str] | None:
-    target = task_id.strip().upper() if task_id else resolve_top_task_id(base_dir)
-    if not target:
+    if isinstance(task_id, list):
+        targets = [t.strip().upper() for t in task_id if t and t.strip()]
+    elif task_id:
+        targets = [task_id.strip().upper()]
+    else:
+        top_tid = resolve_top_task_id(base_dir)
+        targets = [top_tid] if top_tid else []
+    if not targets:
         sys.stderr.write(f"{prog_name()}: no active WIP or NEXT task found in TODO.md under {base_dir}\n")
         return None
+    tasks_by_id = {str(t["id"]).upper(): t for t in collect_all_tasks(base_dir)}
+    entries: list[tuple[str, tuple[int, int] | None]] = []
+    cache: dict[str, list[str]] = {}
+    for target in targets:
+        t = tasks_by_id.get(target)
+        if t is None:
+            sys.stderr.write(f"{prog_name()}: task {target!r} not found in TODO*.md under {base_dir}\n")
+            return None
+        entries.extend(_collect_task_file_entries(base_dir, str(t["section"]), cache=cache))
+    specs = _normalize_file_entries(entries)
     has_budget = any(
         cap is not None for cap in (max_lines, max_total_lines, max_bytes, max_total_bytes)
     )
+    if not has_budget:
+        return specs
     repo_root = base_dir.resolve()
     total_lines = 0
     total_bytes = 0
-    for t in collect_all_tasks(base_dir):
-        if str(t["id"]).upper() != target:
+    selected: list[str] = []
+    for spec in specs:
+        rel_path, span = split_file_spec(spec)
+        chunks = (repo_root / rel_path).read_bytes().splitlines(keepends=True)
+        if span is not None:
+            chunks = chunks[span[0] - 1 : span[1]]
+        n_bytes = sum(len(c) for c in chunks)
+        n_lines = len(chunks)
+        if max_bytes is not None and n_bytes > max_bytes:
             continue
-        selected: list[str] = []
-        for spec in extract_task_files(base_dir, str(t["section"])):
-            if has_budget:
-                rel_path, span = split_file_spec(spec)
-                chunks = (repo_root / rel_path).read_bytes().splitlines(keepends=True)
-                if span is not None:
-                    chunks = chunks[span[0] - 1 : span[1]]
-                n_bytes = sum(len(c) for c in chunks)
-                n_lines = len(chunks)
-                if max_bytes is not None and n_bytes > max_bytes:
-                    continue
-                if max_total_bytes is not None and total_bytes + n_bytes > max_total_bytes:
-                    continue
-                if max_lines is not None and n_lines > max_lines:
-                    continue
-                if max_total_lines is not None and total_lines + n_lines > max_total_lines:
-                    continue
-                total_bytes += n_bytes
-                total_lines += n_lines
-            selected.append(spec)
-        return selected
-    sys.stderr.write(f"{prog_name()}: task {target!r} not found in TODO*.md under {base_dir}\n")
-    return None
+        if max_total_bytes is not None and total_bytes + n_bytes > max_total_bytes:
+            continue
+        if max_lines is not None and n_lines > max_lines:
+            continue
+        if max_total_lines is not None and total_lines + n_lines > max_total_lines:
+            continue
+        total_bytes += n_bytes
+        total_lines += n_lines
+        selected.append(spec)
+    return selected

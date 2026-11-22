@@ -1,19 +1,3 @@
-# 🎯 [NEXT] F75: Add todo_md rename subcommand and extend batch <ID>... support across edit, append, archive, queue, and files
-
-- Implement `todo_md rename <OLD> <NEW|PREFIX> | <OLD>=<NEW|PREFIX>... [-c]` across `TODO.md` and `TODO_ARCHIVE.md`:
-  - Accept either a single rename pair (`todo_md rename <OLD> <NEW|PREFIX>`, supporting `<project>:<OLD>`) or one or more `<OLD>=<NEW|PREFIX>` pairs (space- or comma-separated).
-  - When a target is a single-letter prefix (`A-Z`), assign the next free ID for that prefix accounting for IDs freed and allocated across the batch; when a target is an explicit `<NEW_ID>`, verify that the final ID set across `TODO.md` and `TODO_ARCHIVE.md` has no collisions (allowing swaps and cycles such as `A1=A2 A2=A1` within one batch).
-  - Atomically rewrite task headings (`# <emoji> [<STATUS>] <ID>: <title>`) and all `- Depends on:` tokens across `TODO.md` and `TODO_ARCHIVE.md` in a single in-memory pass (plus `<project>:<OLD>` dependency references in a workspace orchestrator's `TODO*.md` when present) before calling `_finalize_mutation()`.
-- Extend batch `<ID>...` support (space- and comma-separated task refs via `_expand_task_id_args()`) to the remaining single-ID commands:
-  - `todo_md edit <ID>... [-t TITLE] [-m NOTE] [-b BODY|-] [--depends SPEC] [-c]`
-  - `todo_md append <ID>... [-b TEXT|-] [-c]`
-  - `todo_md archive [<ID>...] [-m NOTE] [--canceled] [-c]`
-  - `todo_md queue <ID>... [--all]`
-  - `todo_md files [<ID>...] [--max-lines N] [--max-total-lines N] [--max-bytes N] [--max-total-bytes N]` (merging and normalizing `- Target files:` entries across all specified tasks under shared budgets).
-- Keep every module under `src/` below 1000 lines by extracting or relocating functions from `src/commands.py` (currently 1088 lines, e.g. moving read-only `resolve_top_task_id`, `cmd_next_id`, and `cmd_files` out of `src/commands.py`) and updating `build.py` / `AGENTS.md` if module boundaries change.
-- Update `src/header.py` (`--help`), `agents/todo_md.md`, `README.md`, `AGENTS.md`, and unit tests in `tests/test_commands.py` and `tests/test_cli.py`, and rebuild `./todo_md` via `python3 build.py`.
-- Target files: `src/header.py`, `src/parser.py:highest_ids_in_use..select_task_files`, `src/commands.py:_expand_task_id_args..cmd_files`, `src/cli.py:main`, `agents/todo_md.md`, `README.md`, `AGENTS.md`, `tests/test_commands.py`, `tests/test_cli.py`.
-
 # 🎯 [NEXT] F74: Emit canonical kind="prompt" for task and overview fragments in context-bundle-protocol
 
 - Depends on: F72

@@ -766,3 +766,126 @@ def cmd_archive_view(base_dir: Path) -> int:
         return 1
     sys.stdout.write(read_if_exists(arch_path).rstrip() + "\n")
     return 0
+
+@_discovery_scoped
+def resolve_top_task_id(
+    base_dir: Path,
+    prefix: str | None = None,
+    status: str | None = None,
+    explicit_dir: str | None = None,
+) -> str | None:
+    todo_path = base_dir / "TODO.md"
+    if not todo_path.is_file():
+        return None
+    active_tasks = parse_tasks_in_text(read_if_exists(todo_path), "TODO.md")
+    wanted_prefix = prefix.strip().upper() if prefix is not None else None
+    if status is not None:
+        st_up = status.strip().upper()
+        wanted_statuses: tuple[str, ...] = (
+            tuple(ACTIVE_STATUS_ORDER) if st_up in ("ACTIVE", "ALL") else (st_up,)
+        )
+    else:
+        wanted_statuses = ("WIP", "NEXT")
+    for wanted in wanted_statuses:
+        for t in active_tasks:
+            if str(t["status"]) != wanted:
+                continue
+            if wanted_prefix is not None and not _task_matches_prefix(t, wanted_prefix):
+                continue
+            if _is_task_blocked(base_dir, t, explicit_dir=explicit_dir):
+                continue
+            return str(t["id"]).upper()
+    return None
+
+@_discovery_scoped
+def cmd_next_id(
+    base_dir: Path,
+    target_dir: Path | None = None,
+    task_id: str | None = None,
+    explicit_dir: str | None = None,
+    prefix: str | None = None,
+    status: str | None = None,
+) -> int:
+    notes: list[str] = []
+    if prefix is not None:
+        notes.append(f"prefix={prefix.strip().upper()}")
+    if status is not None:
+        notes.append(f"status={status.strip().upper()}")
+    filter_note = f" ({', '.join(notes)})" if notes else ""
+    if task_id is None:
+        tid = resolve_top_task_id(base_dir, prefix=prefix, status=status, explicit_dir=explicit_dir)
+        if not tid:
+            st_label = status.strip().upper() if status is not None else "WIP or NEXT"
+            sys.stderr.write(
+                f"{prog_name()}: no active {st_label} task{filter_note} found in TODO.md under {base_dir}\n"
+            )
+            return 1
+        sys.stdout.write(f"{tid}\n")
+        return 0
+
+    tdir = target_dir or base_dir
+    dag = build_dependency_dag(
+        base_dir,
+        tdir,
+        task_id,
+        explicit_dir=explicit_dir,
+        stop_at_done=True,
+    )
+    nodes: dict[tuple[Path, str], dict[str, object]] = dag["nodes"]  # type: ignore[assignment]
+    topo_order: list[tuple[Path, str]] = dag["topo_order"]  # type: ignore[assignment]
+    root_key: tuple[Path, str] = dag["root"]  # type: ignore[assignment]
+    root_node = nodes[root_key]
+    if not root_node["exists"]:
+        sys.stderr.write(f"{prog_name()}: task {root_node['ref']!r} not found in TODO*.md under {tdir}\n")
+        return 1
+    root_status = str(root_node["status"])
+    if root_status in ("DONE", "CANCELED"):
+        sys.stderr.write(f"{prog_name()}: task {root_node['ref']} is already closed ([{root_status}])\n")
+        return 1
+    syntax_errors: list[str] = dag["syntax_errors"]  # type: ignore[assignment]
+    if syntax_errors:
+        for e in syntax_errors:
+            sys.stderr.write(f"ERROR: {e}\n")
+        return 1
+    cycle: list[str] = dag["cycle"]  # type: ignore[assignment]
+    if cycle:
+        sys.stderr.write(f"{prog_name()}: dependency cycle detected: {' -> '.join(cycle)}\n")
+        return 1
+    bad_blockers = [
+        f"{nodes[u]['ref']} ({nodes[u]['status']})"
+        for u in topo_order
+        if str(nodes[u]["status"]) in ("MISSING", "CANCELED")
+    ]
+    if bad_blockers:
+        sys.stderr.write(
+            f"{prog_name()}: task {root_node['ref']} is blocked by {', '.join(bad_blockers)}\n"
+        )
+        return 1
+    wanted_st_set: frozenset[str] | None = None
+    if status is not None:
+        st_u = status.strip().upper()
+        if st_u not in ("ACTIVE", "ALL"):
+            wanted_st_set = frozenset({st_u})
+    next_act = _first_actionable_in_dag(dag, prefix=prefix, status=wanted_st_set)
+    if not next_act:
+        sys.stderr.write(
+            f"{prog_name()}: no unblocked actionable task{filter_note} found for {root_node['ref']}\n"
+        )
+        return 1
+    sys.stdout.write(f"{next_act}\n")
+    return 0
+
+def cmd_files(
+    base_dir: Path,
+    task_id: str | list[str] | None = None,
+    max_lines: int | None = None,
+    max_total_lines: int | None = None,
+    max_bytes: int | None = None,
+    max_total_bytes: int | None = None,
+) -> int:
+    specs = select_task_files(base_dir, task_id, max_lines, max_total_lines, max_bytes, max_total_bytes)
+    if specs is None:
+        return 1
+    for spec in specs:
+        sys.stdout.write(f"{spec}\n")
+    return 0

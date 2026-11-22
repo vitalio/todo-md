@@ -70,6 +70,7 @@ KNOWN_SUBCOMMANDS = (
     "add",
     "edit",
     "append",
+    "rename",
     "done",
     "cancel",
     "canceled",
@@ -553,19 +554,31 @@ def main(argv: list[str] | None = None) -> int:
         pos, note = _parse_note_arg(args[1:])
         canceled = "--canceled" in pos or "--cancel" in pos
         pos = [p for p in pos if p not in ("--canceled", "--cancel", "--done")]
+        bad_flags = [p for p in pos if p.startswith("-")]
+        if bad_flags:
+            raise SystemExit(f"{prog}: unknown option for archive: {bad_flags[0]}")
         if not pos:
             return cmd_archive_view(base_dir)
-        tdir, tid = resolve_project_task_ref(base_dir, pos[0], explicit_dir=explicit_dir)
-        return cmd_transition(tdir, tid, new_status=("CANCELED" if canceled else "DONE"), dest_file="TODO_ARCHIVE.md", note=note, commit=commit, no_commit=no_commit)
+        raw_ids = _expand_task_id_args(pos)
+        if not raw_ids:
+            raise SystemExit(f"{prog}: usage: {prog} archive [<ID>...] [-m NOTE] [--canceled]")
+        targets = [resolve_project_task_ref(base_dir, ref, explicit_dir=explicit_dir) for ref in raw_ids]
+        return cmd_transition_batch(
+            targets,
+            new_status=("CANCELED" if canceled else "DONE"),
+            dest_file="TODO_ARCHIVE.md",
+            note=note,
+            commit=commit,
+            no_commit=no_commit,
+        )
     if args[0] in ("add", "--add"):
         return cmd_add(base_dir, args[1:], commit=commit, no_commit=no_commit, explicit_dir=explicit_dir)
     if args[0] in ("edit", "--edit"):
         return cmd_edit(base_dir, args[1:], commit=commit, no_commit=no_commit, explicit_dir=explicit_dir)
     if args[0] in ("append", "--append"):
-        if len(args) >= 2 and not args[1].startswith("-"):
-            tdir, tid = resolve_project_task_ref(base_dir, args[1], explicit_dir=explicit_dir)
-            return cmd_append(tdir, [tid, *args[2:]], commit=commit, no_commit=no_commit)
-        return cmd_append(base_dir, args[1:], commit=commit, no_commit=no_commit)
+        return cmd_append(base_dir, args[1:], commit=commit, no_commit=no_commit, explicit_dir=explicit_dir)
+    if args[0] in ("rename", "--rename"):
+        return cmd_rename(base_dir, args[1:], commit=commit, no_commit=no_commit, explicit_dir=explicit_dir)
     if args[0] in ("done", "--done"):
         pos, note = _parse_note_arg(args[1:])
         bad_flags = [p for p in pos if p.startswith("-")]
@@ -610,8 +623,9 @@ def main(argv: list[str] | None = None) -> int:
         if bad_q:
             raise SystemExit(f"{prog}: unknown option for queue: {bad_q[0]}")
         q_pos = [a for a in args[1:] if a != "--all"]
-        if len(q_pos) != 1 or "," in q_pos[0] or _split_task_ref_arg(q_pos[0]) is None:
-            raise SystemExit(f"{prog}: usage: {prog} queue <ID> [--all]")
+        q_refs = _collect_task_refs(q_pos)
+        if not q_refs:
+            raise SystemExit(f"{prog}: usage: {prog} queue <ID>... [--all]")
         return _quest_log(
             prog, base_dir, explicit_dir, workspace, full, args[1:], cmd="queue", positional_focus=True
         )
@@ -715,17 +729,22 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 pos.append(a)
                 i += 1
-        if len(pos) > 1:
-            raise SystemExit(
-                f"{prog}: usage: {prog} files [<ID>] [--max-lines N] [--max-total-lines N] [--max-bytes N] [--max-total-bytes N]"
-            )
-        if len(pos) == 1:
-            tdir, tid = resolve_project_task_ref(base_dir, pos[0], explicit_dir=explicit_dir)
+        if pos:
+            raw_ids = _expand_task_id_args(pos)
+            if not raw_ids:
+                raise SystemExit(
+                    f"{prog}: usage: {prog} files [<ID>...] [--max-lines N] [--max-total-lines N] [--max-bytes N] [--max-total-bytes N]"
+                )
+            resolved = [resolve_project_task_ref(base_dir, ref, explicit_dir=explicit_dir) for ref in raw_ids]
+            tdir = resolved[0][0]
+            if any(d.resolve() != tdir.resolve() for d, _ in resolved[1:]):
+                raise SystemExit(f"{prog}: files batch task IDs must belong to the same project")
+            tids: str | list[str] | None = [tid for _, tid in resolved]
         else:
-            tdir, tid = base_dir, None
+            tdir, tids = base_dir, None
         return cmd_files(
             tdir,
-            tid,
+            tids,
             max_lines=budgets["--max-lines"],
             max_total_lines=budgets["--max-total-lines"],
             max_bytes=budgets["--max-bytes"],
