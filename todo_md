@@ -23,12 +23,14 @@ import unicodedata
 from datetime import date
 from pathlib import Path
 
-VERSION = "0.41.1"
+VERSION = "0.42.0"
 REPO_MARKER = "todo_md-repo: vitalio/todo_md"
 DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/vitalio/todo_md/main/todo_md"
 FENCE = chr(96) * 3
-EMBEDDED_RULE_TODO_MD = '# Description: Structured Markdown task management (TODO.md and TODO_ARCHIVE.md) via todo_md\n[if role=work]\n- Task management (`todo_md`: `TODO.md`, `TODO_ARCHIVE.md`, `role=work`):\n  - Always inspect and modify `TODO.md` and `TODO_ARCHIVE.md` via `todo_md`\n    (never via `cat` or manual file edits). Repository scope only: record each\n    task in the `TODO.md` of the repository it belongs to.\n  - Close the active task via `todo_md done <ID>` inside the final guarded\n    commit step (after the edit-and-diff step is verified clean, immediately\n    before staging and `git commit`, never during the edit step). Do not pass\n    `-c` / `--commit`; stage `TODO.md` and `TODO_ARCHIVE.md` into the final\n    code commit so backlog updates are committed atomically with code changes.\n  - Record out-of-scope findings via\n    `todo_md add "<title>" -b "<problem_and_impact>"` in default `NEW` status\n    without `--depends`; stage them into the final code commit (or pass `-c` /\n    `--commit` when recorded after the code commit is already pushed or when no\n    code commit follows). Run `todo_md -h` for full CLI flags and options.\n[endif]\n[if role!=work]\n- Task management (`todo_md`: `TODO.md`, `TODO_ARCHIVE.md`): Always inspect and\n  modify `TODO.md` and `TODO_ARCHIVE.md` via `todo_md` (never via `cat` or\n  manual file edits). Repository scope only: record each task in the `TODO.md`\n  of the repository it belongs to (run `todo_md -h` for full CLI option lists).\n  - Status lifecycle & role derivation: `TODO.md` orders active tasks as\n    `🔵 [WIP]` -> `🎯 [NEXT]` -> `❓ [QUESTION]` -> `⚪ [NEW]` -> `⏸️ [HOLD]`,\n    and `TODO_ARCHIVE.md` keeps `✅ [DONE]` and `❌ [CANCELED]` newest-first.\n    Task ID prefixes: `F` is a feature (default on `add`), `B` is a bugfix\n    (ranked ahead in `chain`), `D` is a design task (`D*` -> `design` in any\n    status), and other `A-Z` prefixes are custom domains; non-`D` tasks resolve\n    to `work` in `WIP`/`NEXT` and `plan` in `NEW`/`QUESTION`/`HOLD`.\n    `todo_md check` rejects `- Role:` lines in active `TODO.md` tasks,\n    `todo_md next <ID>` strips an existing `- Role: plan` line, and\n    `todo_md <ID>` in bundle mode (`todo_md <ID> | agents_bundle | run_block`)\n    emits `Role: <role>`, auto-transitions `NEXT` `work` (and `NEW`/`NEXT` `D*`\n    `design`) tasks to `WIP` (`--no-wip` opts out), and preloads target files\n    (`--no-files` opts out).\n  - Inspect & target selection: pass `-C <dir|project>` or `--project <name>`\n    before subcommands (or `<project>:<ID>` on task refs). Core views:\n    `todo_md [opts] [-w]`, `todo_md overview [--full] [-w]`, `todo_md projects`,\n    `todo_md [show] <ID>...`, `todo_md last[-id] [<STATUS|archive>]`,\n    `todo_md list [active|archive|all|<STATUS>] [<ID>...] [--role <role>] [-r|--ready] [--limit N] [--full]`,\n    `todo_md archive`, `todo_md ids`, `todo_md queue <ID> [--all]` (alias for `todo_md chain <ID> [--all]`),\n    `todo_md chain [<ID>...] [--all] [--by-role] [--role <role>] [--ready] [-l N|--limit N] [--include-hold] [--tree] [--numbered[=left|right]] [-f <ID>...] [-H] [-s <QUERY>]`,\n    `todo_md next-id [<ID>] [--role <role>]`,\n    `todo_md files [<ID>] [--max-lines N] [--max-total-lines N] [--max-bytes N] [--max-total-bytes N]`.\n  - Mutate & validate: `todo_md add [<PROJECT>] [<PREFIX>] "<title>" [-p <P>]\n    [--next] [--status <S>] [-m "<note>"] [-b "<body_md>"|-] [--depends <spec>]\n    [-c]`, `todo_md edit <ID> [-t "<title>"] [-m "<note>"] [-b "<body_md>"|-]\n    [--depends <spec>] [-c]`, `todo_md append <ID> [-b "<text>"|-] [-c]`,\n    `todo_md next <ID> [-m "<note>"] [--reopen] [-c]`,\n    `todo_md status <ID> <STATUS> [-m "<note>"] [--reopen] [-c]`,\n    `todo_md reopen <ID> [--status <S>] [-m "<note>"] [-c]`,\n    `todo_md done <ID> [-m "<note>"] [-c]`,\n    `todo_md cancel <ID> [-m "<reason>"] [-c]`, `todo_md check`. In\n    `role=plan`, `role=design`, and `role=review`, batch mutations without `-c`\n    and commit `TODO*.md` once backlog updates are complete; in `role=work`,\n    run `todo_md done <ID>` inside the final commit step without `-c`.\n  - Dependencies & Chain integration (both directions): in `--depends` and\n    `- Depends on:`, use `,` for parallel items (`A,B`) and `->` for sequential\n    stages (`"A -> B -> C"`, `,` binds tighter than `->`; repeat for AND\n    branches; do not introduce a separate `- Order:` field). Wire new or refined\n    tasks both upstream (`--depends`) and downstream (`todo_md edit <ID>\n    --depends ...` on existing open tasks or waves).\n  - Target files contract: record touched files on one `- Target files:` bullet\n    (backticked, excluding `TODO*.md` and `AGENTS.md`) when promoting a task to\n    `NEXT`: plain paths for files <= 400 lines, and `path:symbol`,\n    `path:sym1..sym2`, or `path:start-end` slices for larger files.\n[endif]\n'
+EMBEDDED_RULE_TODO_MD = '# Description: Structured Markdown task management (TODO.md and TODO_ARCHIVE.md) via todo_md\n- Task management (`todo_md`: `TODO.md`, `TODO_ARCHIVE.md`): Always inspect and\n  modify `TODO.md` and `TODO_ARCHIVE.md` via `todo_md` (never via `cat` or\n  manual file edits). Repository scope only: record each task in the `TODO.md`\n  of the repository it belongs to (run `todo_md -h` for full CLI option lists).\n  - Status lifecycle & role derivation: `TODO.md` orders active tasks as\n    `🔵 [WIP]` -> `🎯 [NEXT]` -> `❓ [QUESTION]` -> `⚪ [NEW]` -> `⏸️ [HOLD]`,\n    and `TODO_ARCHIVE.md` keeps `✅ [DONE]` and `❌ [CANCELED]` newest-first.\n    Task ID prefixes: `F` is a feature (default on `add`), `B` is a bugfix\n    (ranked ahead in `chain`), `D` is a design task (`D*` -> `design` in any\n    status), and other `A-Z` prefixes are custom domains; non-`D` tasks resolve\n    to `work` in `WIP`/`NEXT` and `plan` in `NEW`/`QUESTION`/`HOLD`.\n    `todo_md check` rejects `- Role:` lines in active `TODO.md` tasks,\n    `todo_md next <ID>` strips an existing `- Role: plan` line, and\n    `todo_md <ID> [role=<role>]` in bundle mode\n    (`todo_md <ID> | agents_bundle | run_block`) is read-only: it emits\n    `Role: <role>` (derived, or the `role=<role>` override that also selects\n    this rule) and preloads target files (`--no-files` opts out); start a task\n    with `todo_md status <ID> WIP` or `todo_md next <ID>`.\n  - Inspect & target selection: pass `-C <dir|project>` or `--project <name>`\n    before subcommands (or `<project>:<ID>` on task refs). Core views:\n    `todo_md [opts] [-w]`, `todo_md overview [--full] [-w]`, `todo_md projects`,\n    `todo_md [show] <ID>...`, `todo_md last[-id] [<STATUS|archive>]`,\n    `todo_md list [active|archive|all|<STATUS>] [<ID>...] [--role <role>] [-r|--ready] [--limit N] [--full]`,\n    `todo_md archive`, `todo_md ids`, `todo_md queue <ID> [--all]` (alias for `todo_md chain <ID> [--all]`),\n    `todo_md chain [<ID>...] [--all] [--by-role] [--role <role>] [--ready] [-l N|--limit N] [--include-hold] [--tree] [--numbered[=left|right]] [-f <ID>...] [-H] [-s <QUERY>]`,\n    `todo_md next-id [<ID>] [--role <role>]`,\n    `todo_md files [<ID>] [--max-lines N] [--max-total-lines N] [--max-bytes N] [--max-total-bytes N]`.\n  - Mutate & validate: `todo_md add [<PROJECT>] [<PREFIX>] "<title>" [-p <P>]\n    [--next] [--status <S>] [-m "<note>"] [-b "<body_md>"|-] [--depends <spec>]\n    [-c]`, `todo_md edit <ID> [-t "<title>"] [-m "<note>"] [-b "<body_md>"|-]\n    [--depends <spec>] [-c]`, `todo_md append <ID> [-b "<text>"|-] [-c]`,\n    `todo_md next <ID> [-m "<note>"] [--reopen] [-c]`,\n    `todo_md status <ID> <STATUS> [-m "<note>"] [--reopen] [-c]`,\n    `todo_md reopen <ID> [--status <S>] [-m "<note>"] [-c]`,\n    `todo_md done <ID> [-m "<note>"] [-c]`,\n    `todo_md cancel <ID> [-m "<reason>"] [-c]`, `todo_md check`. In\n    `role=plan`, `role=design`, and `role=review`, batch mutations without `-c`\n    and commit `TODO*.md` once backlog updates are complete; in `role=work`,\n    run `todo_md done <ID>` inside the final commit step without `-c`.\n  - Dependencies & Chain integration (both directions): in `--depends` and\n    `- Depends on:`, use `,` for parallel items (`A,B`) and `->` for sequential\n    stages (`"A -> B -> C"`, `,` binds tighter than `->`; repeat for AND\n    branches; do not introduce a separate `- Order:` field). Wire new or refined\n    tasks both upstream (`--depends`) and downstream (`todo_md edit <ID>\n    --depends ...` on existing open tasks or waves).\n  - Target files contract: record touched files on one `- Target files:` bullet\n    (backticked, excluding `TODO*.md` and `AGENTS.md`) when promoting a task to\n    `NEXT`: plain paths for files <= 400 lines, and `path:symbol`,\n    `path:sym1..sym2`, or `path:start-end` slices for larger files.\n'
+EMBEDDED_RULE_TODO_MD_WORK = '# Description: Compact todo_md execution rule for role=work\n- Task management (`todo_md`: `TODO.md`, `TODO_ARCHIVE.md`, `role=work`):\n  - Always inspect and modify `TODO.md` and `TODO_ARCHIVE.md` via `todo_md`\n    (never via `cat` or manual file edits). Repository scope only: record each\n    task in the `TODO.md` of the repository it belongs to.\n  - Start the task in the first `run_block` step: `todo_md status <ID> WIP`\n    (without `-c` / `--commit`) unless it is already `WIP`; `todo_md <ID>`\n    never changes status.\n  - Close the active task via `todo_md done <ID>` inside the final guarded\n    commit step (after the edit-and-diff step is verified clean, immediately\n    before staging and `git commit`, never during the edit step). Do not pass\n    `-c` / `--commit`; stage `TODO.md` and `TODO_ARCHIVE.md` into the final\n    code commit so backlog updates are committed atomically with code changes.\n  - Record out-of-scope findings via\n    `todo_md add "<title>" -b "<problem_and_impact>"` in default `NEW` status\n    without `--depends`; stage them into the final code commit (or pass `-c` /\n    `--commit` when recorded after the code commit is already pushed or when no\n    code commit follows). Run `todo_md -h` for full CLI flags and options.\n'
 RULE_SOURCE_PATH = Path(__file__).resolve().parent.parent / "agents" / "todo_md.md"
+RULE_WORK_SOURCE_PATH = Path(__file__).resolve().parent.parent / "agents" / "todo_md_work.md"
 
 VALID_STATUSES: dict[str, str] = {
     "WIP": "🔵",
@@ -131,27 +133,18 @@ WORKSPACE_SKIP_DIRS = frozenset({
 WORKSPACE_MAX_DEPTH = 3
 
 
-RULE_IF_BLOCK_RE = re.compile(
-    r"^\[if role(?P<op>=|!=)(?P<val>[a-z0-9_-]+)\]\n(?P<body>.*?)^\[endif\]\n?",
-    re.MULTILINE | re.DOTALL,
-)
+def _rule_text(embedded: str, name: str, path: Path) -> str:
+    if embedded != "__EMBEDDED_RULE_" + name + "__":
+        raw = embedded
+    else:
+        raw = path.read_text(encoding="utf-8")
+    lines = [line for line in raw.splitlines() if not line.startswith("# Description:")]
+    return "\n".join(lines).strip("\n") + "\n"
 
 def get_embedded_todo_rule(role: str | None = None) -> str:
-    if EMBEDDED_RULE_TODO_MD != "__EMBEDDED_RULE_" + "TODO_MD__":
-        raw = EMBEDDED_RULE_TODO_MD
-    else:
-        raw = RULE_SOURCE_PATH.read_text(encoding="utf-8")
-    lines = [line for line in raw.splitlines() if not line.startswith("# Description:")]
-    text = "\n".join(lines) + "\n"
-    eff_role = (role or "").strip().lower()
-
-    def _replace_if(m: re.Match[str]) -> str:
-        op, val, body = m.group("op"), m.group("val"), m.group("body")
-        keep = (eff_role == val) if op == "=" else (eff_role != val)
-        return body if keep else ""
-
-    return RULE_IF_BLOCK_RE.sub(_replace_if, text).strip("\n") + "\n"
-
+    if (role or "").strip().lower() == "work":
+        return _rule_text(EMBEDDED_RULE_TODO_MD_WORK, "TODO_MD_WORK", RULE_WORK_SOURCE_PATH)
+    return _rule_text(EMBEDDED_RULE_TODO_MD, "TODO_MD", RULE_SOURCE_PATH)
 
 def prog_name() -> str:
     raw = Path(sys.argv[0]).name if sys.argv and sys.argv[0] else "todo_md"
@@ -253,10 +246,13 @@ HELP_GLOBAL_OPTIONS: tuple[tuple[str, str], ...] = (
     ("--bundle",
      "Emit a context-bundle-protocol v1 stream for <ID> (show), last, the default view and "
      "overview; auto-enabled when stdout is a pipe other than the run_block step output. "
-     "With <ID> it moves a NEXT work/design task to WIP"),
+     "The stream is read-only: it never changes task status"),
     ("--plain", "Disable bundle auto-detection (--bundle takes precedence)"),
     ("--no-files", "Bundle mode: do not preload the '- Target files:' of the task"),
-    ("--no-wip", "Bundle mode: do not move the task to WIP on session start"),
+    ("role=ROLE, --role ROLE",
+     "Bundle mode session role for <ID>, show, last, overview, and the default view (--role "
+     "ROLE only for <ID>, show, last, overview): sets the Role: header and selects the "
+     "matching embedded rule (work -> compact rule, others -> full rule)"),
 )
 
 HELP_QUEST_OPTIONS: tuple[tuple[str, str], ...] = (
@@ -6141,7 +6137,7 @@ def cmd_chain(
 
 
 BUNDLE_PROTOCOL_VERSION = "1"
-BUNDLE_FLAGS = ("--bundle", "--plain", "--no-files", "--no-wip")
+BUNDLE_FLAGS = ("--bundle", "--plain", "--no-files")
 BUNDLE_CHAIN = ["todo_md"]
 BUNDLE_RULE_ID = "todo_md:todo_md"
 BUNDLE_MAX_LINES = 400
@@ -6152,11 +6148,11 @@ TASK_SOURCE_RE = re.compile(r"^# (TODO(?:_ARCHIVE)?\.md):\d+", re.MULTILINE)
 
 
 class BundleOptions:
-    def __init__(self, enabled: bool, no_files: bool = False, no_wip: bool = False,
+    def __init__(self, enabled: bool, no_files: bool = False, role: str | None = None,
                  argv: list[str] | None = None) -> None:
         self.enabled = enabled
         self.no_files = no_files
-        self.no_wip = no_wip
+        self.role = role
         self.argv = list(argv or [])
 
 
@@ -6211,6 +6207,14 @@ def _include_fragments(nonce: str, base_dir: Path, specs: list[str]) -> list[str
     return out
 
 
+def _with_role(headers: list[str], role: str | None) -> list[str]:
+    if not role:
+        return headers
+    new = f"Role: {role}"
+    if any(h.startswith("Role: ") for h in headers):
+        return [new if h.startswith("Role: ") else h for h in headers]
+    return [*headers, new]
+
 def _write_stream(
     opts: BundleOptions,
     headers: list[str],
@@ -6220,6 +6224,7 @@ def _write_stream(
     prompt_body: str,
 ) -> None:
     nonce = secrets.token_hex(16)
+    headers = _with_role(headers, opts.role)
     preamble = [
         f"Bundle-Protocol: {BUNDLE_PROTOCOL_VERSION}",
         f"Bundle-Command: {shlex.join([prog_name(), *opts.argv])}",
@@ -6237,20 +6242,6 @@ def _write_stream(
     sys.stdout.write("\n".join(preamble) + "\n\n===== Rules =====\n" + "\n".join(parts))
 
 
-def _start_session_wip(base_dir: Path, task_id: str) -> None:
-    target = task_id.strip().upper()
-    for t in parse_tasks_in_text(read_if_exists(base_dir / "TODO.md"), "TODO.md"):
-        if str(t["id"]).upper() != target:
-            continue
-        status = str(t["status"])
-        role = resolve_task_role(target, str(t["section"]), status=status)
-        if status in ("NEXT", "NEW") and role in ("work", "design"):
-            _capture(lambda: cmd_transition(
-                base_dir, target, new_status="WIP", promote_top=True, no_commit=True
-            ))
-        return
-
-
 def emit_context_bundle(opts: BundleOptions, base_dir: Path, render) -> int:
     rc, out = _capture(render)
     if rc != 0 or not out.strip():
@@ -6262,8 +6253,6 @@ def emit_context_bundle(opts: BundleOptions, base_dir: Path, render) -> int:
 
 
 def emit_task_bundle(opts: BundleOptions, task_dir: Path, task_id: str | None, render) -> int:
-    if task_id is not None and not opts.no_wip:
-        _start_session_wip(task_dir, task_id)
     rc, out = _capture(render)
     head, sep, body = out.partition("\n\n")
     headers = head.splitlines()
@@ -6705,6 +6694,50 @@ def _last(base_dir: Path, filt: str | None, bundle: BundleOptions) -> int:
     return cmd_last(base_dir, filt)
 
 
+CONTEXT_COMMANDS = ("show", "--show", "last", "--last", "overview", "--overview")
+
+
+def _extract_session_role(prog: str, args: list[str]) -> tuple[str | None, list[str]]:
+    plain = [a for a in args if not a.startswith("role=")]
+    stripped: list[str] = []
+    i = 0
+    while i < len(plain):
+        a = plain[i]
+        if a == "--role" and i + 1 < len(plain):
+            i += 2
+        elif a.startswith("--role="):
+            i += 1
+        else:
+            stripped.append(a)
+            i += 1
+    has_prefix_role = len(plain) != len(args)
+    if stripped:
+        is_context = stripped[0] in CONTEXT_COMMANDS or _collect_task_refs(stripped) is not None
+    else:
+        is_context = has_prefix_role and len(plain) == 0
+    if not is_context:
+        return None, args
+    role: str | None = None
+    flag_role: str | None = None
+    rest: list[str] = []
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a.startswith("role="):
+            role = _validate_role_filter(prog, a.split("=", 1)[1])
+            i += 1
+        elif stripped and a == "--role" and i + 1 < len(args):
+            flag_role = _validate_role_filter(prog, args[i + 1])
+            i += 2
+        elif stripped and a.startswith("--role="):
+            flag_role = _validate_role_filter(prog, a.split("=", 1)[1])
+            i += 1
+        else:
+            rest.append(a)
+            i += 1
+    return (role if role is not None else flag_role), rest
+
+
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     orig_args = list(args)
@@ -6777,7 +6810,6 @@ def main(argv: list[str] | None = None) -> int:
     bundle = BundleOptions(
         bundle_mode_enabled("--bundle" in bundle_flags, "--plain" in bundle_flags),
         no_files="--no-files" in bundle_flags,
-        no_wip="--no-wip" in bundle_flags,
         argv=orig_args,
     )
 
@@ -6792,6 +6824,7 @@ def main(argv: list[str] | None = None) -> int:
                 explicit_dir = str(cand)
                 args.pop(0)
     base_dir = resolve_target_dir(explicit_dir)
+    bundle.role, args = _extract_session_role(prog, args)
     if args and args[0] in ("projects", "--projects"):
         return cmd_projects(base_dir, explicit_dir=explicit_dir)
     if args and args[0] in ("search", "--search-cmd"):

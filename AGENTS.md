@@ -58,13 +58,17 @@ rules are loaded via `.agents_bundle`.
   in the same commit whenever commands or flags change.
 - `agents/todo_md.md` — agent rule embedded into the compiled `todo_md` by
   `build.py` (`EMBEDDED_RULE_TODO_MD`, `get_embedded_todo_rule()`) and emitted
-  as `todo_md:todo_md` in bundle mode; it holds no role-specific prompts
-  (roles belong to `agents-rules`).
+  as `todo_md:todo_md` in bundle mode for every role except `work`; it is pure
+  Markdown (no conditional directives) and holds the full backlog reference.
+- `agents/todo_md_work.md` — compact `role=work` rule embedded as
+  `EMBEDDED_RULE_TODO_MD_WORK`; `get_embedded_todo_rule(role)` picks it only for
+  `work`. It tells the agent to run `todo_md status <ID> WIP` in its first step.
 - `src/bundle.py` — `context-bundle-protocol` v1 producer (`BundleOptions`,
   `bundle_mode_enabled()`, `emit_task_bundle()`, `emit_context_bundle()`):
-  FIFO auto-detection, session-start `WIP` transition for `work`/`design`
-  tasks, and rule/include/task/context fragments. Target files come only from
-  `select_task_files()` and `extract_task_files()` in `src/commands.py`
+  FIFO auto-detection, `role=<role>` override (`Role:` header and rule
+  selection), and rule/include/task/context fragments; it never mutates
+  `TODO.md`. Target files come only from `select_task_files()` and
+  `extract_task_files()` in `src/commands.py`
   (`- Target files:` bullets); keep the stream shape aligned with `todo_flow`
   `docs/adr/0002-context-bundle-protocol-and-self-contained-producers.md`.
 - `src/cli.py` — CLI argument routing and self-update (`update`,

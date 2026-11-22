@@ -1,21 +1,4 @@
 # Description: Structured Markdown task management (TODO.md and TODO_ARCHIVE.md) via todo_md
-[if role=work]
-- Task management (`todo_md`: `TODO.md`, `TODO_ARCHIVE.md`, `role=work`):
-  - Always inspect and modify `TODO.md` and `TODO_ARCHIVE.md` via `todo_md`
-    (never via `cat` or manual file edits). Repository scope only: record each
-    task in the `TODO.md` of the repository it belongs to.
-  - Close the active task via `todo_md done <ID>` inside the final guarded
-    commit step (after the edit-and-diff step is verified clean, immediately
-    before staging and `git commit`, never during the edit step). Do not pass
-    `-c` / `--commit`; stage `TODO.md` and `TODO_ARCHIVE.md` into the final
-    code commit so backlog updates are committed atomically with code changes.
-  - Record out-of-scope findings via
-    `todo_md add "<title>" -b "<problem_and_impact>"` in default `NEW` status
-    without `--depends`; stage them into the final code commit (or pass `-c` /
-    `--commit` when recorded after the code commit is already pushed or when no
-    code commit follows). Run `todo_md -h` for full CLI flags and options.
-[endif]
-[if role!=work]
 - Task management (`todo_md`: `TODO.md`, `TODO_ARCHIVE.md`): Always inspect and
   modify `TODO.md` and `TODO_ARCHIVE.md` via `todo_md` (never via `cat` or
   manual file edits). Repository scope only: record each task in the `TODO.md`
@@ -29,10 +12,11 @@
     to `work` in `WIP`/`NEXT` and `plan` in `NEW`/`QUESTION`/`HOLD`.
     `todo_md check` rejects `- Role:` lines in active `TODO.md` tasks,
     `todo_md next <ID>` strips an existing `- Role: plan` line, and
-    `todo_md <ID>` in bundle mode (`todo_md <ID> | agents_bundle | run_block`)
-    emits `Role: <role>`, auto-transitions `NEXT` `work` (and `NEW`/`NEXT` `D*`
-    `design`) tasks to `WIP` (`--no-wip` opts out), and preloads target files
-    (`--no-files` opts out).
+    `todo_md <ID> [role=<role>]` in bundle mode
+    (`todo_md <ID> | agents_bundle | run_block`) is read-only: it emits
+    `Role: <role>` (derived, or the `role=<role>` override that also selects
+    this rule) and preloads target files (`--no-files` opts out); start a task
+    with `todo_md status <ID> WIP` or `todo_md next <ID>`.
   - Inspect & target selection: pass `-C <dir|project>` or `--project <name>`
     before subcommands (or `<project>:<ID>` on task refs). Core views:
     `todo_md [opts] [-w]`, `todo_md overview [--full] [-w]`, `todo_md projects`,
@@ -64,4 +48,3 @@
     (backticked, excluding `TODO*.md` and `AGENTS.md`) when promoting a task to
     `NEXT`: plain paths for files <= 400 lines, and `path:symbol`,
     `path:sym1..sym2`, or `path:start-end` slices for larger files.
-[endif]

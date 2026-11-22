@@ -55,7 +55,7 @@ Global options accepted before subcommands:
 - `-w`, `--workspace` — operate across all discovered workspace projects.
 - `--full` — show full task sections without compacting `NEW` / `HOLD` (bare `todo_md --full` prints the expanded Markdown overview; with `--search` it prints full matching sections).
 - `-c`, `--commit` — git-commit `TODO*.md` after mutating commands.
-- `--bundle`, `--plain`, `--no-files`, `--no-wip` — context bundle protocol controls (see Context Bundle Protocol below).
+- `--bundle`, `--plain`, `--no-files`, `role=<role>` — context bundle protocol controls (see Context Bundle Protocol below).
 
 | Command | Description |
 | :--- | :--- |
@@ -108,8 +108,8 @@ read-only filter on `todo_md`, `chain`, `list`, and `next-id`.
 `todo_md` is the producer of `context-bundle-protocol` v1 for agent sessions
 (`todo_md <ID> | agents_bundle | run_block`). In bundle mode it prints
 `Bundle-*` transport headers, context headers (`Task`, `Title`, `Role`,
-`Workdir`), the embedded `agents/todo_md.md` rule as `todo_md:todo_md`, the
-preloaded `- Target files:` entries as `include` fragments (at most 400 lines
+`Workdir`), the embedded role rule (`agents/todo_md.md`, or `agents/todo_md_work.md`
+for `role=work`) as `todo_md:todo_md`, the preloaded `- Target files:` entries as `include` fragments (at most 400 lines
 per file or slice, 1200 lines and 32768 bytes in total), and the task section
 (or the Quest-Log / overview for `todo_md [-w]` and `todo_md overview`).
 
@@ -117,9 +117,15 @@ per file or slice, 1200 lines and 32768 bytes in total), and the task section
   stdout is a pipe that is not the `run_block` step output (inside a
   `run_block` step without `RUN_BLOCK_STEP_STDOUT_INO`, plain output is used).
   `--plain` (`TODO_MD_PLAIN=1`) disables auto-detection.
-- Session start: `todo_md <ID>` in bundle mode moves a `NEXT` task (or a `D*`
-  task in `NEW`) to `WIP` before rendering; `--no-wip` opts out. Plain calls
-  never change status.
+- Read-only: `todo_md <ID>`, plain or in bundle mode, never changes `TODO.md`.
+  The `role=work` rule tells the agent to run `todo_md status <ID> WIP` in its
+  first step and `todo_md done <ID>` in the final commit step.
+- Role override: `role=<role>` (for `<ID>`, `show`, `last`, and `overview` also
+  `--role <role>` / `--role=<role>`) sets the `Role:` header and selects the
+  embedded rule: `agents/todo_md_work.md` for `work`, `agents/todo_md.md` for
+  every other role (`todo_md <ID> role=plan | agents_bundle | run_block`,
+  `todo_md -w role=plan | agents_bundle | run_block`). `--role` on `list`,
+  `chain`, and `next-id` stays a row filter.
 - `--no-files` skips the target-file preload.
 - `- Target files:` accepts backticked paths, globs, line slices
   (`path:start-end`) and drift-proof symbol slices (`path:symbol`,

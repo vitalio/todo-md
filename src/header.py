@@ -28,7 +28,9 @@ REPO_MARKER = "todo_md-repo: vitalio/todo_md"
 DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/vitalio/todo_md/main/todo_md"
 FENCE = chr(96) * 3
 EMBEDDED_RULE_TODO_MD = "__EMBEDDED_RULE_TODO_MD__"
+EMBEDDED_RULE_TODO_MD_WORK = "__EMBEDDED_RULE_TODO_MD_WORK__"
 RULE_SOURCE_PATH = Path(__file__).resolve().parent.parent / "agents" / "todo_md.md"
+RULE_WORK_SOURCE_PATH = Path(__file__).resolve().parent.parent / "agents" / "todo_md_work.md"
 
 VALID_STATUSES: dict[str, str] = {
     "WIP": "🔵",
@@ -131,27 +133,18 @@ WORKSPACE_SKIP_DIRS = frozenset({
 WORKSPACE_MAX_DEPTH = 3
 
 
-RULE_IF_BLOCK_RE = re.compile(
-    r"^\[if role(?P<op>=|!=)(?P<val>[a-z0-9_-]+)\]\n(?P<body>.*?)^\[endif\]\n?",
-    re.MULTILINE | re.DOTALL,
-)
+def _rule_text(embedded: str, name: str, path: Path) -> str:
+    if embedded != "__EMBEDDED_RULE_" + name + "__":
+        raw = embedded
+    else:
+        raw = path.read_text(encoding="utf-8")
+    lines = [line for line in raw.splitlines() if not line.startswith("# Description:")]
+    return "\n".join(lines).strip("\n") + "\n"
 
 def get_embedded_todo_rule(role: str | None = None) -> str:
-    if EMBEDDED_RULE_TODO_MD != "__EMBEDDED_RULE_" + "TODO_MD__":
-        raw = EMBEDDED_RULE_TODO_MD
-    else:
-        raw = RULE_SOURCE_PATH.read_text(encoding="utf-8")
-    lines = [line for line in raw.splitlines() if not line.startswith("# Description:")]
-    text = "\n".join(lines) + "\n"
-    eff_role = (role or "").strip().lower()
-
-    def _replace_if(m: re.Match[str]) -> str:
-        op, val, body = m.group("op"), m.group("val"), m.group("body")
-        keep = (eff_role == val) if op == "=" else (eff_role != val)
-        return body if keep else ""
-
-    return RULE_IF_BLOCK_RE.sub(_replace_if, text).strip("\n") + "\n"
-
+    if (role or "").strip().lower() == "work":
+        return _rule_text(EMBEDDED_RULE_TODO_MD_WORK, "TODO_MD_WORK", RULE_WORK_SOURCE_PATH)
+    return _rule_text(EMBEDDED_RULE_TODO_MD, "TODO_MD", RULE_SOURCE_PATH)
 
 def prog_name() -> str:
     raw = Path(sys.argv[0]).name if sys.argv and sys.argv[0] else "todo_md"
@@ -253,10 +246,13 @@ HELP_GLOBAL_OPTIONS: tuple[tuple[str, str], ...] = (
     ("--bundle",
      "Emit a context-bundle-protocol v1 stream for <ID> (show), last, the default view and "
      "overview; auto-enabled when stdout is a pipe other than the run_block step output. "
-     "With <ID> it moves a NEXT work/design task to WIP"),
+     "The stream is read-only: it never changes task status"),
     ("--plain", "Disable bundle auto-detection (--bundle takes precedence)"),
     ("--no-files", "Bundle mode: do not preload the '- Target files:' of the task"),
-    ("--no-wip", "Bundle mode: do not move the task to WIP on session start"),
+    ("role=ROLE, --role ROLE",
+     "Bundle mode session role for <ID>, show, last, overview, and the default view (--role "
+     "ROLE only for <ID>, show, last, overview): sets the Role: header and selects the "
+     "matching embedded rule (work -> compact rule, others -> full rule)"),
 )
 
 HELP_QUEST_OPTIONS: tuple[tuple[str, str], ...] = (

@@ -416,6 +416,50 @@ def _last(base_dir: Path, filt: str | None, bundle: BundleOptions) -> int:
     return cmd_last(base_dir, filt)
 
 
+CONTEXT_COMMANDS = ("show", "--show", "last", "--last", "overview", "--overview")
+
+
+def _extract_session_role(prog: str, args: list[str]) -> tuple[str | None, list[str]]:
+    plain = [a for a in args if not a.startswith("role=")]
+    stripped: list[str] = []
+    i = 0
+    while i < len(plain):
+        a = plain[i]
+        if a == "--role" and i + 1 < len(plain):
+            i += 2
+        elif a.startswith("--role="):
+            i += 1
+        else:
+            stripped.append(a)
+            i += 1
+    has_prefix_role = len(plain) != len(args)
+    if stripped:
+        is_context = stripped[0] in CONTEXT_COMMANDS or _collect_task_refs(stripped) is not None
+    else:
+        is_context = has_prefix_role and len(plain) == 0
+    if not is_context:
+        return None, args
+    role: str | None = None
+    flag_role: str | None = None
+    rest: list[str] = []
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a.startswith("role="):
+            role = _validate_role_filter(prog, a.split("=", 1)[1])
+            i += 1
+        elif stripped and a == "--role" and i + 1 < len(args):
+            flag_role = _validate_role_filter(prog, args[i + 1])
+            i += 2
+        elif stripped and a.startswith("--role="):
+            flag_role = _validate_role_filter(prog, a.split("=", 1)[1])
+            i += 1
+        else:
+            rest.append(a)
+            i += 1
+    return (role if role is not None else flag_role), rest
+
+
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     orig_args = list(args)
@@ -488,7 +532,6 @@ def main(argv: list[str] | None = None) -> int:
     bundle = BundleOptions(
         bundle_mode_enabled("--bundle" in bundle_flags, "--plain" in bundle_flags),
         no_files="--no-files" in bundle_flags,
-        no_wip="--no-wip" in bundle_flags,
         argv=orig_args,
     )
 
@@ -503,6 +546,7 @@ def main(argv: list[str] | None = None) -> int:
                 explicit_dir = str(cand)
                 args.pop(0)
     base_dir = resolve_target_dir(explicit_dir)
+    bundle.role, args = _extract_session_role(prog, args)
     if args and args[0] in ("projects", "--projects"):
         return cmd_projects(base_dir, explicit_dir=explicit_dir)
     if args and args[0] in ("search", "--search-cmd"):

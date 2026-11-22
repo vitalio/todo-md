@@ -1,5 +1,5 @@
 BUNDLE_PROTOCOL_VERSION = "1"
-BUNDLE_FLAGS = ("--bundle", "--plain", "--no-files", "--no-wip")
+BUNDLE_FLAGS = ("--bundle", "--plain", "--no-files")
 BUNDLE_CHAIN = ["todo_md"]
 BUNDLE_RULE_ID = "todo_md:todo_md"
 BUNDLE_MAX_LINES = 400
@@ -10,11 +10,11 @@ TASK_SOURCE_RE = re.compile(r"^# (TODO(?:_ARCHIVE)?\.md):\d+", re.MULTILINE)
 
 
 class BundleOptions:
-    def __init__(self, enabled: bool, no_files: bool = False, no_wip: bool = False,
+    def __init__(self, enabled: bool, no_files: bool = False, role: str | None = None,
                  argv: list[str] | None = None) -> None:
         self.enabled = enabled
         self.no_files = no_files
-        self.no_wip = no_wip
+        self.role = role
         self.argv = list(argv or [])
 
 
@@ -69,6 +69,14 @@ def _include_fragments(nonce: str, base_dir: Path, specs: list[str]) -> list[str
     return out
 
 
+def _with_role(headers: list[str], role: str | None) -> list[str]:
+    if not role:
+        return headers
+    new = f"Role: {role}"
+    if any(h.startswith("Role: ") for h in headers):
+        return [new if h.startswith("Role: ") else h for h in headers]
+    return [*headers, new]
+
 def _write_stream(
     opts: BundleOptions,
     headers: list[str],
@@ -78,6 +86,7 @@ def _write_stream(
     prompt_body: str,
 ) -> None:
     nonce = secrets.token_hex(16)
+    headers = _with_role(headers, opts.role)
     preamble = [
         f"Bundle-Protocol: {BUNDLE_PROTOCOL_VERSION}",
         f"Bundle-Command: {shlex.join([prog_name(), *opts.argv])}",
@@ -95,20 +104,6 @@ def _write_stream(
     sys.stdout.write("\n".join(preamble) + "\n\n===== Rules =====\n" + "\n".join(parts))
 
 
-def _start_session_wip(base_dir: Path, task_id: str) -> None:
-    target = task_id.strip().upper()
-    for t in parse_tasks_in_text(read_if_exists(base_dir / "TODO.md"), "TODO.md"):
-        if str(t["id"]).upper() != target:
-            continue
-        status = str(t["status"])
-        role = resolve_task_role(target, str(t["section"]), status=status)
-        if status in ("NEXT", "NEW") and role in ("work", "design"):
-            _capture(lambda: cmd_transition(
-                base_dir, target, new_status="WIP", promote_top=True, no_commit=True
-            ))
-        return
-
-
 def emit_context_bundle(opts: BundleOptions, base_dir: Path, render) -> int:
     rc, out = _capture(render)
     if rc != 0 or not out.strip():
@@ -120,8 +115,6 @@ def emit_context_bundle(opts: BundleOptions, base_dir: Path, render) -> int:
 
 
 def emit_task_bundle(opts: BundleOptions, task_dir: Path, task_id: str | None, render) -> int:
-    if task_id is not None and not opts.no_wip:
-        _start_session_wip(task_dir, task_id)
     rc, out = _capture(render)
     head, sep, body = out.partition("\n\n")
     headers = head.splitlines()
