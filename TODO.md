@@ -1,3 +1,11 @@
+# 🎯 [NEXT] F68: Support role=<role> in todo_md, split agents/todo_md.md into pure Markdown rules, and move WIP transition to agent step 1
+
+- Support `role=<role>` (alongside `--role <role>` and `--role=<role>`) across context-producing `todo_md` entry points (`todo_md <ID>`, `todo_md show <ID>`, `todo_md last`, `todo_md overview`, and the default Quest-Log `todo_md [-w]`) so session role overrides are declared at the start of the pipeline (`todo_md <ID> role=plan | agents_bundle | run_block` or `todo_md -w role=plan | agents_bundle | run_block`), emitting `Role: <role>` in the preamble and selecting the matching embedded rule while preserving row filtering for `--role <role>` in `list`, `chain`, and `next-id`.
+- Split `agents/todo_md.md` into two pure static Markdown rule files without `[if ...]` / `[endif]` directives (keeping `.md` rule files strictly plain Markdown text): `agents/todo_md.md` (full backlog management reference for `plan`, `design`, `review`, and default) and `agents/todo_md_work.md` (compact execution rule for `role=work`). Embed both in `build.py` and `src/header.py` (`EMBEDDED_RULE_TODO_MD` and `EMBEDDED_RULE_TODO_MD_WORK`), remove `RULE_IF_BLOCK_RE`, and select the rule by effective `role` in `get_embedded_todo_rule(role)`.
+- Make `todo_md <ID>` strictly read-only in all modes (TTY, `todo_md <ID> | cat`, and bundle pipes): remove `_start_session_wip()` and `--no-wip` from `src/bundle.py`, `src/cli.py`, and `src/header.py` so reading or piping a task never mutates `TODO.md` on disk. Instead, instruct the `role=work` agent in `agents/todo_md_work.md` to transition the active task to `WIP` in its first executed `run_block` step via `todo_md status <ID> WIP` (without `-c`, if not already `WIP`) and close it via `todo_md done <ID>` inside the final guarded commit step.
+- Update `README.md` and unit tests in `tests/test_bundle.py` to verify pure read-only task bundle generation, `role=<role>` overrides on `<ID>` / `overview` / Quest-Log streams, and selection of `agents/todo_md_work.md` vs `agents/todo_md.md`.
+- Target files: `build.py`, `src/bundle.py`, `src/header.py`, `src/parser.py:cmd_show`, `src/cli.py:290-515`, `src/cli.py:760-797`, `agents/todo_md.md`, `README.md`, `tests/test_bundle.py`.
+
 # 🎯 [NEXT] B4: Preserve existing '- Depends on:' and '- Target files:' lines in 'todo_md edit -b'
 
 - In `_apply_depends_to_body_lines()` and `cmd_edit()` in `src/commands.py`, when `body is not None` (`-b` / `--body` or piped `stdin`) and `depends_clauses is None` (`--depends` was not passed), automatically preserve any existing `- Depends on:` lines from the previous task body (`old_sec[1:]`) whenever the new `body` does not already include its own `- Depends on:` lines; clear existing `- Depends on:` lines only when `--depends ""` is explicitly passed.
@@ -33,7 +41,7 @@
 
 # 🎯 [NEXT] F62: Decompose monolithic src/parser.py and src/commands.py into focused domain modules
 
-- Depends on: B2, B3, B4, F57, F63, F67 -> F64
+- Depends on: B2, B3, B4, F57, F63, F67, F68 -> F64
 - Refactor `src/parser.py` (3,600+ lines) and `src/commands.py` (1,800+ lines) into cohesive domain modules (~300-800 lines each) with clean layer boundaries:
   - `src/header.py` (`1-353`): imports, constants, regular expressions, `prog_name()`, and `usage_text()`.
   - `src/workspace.py` (from `src/parser.py:1-299` and `src/parser.py:1833-2139`): project and workspace root resolution (`is_todo_project()`, `resolve_target_dir()`, `resolve_workspace_root()`, `discover_projects()`, `project_label()`, `lookup_external_alias()`, `resolve_project_dir()`, `resolve_project_or_dir()`, `resolve_project_task_ref()`, `resolve_filter_task_ref()`, `.todo_projects` and nested orchestrator discovery `read_configured_todo_projects()`, `is_orchestrator_project()`, `discover_orchestrators_for_project()`, `resolve_workspace_chain_projects()`).
