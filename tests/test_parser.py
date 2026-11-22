@@ -98,94 +98,97 @@ class TestParser(TodoMdTestCase):
         self.assertNotIn("H2 line 3", r_only_hold.stdout)
         self.assertIn("todo_md F2", r_only_hold.stdout)
 
-    def test_single_task_headers_role_and_workdir(self):
+    def test_single_task_headers_prefix_status_and_workdir(self):
         ws = self.tmp / "ws"
         ws.mkdir()
         proj_a = ws / "proj_a"
         proj_a.mkdir()
         self._run([str(SCRIPT), str(proj_a), "init"], check=True)
 
-        # Status-aware role fallback: D* -> design in any status; non-D (F, B, P, etc.) -> plan in NEW/QUESTION/HOLD and work in WIP/NEXT
         self._run([str(SCRIPT), "add", "D", "Explore architecture", "-m", "rfc draft", "-b", "Design body"], cwd=str(proj_a), check=True)
         self._run([str(SCRIPT), "add", "F", "Implement feature", "-b", "Feature body"], cwd=str(proj_a), check=True)
         self._run([str(SCRIPT), "add", "B", "Fix bug", "-b", "Bug body"], cwd=str(proj_a), check=True)
-        self._run([str(SCRIPT), "add", "P", "Idea without role", "-b", "Idea body"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "L", "Draft rule update", "-b", "Law body"], cwd=str(proj_a), check=True)
 
         resolved_proj_a = str(proj_a.resolve())
         cases = [
-            ("D1", "Explore architecture", "design"),
-            ("F1", "Implement feature", "plan"),
-            ("B1", "Fix bug", "plan"),
-            ("P1", "Idea without role", "plan"),
+            ("D1", "D", "NEW", "Explore architecture"),
+            ("F1", "F", "NEW", "Implement feature"),
+            ("B1", "B", "NEW", "Fix bug"),
+            ("L1", "L", "NEW", "Draft rule update"),
         ]
-        for tid, expected_title, expected_role in cases:
+        for tid, expected_prefix, expected_status, expected_title in cases:
             for cmd in ([str(SCRIPT), tid], [str(SCRIPT), "show", tid]):
                 with self.subTest(tid=tid, cmd=cmd):
                     proc = self._run(cmd, cwd=str(proj_a), check=True)
                     lines = proc.stdout.splitlines()
                     self.assertEqual(
-                        lines[:5],
-                        [f"Task: {tid}", f"Title: {expected_title}", f"Role: {expected_role}", f"Workdir: {resolved_proj_a}", ""],
+                        lines[:6],
+                        [
+                            f"Task: {tid}",
+                            f"Prefix: {expected_prefix}",
+                            f"Status: {expected_status}",
+                            f"Title: {expected_title}",
+                            f"Workdir: {resolved_proj_a}",
+                            "",
+                        ],
                     )
-                    self.assertTrue(lines[5].startswith("# TODO.md:"), msg=proc.stdout)
+                    self.assertTrue(lines[6].startswith("# TODO.md:"), msg=proc.stdout)
         r_d1_note = self._run([str(SCRIPT), "D1"], cwd=str(proj_a), check=True)
         self.assertIn("# ⚪ [NEW] D1: Explore architecture — *rfc draft*", r_d1_note.stdout)
 
-        # Status transitions on non-D tasks without explicit - Role: update fallback role across QUESTION/HOLD (plan) and NEXT/WIP (work)
-        for st, expected_role in (("QUESTION", "plan"), ("HOLD", "plan"), ("NEXT", "work"), ("WIP", "work"), ("NEW", "plan")):
-            self._run([str(SCRIPT), "status", "P1", st], cwd=str(proj_a), check=True)
-            r_p1_st = self._run([str(SCRIPT), "P1"], cwd=str(proj_a), check=True)
+        for st in ("QUESTION", "HOLD", "NEXT", "WIP", "NEW"):
+            self._run([str(SCRIPT), "status", "L1", st], cwd=str(proj_a), check=True)
+            r_l1_st = self._run([str(SCRIPT), "L1"], cwd=str(proj_a), check=True)
             self.assertEqual(
-                r_p1_st.stdout.splitlines()[:3],
-                ["Task: P1", "Title: Idea without role", f"Role: {expected_role}"],
+                r_l1_st.stdout.splitlines()[:4],
+                ["Task: L1", "Prefix: L", f"Status: {st}", "Title: Draft rule update"],
                 msg=f"status={st}",
             )
 
-        # Roles derive from prefix/status only: a NEW non-D task resolves to plan, NEXT to work
         self._run([str(SCRIPT), "add", "F", "Audit task", "--depends", "D1", "-b", "Review body"], cwd=str(proj_a), check=True)
         r_f2 = self._run([str(SCRIPT), "proj_a:F2"], cwd=str(ws), check=True)
         self.assertEqual(
-            r_f2.stdout.splitlines()[:5],
-            ["Task: F2", "Title: Audit task", "Role: plan", f"Workdir: {resolved_proj_a}", ""],
+            r_f2.stdout.splitlines()[:6],
+            ["Task: F2", "Prefix: F", "Status: NEW", "Title: Audit task", f"Workdir: {resolved_proj_a}", ""],
         )
-        self.assertNotIn("- Role:", r_f2.stdout)
+        self.assertNotIn("Role:", r_f2.stdout)
         self.assertIn("- Depends on: D1", r_f2.stdout)
 
         self._run([str(SCRIPT), "next", "F2"], cwd=str(proj_a), check=True)
         r_f2_next = self._run([str(SCRIPT), "F2"], cwd=str(proj_a), check=True)
-        self.assertEqual(r_f2_next.stdout.splitlines()[:3], ["Task: F2", "Title: Audit task", "Role: work"])
+        self.assertEqual(r_f2_next.stdout.splitlines()[:4], ["Task: F2", "Prefix: F", "Status: NEXT", "Title: Audit task"])
         self.assertIn("- Depends on: D1", r_f2_next.stdout)
 
-        self._run([str(SCRIPT), "status", "F2", "NEW"], cwd=str(proj_a), check=True)
-        r_f2_new = self._run([str(SCRIPT), "F2"], cwd=str(proj_a), check=True)
-        self.assertEqual(r_f2_new.stdout.splitlines()[:3], ["Task: F2", "Title: Audit task", "Role: plan"])
-
-        # Mutating commands no longer accept --role (it stays a read-only filter)
+        # Commands reject removed --role / --by-role options
         for bad_cmd in (
             ["add", "F", "Role override", "--role", "work"],
             ["add", "F", "Role override", "--role=work"],
             ["edit", "F2", "--role", "plan"],
-            ["edit", "F2", "--role="],
+            ["list", "--role", "work"],
+            ["chain", "--role", "work"],
+            ["chain", "--by-role"],
+            ["next-id", "--role", "work"],
         ):
             with self.subTest(bad_cmd=bad_cmd):
                 r_bad = self._run([str(SCRIPT), *bad_cmd], cwd=str(proj_a))
                 self.assertNotEqual(r_bad.returncode, 0, msg=r_bad.stdout)
                 self.assertIn("unknown option", r_bad.stderr)
 
-        # Fenced - Role: inside code block is ignored by role resolution
+        # Fenced - Role: inside code block is ignored by check
         fenced_body = "`" * 3 + "markdown\n- Role: custom\n" + "`" * 3 + "\nDetails."
         self._run([str(SCRIPT), "add", "F", "Fenced role test", "-b", fenced_body], cwd=str(proj_a), check=True)
         r_f3 = self._run([str(SCRIPT), "F3"], cwd=str(proj_a), check=True)
-        self.assertEqual(r_f3.stdout.splitlines()[:3], ["Task: F3", "Title: Fenced role test", "Role: plan"])
+        self.assertEqual(r_f3.stdout.splitlines()[:4], ["Task: F3", "Prefix: F", "Status: NEW", "Title: Fenced role test"])
 
         # last / show last emit headers too
         r_last = self._run([str(SCRIPT), "show", "last"], cwd=str(proj_a), check=True)
         self.assertEqual(
-            r_last.stdout.splitlines()[:5],
-            ["Task: F3", "Title: Fenced role test", "Role: plan", f"Workdir: {resolved_proj_a}", ""],
+            r_last.stdout.splitlines()[:6],
+            ["Task: F3", "Prefix: F", "Status: NEW", "Title: Fenced role test", f"Workdir: {resolved_proj_a}", ""],
         )
 
-        # Overview and list commands remain unchanged (no Task:/Title:/Role:/Workdir: headers)
+        # Overview and list commands remain unchanged (no Task:/Prefix:/Status:/Title:/Workdir: headers)
         for cmd in (
             [str(SCRIPT), "overview"],
             [str(SCRIPT), "--full"],
@@ -223,7 +226,6 @@ class TestParser(TodoMdTestCase):
         for bad_tid in ("F1", "F2", "F4"):
             with self.subTest(bad_tid=bad_tid):
                 self.assertIn(f"task {bad_tid} has an in-body 'Role:' line", r_chk_fail.stderr)
-        self.assertIn("use a D* prefix for design tasks or 'todo_md next <ID>' to promote to work", r_chk_fail.stderr)
         self.assertNotIn("task F3 ", r_chk_fail.stderr)
         self.assertNotIn("U20", r_chk_fail.stderr)
 
@@ -241,9 +243,11 @@ class TestParser(TodoMdTestCase):
         r_ids = self._run([str(SCRIPT), "ids"], cwd=str(proj), check=True)
         lines = r_ids.stdout.splitlines()
         self.assertTrue(lines[0].startswith("IDs in use:"), msg=r_ids.stdout)
-        self.assertEqual(lines[1], "Prefixes: F=feature (default), B=bugfix, D=design, other A-Z=custom domain")
-        self.assertEqual(lines[2], "Roles: D*=design; others: WIP/NEXT=work, NEW/QUESTION/HOLD=plan")
-        self.assertEqual(len(lines), 3, msg=r_ids.stdout)
+        self.assertEqual(
+            lines[1],
+            "Prefixes: F=feature (default), B=bugfix, D=design, L=legislative rule, other A-Z=custom domain",
+        )
+        self.assertEqual(len(lines), 2, msg=r_ids.stdout)
 
     def test_files_budget_options(self):
         ws = self.tmp / "ws"
@@ -401,19 +405,19 @@ class TestParser(TodoMdTestCase):
         ]
         self.assertEqual(len(task_lines), 7)
         desc_starts = {disp_w(l.split("TODO")[0]) for l in task_lines}
-        self.assertEqual(desc_starts, {38}, msg=f"misaligned loc column: {task_lines!r}")
+        self.assertEqual(desc_starts, {26}, msg=f"misaligned loc column: {task_lines!r}")
         title_starts = set()
         for l in task_lines:
             marker = "TODO_ARCHIVE.md   " if "TODO_ARCHIVE.md" in l else "TODO.md           "
             idx = l.index(marker) + len(marker)
             title_starts.add(disp_w(l[:idx]))
-        self.assertEqual(title_starts, {56}, msg=f"misaligned title column: {task_lines!r}")
+        self.assertEqual(title_starts, {44}, msg=f"misaligned title column: {task_lines!r}")
 
-        # 2. Wrapped columns in list (COLUMNS=90 -> avail_first = 90 - 56 = 34 >= 20)
+        # 2. Wrapped columns in list (COLUMNS=78 -> avail_first = 78 - 44 = 34 >= 20)
         r_list_wrap = self._run(
             [str(SCRIPT), "list", "active"],
             cwd=str(proj_a),
-            env={**os.environ, "COLUMNS": "90"},
+            env={**os.environ, "COLUMNS": "78"},
             check=True,
         )
         list_body_lines = [
@@ -424,32 +428,32 @@ class TestParser(TodoMdTestCase):
         self.assertTrue(cont_lines)
         for cl in cont_lines:
             leading_spaces = len(cl) - len(cl.lstrip(" "))
-            self.assertEqual(leading_spaces, 56, msg=f"unexpected list continuation indent: {cl!r}")
+            self.assertEqual(leading_spaces, 44, msg=f"unexpected list continuation indent: {cl!r}")
         for l in list_body_lines:
-            self.assertLessEqual(disp_w(l), 90, msg=f"line overflowed 90 cols: {l!r}")
+            self.assertLessEqual(disp_w(l), 78, msg=f"line overflowed 78 cols: {l!r}")
 
-        # 3. Wrapped columns in list -w (COLUMNS=92 -> avail_first = 92 - 60 = 32 >= 20)
+        # 3. Wrapped columns in list -w (COLUMNS=80 -> avail_first = 80 - 48 = 32 >= 20)
         r_ws_list_wrap = self._run(
             [str(SCRIPT), "list", "-w", "active"],
             cwd=str(ws),
-            env={**os.environ, "COLUMNS": "92"},
+            env={**os.environ, "COLUMNS": "80"},
             check=True,
         )
         ws_lines = [l for l in r_ws_list_wrap.stdout.splitlines() if l.startswith("  ")]
         ws_cont = [l for l in ws_lines if l.startswith("    ")]
         self.assertTrue(ws_cont)
         for cl in ws_cont:
-            self.assertEqual(len(cl) - len(cl.lstrip(" ")), 60, msg=f"unexpected list -w indent: {cl!r}")
+            self.assertEqual(len(cl) - len(cl.lstrip(" ")), 48, msg=f"unexpected list -w indent: {cl!r}")
         for l in ws_lines:
-            self.assertLessEqual(disp_w(l), 92, msg=f"list -w overflowed 92 cols: {l!r}")
+            self.assertLessEqual(disp_w(l), 80, msg=f"list -w overflowed 80 cols: {l!r}")
 
-        # 4. Wrapped columns in chain and chain -w (COLUMNS=80 -> avail_first = 80 - 56 = 24 >= 20)
+        # 4. Wrapped columns in chain and chain -w (COLUMNS=68 -> avail_first = 68 - 44 = 24 >= 20)
         for chain_args in (["chain"], ["chain", "-w"]):
             with self.subTest(args=chain_args):
                 r_ch = self._run(
                     [str(SCRIPT), *chain_args],
                     cwd=str(proj_a),
-                    env={**os.environ, "COLUMNS": "80"},
+                    env={**os.environ, "COLUMNS": "68"},
                     check=True,
                 )
                 row_lines = [
@@ -459,24 +463,24 @@ class TestParser(TodoMdTestCase):
                 ch_cont = [l for l in row_lines if l.startswith("    ")]
                 self.assertTrue(ch_cont, msg=r_ch.stdout)
                 for cl in ch_cont:
-                    self.assertEqual(len(cl) - len(cl.lstrip(" ")), 56, msg=f"unexpected chain indent: {cl!r}")
+                    self.assertEqual(len(cl) - len(cl.lstrip(" ")), 44, msg=f"unexpected chain indent: {cl!r}")
                 for l in row_lines:
-                    self.assertLessEqual(disp_w(l), 80, msg=f"chain row overflowed 80 cols: {l!r}")
+                    self.assertLessEqual(disp_w(l), 68, msg=f"chain row overflowed 68 cols: {l!r}")
 
-        # 5. Wrapped columns in queue (alias for a focused chain, COLUMNS=78 -> avail_first = 78 - 56 = 22 >= 20)
+        # 5. Wrapped columns in queue (alias for a focused chain, COLUMNS=66 -> avail_first = 66 - 44 = 22 >= 20)
         r_q = self._run(
             [str(SCRIPT), "queue", "F2", "--all"],
             cwd=str(proj_a),
-            env={**os.environ, "COLUMNS": "78"},
+            env={**os.environ, "COLUMNS": "66"},
             check=True,
         )
         q_rows = [l for l in r_q.stdout.splitlines() if l.startswith("  ")]
         q_cont = [l for l in q_rows if l.startswith("    ")]
         self.assertTrue(q_cont, msg=r_q.stdout)
         for cl in q_cont:
-            self.assertEqual(len(cl) - len(cl.lstrip(" ")), 56, msg=f"unexpected queue indent: {cl!r}")
+            self.assertEqual(len(cl) - len(cl.lstrip(" ")), 44, msg=f"unexpected queue indent: {cl!r}")
         for l in q_rows:
-            self.assertLessEqual(disp_w(l), 78, msg=f"queue row overflowed 78 cols: {l!r}")
+            self.assertLessEqual(disp_w(l), 66, msg=f"queue row overflowed 66 cols: {l!r}")
 
         # 6. Wrapped columns in projects (COLUMNS=60 -> avail_first = 60 - 39 = 21 >= 20)
         r_proj_wrap = self._run(
@@ -497,7 +501,7 @@ class TestParser(TodoMdTestCase):
         r_narrow_list = self._run(
             [str(SCRIPT), "list", "WIP"],
             cwd=str(proj_a),
-            env={**os.environ, "COLUMNS": "68"},
+            env={**os.environ, "COLUMNS": "56"},
             check=True,
         )
         narrow_lines = [
@@ -507,7 +511,7 @@ class TestParser(TodoMdTestCase):
         for cl in narrow_lines[1:]:
             self.assertEqual(len(cl) - len(cl.lstrip(" ")), 4, msg=f"expected 4-space fallback indent: {cl!r}")
         for l in narrow_lines:
-            self.assertLessEqual(disp_w(l), 68, msg=f"narrow line overflowed 68 cols: {l!r}")
+            self.assertLessEqual(disp_w(l), 56, msg=f"narrow line overflowed 56 cols: {l!r}")
 
         # Very narrow terminal where prefix itself exceeds COLUMNS (COLUMNS=42)
         r_very_narrow = self._run(
@@ -520,7 +524,7 @@ class TestParser(TodoMdTestCase):
             l for l in r_very_narrow.stdout.splitlines() if l.startswith("  ") and not l.strip().startswith("IDs")
         ]
         self.assertGreaterEqual(len(vn_lines), 2)
-        self.assertEqual(vn_lines[0].strip(), "F1      🔵 [WIP]        [work]      TODO.md")
+        self.assertEqual(vn_lines[0].strip(), "F1      🔵 [WIP]        TODO.md")
         for cl in vn_lines[1:]:
             self.assertEqual(len(cl) - len(cl.lstrip(" ")), 4)
             self.assertLessEqual(disp_w(cl), 42, msg=f"very narrow line overflowed 42 cols: {cl!r}")
@@ -563,7 +567,7 @@ class TestParser(TodoMdTestCase):
     def test_composable_task_styling_in_chain_and_list(self):
         mod = self.todo_md_mod
         # 1. Direct unit tests for _style_task_row() across all 8 combinations + plain text mode
-        sample = "  1. F1                    ✅ [DONE]       [work]      Done task\n"
+        sample = "  1. F1                    ✅ [DONE]       Done task\n"
         self.assertEqual(
             mod._style_task_row(sample, is_external=True, is_done=True, is_highlighted=True, use_color=False),
             sample,
@@ -720,7 +724,7 @@ class TestParser(TodoMdTestCase):
         )
         self.assertNotIn("Next actionable:", r_hl_only_f3.stdout)
 
-        # Also works with --ready and --by-role
+        # Also works with --ready
         r_ready_hl = self._run(
             [str(SCRIPT), "chain", "--numbered=right", "--ready", "F1"],
             cwd=str(run_block),
@@ -730,16 +734,6 @@ class TestParser(TodoMdTestCase):
         self.assertTrue(
             any(ln.startswith("\033[1;93m") and "1 F1 " in ln for ln in r_ready_hl.stdout.splitlines()),
             msg=r_ready_hl.stdout,
-        )
-        r_by_role_hl = self._run(
-            [str(SCRIPT), "chain", "--numbered=right", "--by-role", "F2"],
-            cwd=str(run_block),
-            env=color_env,
-            check=True,
-        )
-        self.assertTrue(
-            any(ln.startswith("\033[1;93m") and "F2 " in ln for ln in r_by_role_hl.stdout.splitlines()),
-            msg=r_by_role_hl.stdout,
         )
 
         # 4. `todo_md list [<filter>] [<ID>...]` and `todo_md list -w [<filter>] [<ID>...]`

@@ -264,68 +264,73 @@ class TestCommands(TodoMdTestCase):
         self.assertIn("# 🎯 [NEXT] F1: Next task", r_pipe.stdout)
         self.assertEqual(r_pipe.stderr, "")
 
-        # next-id filters by readiness (skips blocked WIP/NEXT) and --role / --role=
-        role_dir = self.tmp / "role_ready_nid"
-        role_dir.mkdir()
-        self._run([str(SCRIPT), "init"], cwd=str(role_dir), check=True)
-        # D1 is a ready NEXT design task (prefix D defaults to role=design)
-        self._run([str(SCRIPT), "add", "D", "Design spec", "--next"], cwd=str(role_dir), check=True)
-        # F1 is a NEXT work task blocked by D1
-        self._run([str(SCRIPT), "add", "F", "Blocked work", "--next", "--depends", "D1"], cwd=str(role_dir), check=True)
+        # next-id filters by readiness (skips blocked WIP/NEXT) and --prefix / --status
+        nid_dir = self.tmp / "prefix_status_nid"
+        nid_dir.mkdir()
+        self._run([str(SCRIPT), "init"], cwd=str(nid_dir), check=True)
+        # D1 is a ready NEXT design task
+        self._run([str(SCRIPT), "add", "D", "Design spec", "--next"], cwd=str(nid_dir), check=True)
+        # F1 is a NEXT feature task blocked by D1
+        self._run([str(SCRIPT), "add", "F", "Blocked work", "--next", "--depends", "D1"], cwd=str(nid_dir), check=True)
+        # L1 is a NEW legislative task
+        self._run([str(SCRIPT), "add", "L", "Draft rule"], cwd=str(nid_dir), check=True)
 
         # Unfiltered next-id skips blocked F1 and picks the top ready NEXT task (D1)
-        r_unfiltered = self._run([str(SCRIPT), "next-id"], cwd=str(role_dir), check=True)
+        r_unfiltered = self._run([str(SCRIPT), "next-id"], cwd=str(nid_dir), check=True)
         self.assertEqual(r_unfiltered.stdout.strip(), "D1")
-        r_design = self._run([str(SCRIPT), "next-id", "--role", "design"], cwd=str(role_dir), check=True)
-        self.assertEqual(r_design.stdout.strip(), "D1")
-        # NEXT/WIP tasks always resolve to work or design, so no ready plan task exists
-        r_plan = self._run([str(SCRIPT), "next-id", "--role=plan"], cwd=str(role_dir))
-        self.assertEqual(r_plan.returncode, 1, msg=r_plan.stderr)
-        # Work task F1 is blocked by D1, so next-id --role work finds no ready work task
-        r_work_blocked = self._run([str(SCRIPT), "next-id", "--role", "work"], cwd=str(role_dir))
-        self.assertEqual(r_work_blocked.returncode, 1, msg=r_work_blocked.stderr)
-        self.assertIn("no active WIP or NEXT task (role=work)", r_work_blocked.stderr)
+        r_d = self._run([str(SCRIPT), "next-id", "--prefix", "D"], cwd=str(nid_dir), check=True)
+        self.assertEqual(r_d.stdout.strip(), "D1")
+        r_l_new = self._run([str(SCRIPT), "next-id", "--status=NEW"], cwd=str(nid_dir), check=True)
+        self.assertEqual(r_l_new.stdout.strip(), "L1")
+        # Feature task F1 is blocked by D1, so next-id --prefix F finds no readyWIP/NEXT F task
+        r_f_blocked = self._run([str(SCRIPT), "next-id", "--prefix", "F"], cwd=str(nid_dir))
+        self.assertEqual(r_f_blocked.returncode, 1, msg=r_f_blocked.stderr)
+        self.assertIn("no active WIP or NEXT task (prefix=F)", r_f_blocked.stderr)
 
         # Even if blocked F1 is promoted to WIP, unfiltered next-id skips it and returns ready D1
-        self._run([str(SCRIPT), "status", "F1", "WIP"], cwd=str(role_dir), check=True)
-        self.assertEqual(self._run([str(SCRIPT), "next-id"], cwd=str(role_dir), check=True).stdout.strip(), "D1")
-        r_work_wip = self._run([str(SCRIPT), "next-id", "--role", "work"], cwd=str(role_dir))
-        self.assertEqual(r_work_wip.returncode, 1, msg=r_work_wip.stderr)
+        self._run([str(SCRIPT), "status", "F1", "WIP"], cwd=str(nid_dir), check=True)
+        self.assertEqual(self._run([str(SCRIPT), "next-id"], cwd=str(nid_dir), check=True).stdout.strip(), "D1")
+        r_f_wip = self._run([str(SCRIPT), "next-id", "--prefix", "F"], cwd=str(nid_dir))
+        self.assertEqual(r_f_wip.returncode, 1, msg=r_f_wip.stderr)
 
-        # Add ready NEXT work task B1 -> next-id --role work skips blocked WIP F1 and returns B1
-        self._run([str(SCRIPT), "add", "B", "Ready bugfix", "--next"], cwd=str(role_dir), check=True)
+        # Add ready NEXT bugfix task B1 -> next-id --prefix B skips blocked WIP F1 and returns B1
+        self._run([str(SCRIPT), "add", "B", "Ready bugfix", "--next"], cwd=str(nid_dir), check=True)
         self.assertEqual(
-            self._run([str(SCRIPT), "next-id", "--role", "work"], cwd=str(role_dir), check=True).stdout.strip(),
+            self._run([str(SCRIPT), "next-id", "--prefix", "B"], cwd=str(nid_dir), check=True).stdout.strip(),
             "B1",
         )
-        # With target <ID>, next-id <ID> --role filters actionable tasks in <ID>'s queue
+        # With target <ID>, next-id <ID> --prefix / --status filters actionable tasks in <ID>'s queue
         self.assertEqual(
-            self._run([str(SCRIPT), "next-id", "F1", "--role", "design"], cwd=str(role_dir), check=True).stdout.strip(),
+            self._run([str(SCRIPT), "next-id", "F1", "--prefix", "D"], cwd=str(nid_dir), check=True).stdout.strip(),
             "D1",
         )
-        r_f1_work = self._run([str(SCRIPT), "next-id", "F1", "--role=work"], cwd=str(role_dir))
-        self.assertEqual(r_f1_work.returncode, 1, msg=r_f1_work.stderr)
+        r_f1_f = self._run([str(SCRIPT), "next-id", "F1", "--prefix=F"], cwd=str(nid_dir))
+        self.assertEqual(r_f1_f.returncode, 1, msg=r_f1_f.stderr)
 
-        # Once D1 is done, F1 is unblocked and becomes the top WIP work task
-        self._run([str(SCRIPT), "done", "D1", "-m", "designed"], cwd=str(role_dir), check=True)
+        # Once D1 is done, F1 is unblocked and becomes the top WIP F task
+        self._run([str(SCRIPT), "done", "D1", "-m", "designed"], cwd=str(nid_dir), check=True)
         self.assertEqual(
-            self._run([str(SCRIPT), "next-id", "--role", "work"], cwd=str(role_dir), check=True).stdout.strip(),
+            self._run([str(SCRIPT), "next-id", "--prefix", "F"], cwd=str(nid_dir), check=True).stdout.strip(),
             "F1",
         )
         self.assertEqual(
-            self._run([str(SCRIPT), "next-id", "F1", "--role=work"], cwd=str(role_dir), check=True).stdout.strip(),
+            self._run([str(SCRIPT), "next-id", "F1", "--prefix=F", "--status=WIP"], cwd=str(nid_dir), check=True).stdout.strip(),
             "F1",
         )
 
         # Invalid next-id options rejected
         for bad_args in (
-            ["next-id", "--role"],
-            ["next-id", "--role="],
+            ["next-id", "--prefix"],
+            ["next-id", "--prefix="],
+            ["next-id", "--prefix", "AB"],
+            ["next-id", "--status"],
+            ["next-id", "--status=DONE"],
+            ["next-id", "--role", "work"],
             ["next-id", "--unknown"],
             ["next-id", "F1", "B1"],
         ):
             with self.subTest(bad_args=bad_args):
-                r_bad = self._run([str(SCRIPT), *bad_args], cwd=str(role_dir))
+                r_bad = self._run([str(SCRIPT), *bad_args], cwd=str(nid_dir))
                 self.assertNotEqual(r_bad.returncode, 0, msg=r_bad.stderr)
 
     def test_last_last_id_and_list_options(self):
@@ -586,7 +591,7 @@ class TestCommands(TodoMdTestCase):
 
         self._run([str(SCRIPT), "check"], cwd=str(proj), check=True)
 
-    def test_list_role_display_and_filter(self):
+    def test_list_prefix_and_status_filters(self):
         ws = self.tmp / "ws"
         proj_a = ws / "proj_a"
         proj_b = ws / "proj_b"
@@ -598,7 +603,7 @@ class TestCommands(TodoMdTestCase):
         self._run([str(SCRIPT), "add", "D", "Design API", "-b", "Design body"], cwd=str(proj_a), check=True)
         self._run([str(SCRIPT), "add", "F", "Build CLI", "--next", "-b", "Work body"], cwd=str(proj_a), check=True)
         self._run([str(SCRIPT), "add", "B", "Fix crash", "--next", "-b", "Bug body"], cwd=str(proj_a), check=True)
-        self._run([str(SCRIPT), "add", "P", "Unassigned role", "-b", "Proposal body"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "L", "Rule update", "-b", "Law body"], cwd=str(proj_a), check=True)
         self._run(
             [str(SCRIPT), "add", "F", "Audit diff", "-b", "Review body"],
             cwd=str(proj_a),
@@ -609,87 +614,67 @@ class TestCommands(TodoMdTestCase):
 
         self._run([str(SCRIPT), "add", "F", "Other work", "--next", "-b", "B body"], cwd=str(proj_b), check=True)
         self._run(
-            [str(SCRIPT), "add", "P", "Other review", "-b", "B review"],
+            [str(SCRIPT), "add", "L", "Other rule", "-b", "B rule"],
             cwd=str(proj_b),
             check=True,
         )
 
         r_list = self._run([str(SCRIPT), "list"], cwd=str(proj_a), check=True)
-        rows = {
-            line.split()[0]: line
-            for line in r_list.stdout.splitlines()
-            if line.startswith("  ") and not line.strip().startswith("IDs")
-        }
-        self.assertIn("[design]", rows["D1"])
-        self.assertIn("[work]", rows["F1"])
-        self.assertIn("[work]", rows["B1"])
-        self.assertIn("[plan]", rows["F2"])
-        self.assertIn("[plan]", rows["P1"])
+        for role_tag in ("[design]", "[work]", "[plan]"):
+            self.assertNotIn(role_tag, r_list.stdout)
 
-        r_design = self._run([str(SCRIPT), "list", "--role", "design"], cwd=str(proj_a), check=True)
-        self.assertIn("D1", r_design.stdout)
-        self.assertNotIn("F1", r_design.stdout)
-        self.assertNotIn("F2", r_design.stdout)
-        self.assertNotIn("P1", r_design.stdout)
+        r_d = self._run([str(SCRIPT), "list", "--prefix", "D"], cwd=str(proj_a), check=True)
+        self.assertIn("D1", r_d.stdout)
+        self.assertNotIn("F1", r_d.stdout)
+        self.assertNotIn("F2", r_d.stdout)
+        self.assertNotIn("L1", r_d.stdout)
 
-        r_work = self._run([str(SCRIPT), "list", "active", "--role=WORK"], cwd=str(proj_a), check=True)
-        self.assertIn("F1", r_work.stdout)
-        self.assertIn("B1", r_work.stdout)
-        self.assertNotIn("F2", r_work.stdout)
-        self.assertNotIn("D1", r_work.stdout)
+        r_next = self._run([str(SCRIPT), "list", "active", "--status=NEXT"], cwd=str(proj_a), check=True)
+        self.assertIn("F1", r_next.stdout)
+        self.assertIn("B1", r_next.stdout)
+        self.assertNotIn("F2", r_next.stdout)
+        self.assertNotIn("D1", r_next.stdout)
 
-        r_review_full = self._run(
-            [str(SCRIPT), "list", "--role", "PLAN", "--limit", "2", "--full"],
+        r_f_new_full = self._run(
+            [str(SCRIPT), "list", "--prefix", "f", "--status", "NEW", "--limit", "2", "--full"],
             cwd=str(proj_a),
             check=True,
         )
-        self.assertIn("# ⚪ [NEW] F2: Audit diff", r_review_full.stdout)
-        self.assertIn("Review body", r_review_full.stdout)
-        self.assertNotIn("F1", r_review_full.stdout)
+        self.assertIn("# ⚪ [NEW] F2: Audit diff", r_f_new_full.stdout)
+        self.assertIn("Review body", r_f_new_full.stdout)
+        self.assertNotIn("F1", r_f_new_full.stdout)
 
-        r_arch_design = self._run([str(SCRIPT), "list", "archive", "--role", "design"], cwd=str(proj_a), check=True)
-        self.assertIn("D2", r_arch_design.stdout)
-        self.assertIn("[design]", r_arch_design.stdout)
+        r_arch_d = self._run([str(SCRIPT), "list", "archive", "--prefix", "D"], cwd=str(proj_a), check=True)
+        self.assertIn("D2", r_arch_d.stdout)
 
-        r_none = self._run([str(SCRIPT), "list", "--role", "unknown"], cwd=str(proj_a), check=True)
-        self.assertIn("No matching tasks (active, role=unknown)", r_none.stdout)
+        r_none = self._run([str(SCRIPT), "list", "--prefix", "Z"], cwd=str(proj_a), check=True)
+        self.assertIn("No matching tasks (active, prefix=Z)", r_none.stdout)
 
-        r_ws_all = self._run([str(SCRIPT), "list", "-w"], cwd=str(proj_a), check=True)
-        ws_rows = {
-            line.split()[0]: line
-            for line in r_ws_all.stdout.splitlines()
-            if line.startswith("  ")
-        }
-        self.assertIn("[design]", ws_rows["proj_a:D1"])
-        self.assertIn("[work]", ws_rows["proj_a:F1"])
-        self.assertIn("[plan]", ws_rows["proj_a:F2"])
-        self.assertNotIn("[work]", ws_rows["proj_a:P1"])
-        self.assertIn("[work]", ws_rows["proj_b:F1"])
-        self.assertIn("[plan]", ws_rows["proj_a:P1"])
-        self.assertIn("[plan]", ws_rows["proj_b:P1"])
-
-        r_ws_rev = self._run([str(SCRIPT), "-w", "list", "--role=plan"], cwd=str(proj_a), check=True)
-        self.assertIn("proj_a:F2", r_ws_rev.stdout)
-        self.assertIn("proj_b:P1", r_ws_rev.stdout)
-        self.assertNotIn("proj_a:F1", r_ws_rev.stdout)
-        self.assertNotIn("proj_b:F1", r_ws_rev.stdout)
+        r_ws_l = self._run([str(SCRIPT), "-w", "list", "--prefix=L"], cwd=str(proj_a), check=True)
+        self.assertIn("proj_a:L1", r_ws_l.stdout)
+        self.assertIn("proj_b:L1", r_ws_l.stdout)
+        self.assertNotIn("proj_a:F1", r_ws_l.stdout)
+        self.assertNotIn("proj_b:F1", r_ws_l.stdout)
 
         r_ws_lim = self._run(
-            [str(SCRIPT), "list", "-w", "--role", "work", "--limit", "1"],
+            [str(SCRIPT), "list", "-w", "--status", "NEXT", "--limit", "1"],
             cwd=str(proj_a),
             check=True,
         )
         self.assertEqual(len(r_ws_lim.stdout.strip().splitlines()), 1)
-        self.assertIn("[work]", r_ws_lim.stdout)
+        self.assertIn("[NEXT]", r_ws_lim.stdout)
 
-        r_ws_none = self._run([str(SCRIPT), "list", "-w", "--role", "missing"], cwd=str(proj_a), check=True)
-        self.assertIn("No matching tasks (active, role=missing)", r_ws_none.stdout)
+        r_ws_none = self._run([str(SCRIPT), "list", "-w", "--prefix", "Z"], cwd=str(proj_a), check=True)
+        self.assertIn("No matching tasks (active, prefix=Z)", r_ws_none.stdout)
 
         for bad_args in (
-            ["list", "--role"],
-            ["list", "--role", ""],
-            ["list", "--role="],
-            ["list", "--role", "a\nb"],
+            ["list", "--prefix"],
+            ["list", "--prefix", ""],
+            ["list", "--prefix="],
+            ["list", "--prefix", "AB"],
+            ["list", "--status"],
+            ["list", "--status=UNKNOWN"],
+            ["list", "--role", "work"],
         ):
             with self.subTest(bad_args=bad_args):
                 proc = self._run([str(SCRIPT), *bad_args], cwd=str(proj_a))

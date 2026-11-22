@@ -97,8 +97,16 @@ KNOWN_SUBCOMMANDS = (
 )
 
 
-def _validate_role_filter(prog: str, raw_val: str) -> str:
-    return _normalize_role_arg(raw_val)
+def _validate_prefix_filter(raw_val: str) -> str:
+    return _normalize_prefix_arg(raw_val)
+
+def _validate_status_filter(prog: str, raw_val: str) -> str:
+    kw = raw_val.strip().upper()
+    if kw not in STATUS_FILTER_KEYWORDS:
+        raise SystemExit(
+            f"{prog}: invalid status {raw_val!r}; expected one of {', '.join(STATUS_FILTER_KEYWORDS)}"
+        )
+    return kw
 
 STATUS_FILTER_KEYWORDS = (
     "WIP",
@@ -113,8 +121,8 @@ STATUS_FILTER_KEYWORDS = (
     "ALL",
 )
 QUEST_LOG_USAGE = (
-    "[--tree] [--numbered[=left|right]] [--status STATUS] [--all] [-r|--ready] [--by-role] "
-    "[--role ROLE] [-l N|--limit N] [--include-hold] [-f|--filter <ID>...] [-H|--highlight [<ID>...]] "
+    "[--tree] [--numbered[=left|right]] [--prefix PREFIX] [--status STATUS] [--all] [-r|--ready] "
+    "[-l N|--limit N] [--include-hold] [-f|--filter <ID>...] [-H|--highlight [<ID>...]] "
     "[-s|--search QUERY]"
 )
 
@@ -158,10 +166,9 @@ def _parse_quest_log_args(prog: str, argv: list[str], cmd: str, positional_focus
         "include_hold": False,
         "include_done": False,
         "ready": False,
-        "by_role": False,
         "tree": False,
         "numbered": None,
-        "role": None,
+        "prefix": None,
         "status": None,
         "archive": None,
         "filter": [],
@@ -197,13 +204,13 @@ def _parse_quest_log_args(prog: str, argv: list[str], cmd: str, positional_focus
         elif a.startswith("--limit="):
             o["limit"] = _parse_limit(prog, a.split("=", 1)[1])
             i += 1
-        elif a == "--role":
+        elif a == "--prefix":
             if i + 1 >= len(argv):
-                raise SystemExit(f"{prog}: {a} requires a role argument")
-            o["role"] = _validate_role_filter(prog, argv[i + 1])
+                raise SystemExit(f"{prog}: {a} requires a prefix argument")
+            o["prefix"] = _validate_prefix_filter(argv[i + 1])
             i += 2
-        elif a.startswith("--role="):
-            o["role"] = _validate_role_filter(prog, a.split("=", 1)[1])
+        elif a.startswith("--prefix="):
+            o["prefix"] = _validate_prefix_filter(a.split("=", 1)[1])
             i += 1
         elif a == "--status":
             if i + 1 >= len(argv):
@@ -264,9 +271,6 @@ def _parse_quest_log_args(prog: str, argv: list[str], cmd: str, positional_focus
             i += 1
         elif a in ("--ready", "-r"):
             o["ready"] = True
-            i += 1
-        elif a == "--by-role":
-            o["by_role"] = True
             i += 1
         elif a.startswith("-"):
             raise SystemExit(f"{prog}: unknown option for {cmd}: {a}")
@@ -343,7 +347,7 @@ def _quest_log(
                 filt,
                 limit=o["limit"],
                 full=full,
-                role=o["role"],
+                prefix=o["prefix"],
                 ready=False,
                 targets=matched_refs,
                 focus=focus_refs,
@@ -353,7 +357,7 @@ def _quest_log(
             filt,
             limit=o["limit"],
             full=full,
-            role=o["role"],
+            prefix=o["prefix"],
             ready=False,
             targets=matched_refs,
             focus=focus_refs,
@@ -364,8 +368,7 @@ def _quest_log(
         include_hold=o["include_hold"],
         include_done=o["include_done"],
         ready=o["ready"],
-        role=o["role"],
-        by_role=o["by_role"],
+        prefix=o["prefix"],
         workspace=use_ws,
         explicit_dir=explicit_dir,
         targets=matched_refs,
@@ -422,43 +425,22 @@ CONTEXT_COMMANDS = ("show", "--show", "last", "--last", "overview", "--overview"
 
 def _extract_session_role(prog: str, args: list[str]) -> tuple[str | None, list[str]]:
     plain = [a for a in args if not a.startswith("role=")]
-    stripped: list[str] = []
-    i = 0
-    while i < len(plain):
-        a = plain[i]
-        if a == "--role" and i + 1 < len(plain):
-            i += 2
-        elif a.startswith("--role="):
-            i += 1
-        else:
-            stripped.append(a)
-            i += 1
-    has_prefix_role = len(plain) != len(args)
-    if stripped:
-        is_context = stripped[0] in CONTEXT_COMMANDS or _collect_task_refs(stripped) is not None
+    if len(plain) == len(args):
+        return None, args
+    if plain:
+        is_context = plain[0] in CONTEXT_COMMANDS or _collect_task_refs(plain) is not None
     else:
-        is_context = has_prefix_role and len(plain) == 0
+        is_context = True
     if not is_context:
         return None, args
     role: str | None = None
-    flag_role: str | None = None
     rest: list[str] = []
-    i = 0
-    while i < len(args):
-        a = args[i]
+    for a in args:
         if a.startswith("role="):
-            role = _validate_role_filter(prog, a.split("=", 1)[1])
-            i += 1
-        elif stripped and a == "--role" and i + 1 < len(args):
-            flag_role = _validate_role_filter(prog, args[i + 1])
-            i += 2
-        elif stripped and a.startswith("--role="):
-            flag_role = _validate_role_filter(prog, a.split("=", 1)[1])
-            i += 1
+            role = _normalize_role_override(a.split("=", 1)[1])
         else:
             rest.append(a)
-            i += 1
-    return (role if role is not None else flag_role), rest
+    return role, rest
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -638,18 +620,38 @@ def main(argv: list[str] | None = None) -> int:
             prog, base_dir, explicit_dir, workspace, full, args[1:], cmd="chain", positional_focus=True
         )
     if args[0] in ("next-id", "--next-id"):
-        role_filter: str | None = None
+        prefix_filter: str | None = None
+        status_filter: str | None = None
         pos: list[str] = []
         i = 1
         while i < len(args):
             a = args[i]
-            if a == "--role":
+            if a == "--prefix":
                 if i + 1 >= len(args):
-                    raise SystemExit(f"{prog}: {a} requires a role argument")
-                role_filter = _validate_role_filter(prog, args[i + 1])
+                    raise SystemExit(f"{prog}: {a} requires a prefix argument")
+                prefix_filter = _validate_prefix_filter(args[i + 1])
                 i += 2
-            elif a.startswith("--role="):
-                role_filter = _validate_role_filter(prog, a.split("=", 1)[1])
+            elif a.startswith("--prefix="):
+                prefix_filter = _validate_prefix_filter(a.split("=", 1)[1])
+                i += 1
+            elif a == "--status":
+                if i + 1 >= len(args):
+                    raise SystemExit(f"{prog}: {a} requires a status argument")
+                st_val = _validate_status_filter(prog, args[i + 1])
+                if st_val not in ACTIVE_STATUS_ORDER and st_val not in ("ACTIVE", "ALL"):
+                    raise SystemExit(
+                        f"{prog}: next-id --status must be an active status ({', '.join(ACTIVE_STATUS_ORDER)}), got {args[i + 1]!r}"
+                    )
+                status_filter = st_val
+                i += 2
+            elif a.startswith("--status="):
+                raw_st = a.split("=", 1)[1]
+                st_val = _validate_status_filter(prog, raw_st)
+                if st_val not in ACTIVE_STATUS_ORDER and st_val not in ("ACTIVE", "ALL"):
+                    raise SystemExit(
+                        f"{prog}: next-id --status must be an active status ({', '.join(ACTIVE_STATUS_ORDER)}), got {raw_st!r}"
+                    )
+                status_filter = st_val
                 i += 1
             elif a.startswith("-"):
                 raise SystemExit(f"{prog}: unknown option for next-id: {a}")
@@ -657,7 +659,7 @@ def main(argv: list[str] | None = None) -> int:
                 pos.append(a)
                 i += 1
         if len(pos) > 1:
-            raise SystemExit(f"{prog}: usage: {prog} next-id [<ID>] [--role ROLE]")
+            raise SystemExit(f"{prog}: usage: {prog} next-id [<ID>] [--prefix PREFIX] [--status STATUS]")
         if len(pos) == 1:
             tdir, tid = resolve_project_task_ref(base_dir, pos[0], explicit_dir=explicit_dir)
             return cmd_next_id(
@@ -665,9 +667,10 @@ def main(argv: list[str] | None = None) -> int:
                 target_dir=tdir,
                 task_id=tid,
                 explicit_dir=explicit_dir,
-                role=role_filter,
+                prefix=prefix_filter,
+                status=status_filter,
             )
-        return cmd_next_id(base_dir, explicit_dir=explicit_dir, role=role_filter)
+        return cmd_next_id(base_dir, explicit_dir=explicit_dir, prefix=prefix_filter, status=status_filter)
     if args[0] in ("last-id", "--last-id"):
         if len(args) > 2:
             raise SystemExit(f"{prog}: usage: {prog} last-id [<STATUS|archive>]")
@@ -755,7 +758,8 @@ def main(argv: list[str] | None = None) -> int:
     if args[0] in ("list", "--list") or (args[0] == "-l" and not (len(args) > 1 and args[1].isdigit())):
         filt: str | None = None
         limit: int | None = None
-        role_filter: str | None = None
+        prefix_filter: str | None = None
+        status_filter: str | None = None
         ready = False
         raw_target_refs: list[str] = []
         i = 1
@@ -775,13 +779,21 @@ def main(argv: list[str] | None = None) -> int:
                     raise SystemExit(f"{prog}: invalid limit {raw_lim!r}; expected a positive integer")
                 limit = int(raw_lim)
                 i += 1
-            elif a == "--role":
+            elif a == "--prefix":
                 if i + 1 >= len(args):
-                    raise SystemExit(f"{prog}: {a} requires a role argument")
-                role_filter = _validate_role_filter(prog, args[i + 1])
+                    raise SystemExit(f"{prog}: {a} requires a prefix argument")
+                prefix_filter = _validate_prefix_filter(args[i + 1])
                 i += 2
-            elif a.startswith("--role="):
-                role_filter = _validate_role_filter(prog, a.split("=", 1)[1])
+            elif a.startswith("--prefix="):
+                prefix_filter = _validate_prefix_filter(a.split("=", 1)[1])
+                i += 1
+            elif a == "--status":
+                if i + 1 >= len(args):
+                    raise SystemExit(f"{prog}: {a} requires a status argument")
+                status_filter = _validate_status_filter(prog, args[i + 1])
+                i += 2
+            elif a.startswith("--status="):
+                status_filter = _validate_status_filter(prog, a.split("=", 1)[1])
                 i += 1
             elif a in ("--ready", "-r"):
                 ready = True
@@ -801,7 +813,7 @@ def main(argv: list[str] | None = None) -> int:
                     i += 1
                 else:
                     raise SystemExit(
-                        f"{prog}: usage: {prog} list [filter] [<ID>...] [--role ROLE] [-r|--ready] [--limit N] [--full]"
+                        f"{prog}: usage: {prog} list [filter] [<ID>...] [--prefix PREFIX] [--status STATUS] [-r|--ready] [--limit N] [--full]"
                     )
         target_refs: list[tuple[Path, str]] = [
             resolve_filter_task_ref(base_dir, ref, explicit_dir=explicit_dir)
@@ -815,7 +827,8 @@ def main(argv: list[str] | None = None) -> int:
                     filt,
                     limit=limit,
                     full=full,
-                    role=role_filter,
+                    prefix=prefix_filter,
+                    status=status_filter,
                     ready=ready,
                     targets=target_refs,
                 )
@@ -824,7 +837,8 @@ def main(argv: list[str] | None = None) -> int:
             filt,
             limit=limit,
             full=full,
-            role=role_filter,
+            prefix=prefix_filter,
+            status=status_filter,
             ready=ready,
             targets=target_refs,
         )

@@ -196,13 +196,15 @@ def cmd_show(base_dir: Path, task_id: str) -> int:
     t = task_cache[p_res].get(target)
     if t is not None:
         tid = str(t["id"]).upper()
+        prefix = _task_prefix(tid)
+        status = str(t.get("status", "")).upper()
         base_title, _ = _strip_heading_note(str(t["title"]))
         section = str(t["section"])
-        role = resolve_task_role(tid, section, status=str(t.get("status", "")))
         header_lines = [
             f"Task: {tid}",
+            f"Prefix: {prefix}",
+            f"Status: {status}",
             f"Title: {base_title}",
-            f"Role: {role}",
             f"Workdir: {workdir}",
         ]
         headers = "\n".join(header_lines)
@@ -215,13 +217,6 @@ def cmd_show(base_dir: Path, task_id: str) -> int:
     sys.stderr.write(f"{prog_name()}: task {target!r} not found in TODO*.md under {base_dir}\n")
     return 1
 
-def _task_role_badge(task: dict[str, object]) -> str:
-    role = resolve_task_role(
-        str(task["id"]),
-        str(task["section"]),
-        status=str(task.get("status", "")),
-    )
-    return f"[{role}]" if role else ""
 
 DEFAULT_TERMINAL_WIDTH = 100
 
@@ -427,7 +422,8 @@ def cmd_list(
     filt: str | None = None,
     limit: int | None = None,
     full: bool = False,
-    role: str | None = None,
+    prefix: str | None = None,
+    status: str | None = None,
     ready: bool = False,
     targets: list[tuple[Path, str]] | None = None,
     focus: list[tuple[Path, str]] | None = None,
@@ -454,9 +450,27 @@ def cmd_list(
     else:
         raise SystemExit(f"{prog_name()}: unknown list filter {filt!r}; expected active, archive, all, or a status name")
 
-    if role is not None:
-        wanted_role = role.strip().lower()
-        shown = [t for t in shown if _task_matches_role(t, wanted_role)]
+    if status is not None:
+        st_w = status.strip().upper()
+        if st_w == "ALL":
+            if filt is None:
+                shown = active_tasks + arch_tasks
+        elif st_w in ("ACTIVE", "OPEN"):
+            shown = [t for t in shown if t["file"] == "TODO.md"]
+        elif st_w == "ARCHIVE":
+            if filt is None:
+                shown = arch_tasks
+            else:
+                shown = [t for t in shown if t["file"] == "TODO_ARCHIVE.md"]
+        else:
+            if filt is None and st_w in ("DONE", "CANCELED"):
+                shown = [t for t in arch_tasks if str(t["status"]) == st_w]
+            else:
+                shown = [t for t in shown if str(t["status"]) == st_w]
+
+    if prefix is not None:
+        wanted_prefix = prefix.strip().upper()
+        shown = [t for t in shown if _task_matches_prefix(t, wanted_prefix)]
 
     dep_cache: dict[tuple[str, str], tuple[bool, str]] = {}
 
@@ -488,8 +502,10 @@ def cmd_list(
 
     if not shown:
         notes: list[str] = []
-        if role is not None:
-            notes.append(f"role={role.strip()}")
+        if prefix is not None:
+            notes.append(f"prefix={prefix.strip().upper()}")
+        if status is not None:
+            notes.append(f"status={status.strip().upper()}")
         if ready:
             notes.append("ready")
         extra = f", {', '.join(notes)}" if notes else ""
@@ -508,16 +524,14 @@ def cmd_list(
             tid_up = str(t["id"]).upper()
             emoji = "⏳" if (st_str in ("WIP", "NEXT") and is_blocked) else str(t["emoji"])
             badge = f"{emoji} [{st_str}]"
-            role_badge = _task_role_badge(t)
             loc = str(t["file"])
-            prefix = (
+            row_prefix = (
                 f"  {_pad_display(str(t['id']), 6)}  "
                 f"{_pad_display(badge, 14)}  "
-                f"{_pad_display(role_badge, 10)}  "
                 f"{_pad_display(loc, 16)}  "
             )
             desc = f"{t['title']}{dep_suffix}"
-            rendered = _wrap_table_row(prefix, desc, term_width) + "\n"
+            rendered = _wrap_table_row(row_prefix, desc, term_width) + "\n"
             is_highlighted = (b_res, tid_up) in target_set or tid_up in unscoped_ids
             sys.stdout.write(
                 _style_task_row(
@@ -602,7 +616,8 @@ def cmd_workspace_list(
     filt: str | None = None,
     limit: int | None = None,
     full: bool = False,
-    role: str | None = None,
+    prefix: str | None = None,
+    status: str | None = None,
     ready: bool = False,
     targets: list[tuple[Path, str]] | None = None,
     focus: list[tuple[Path, str]] | None = None,
@@ -614,6 +629,13 @@ def cmd_workspace_list(
     mode = (filt or "active").strip().lower()
     if mode not in ("active", "open", "archive", "all") and mode.upper() not in VALID_STATUSES:
         raise SystemExit(f"{prog_name()}: unknown list filter {filt!r}; expected active, archive, all, or a status name")
+    effective_mode = mode
+    if filt is None and status is not None:
+        st_m = status.strip().upper()
+        if st_m == "ALL":
+            effective_mode = "all"
+        elif st_m in ("ARCHIVE", "DONE", "CANCELED"):
+            effective_mode = st_m.lower()
     items: list[tuple[str, Path, dict[str, object]]] = []
     for name, proj_dir in projects:
         tasks = collect_all_tasks(proj_dir)
@@ -622,20 +644,28 @@ def cmd_workspace_list(
             base_dir=proj_dir,
         )
         arch = [t for t in tasks if t["file"] == "TODO_ARCHIVE.md"]
-        if mode in ("active", "open"):
+        if effective_mode in ("active", "open"):
             matched = active
-        elif mode == "archive":
+        elif effective_mode == "archive":
             matched = arch
-        elif mode == "all":
+        elif effective_mode == "all":
             matched = active + arch
         else:
-            st_up = mode.upper()
+            st_up = effective_mode.upper()
             matched = [t for t in (arch if st_up in ("DONE", "CANCELED") else active) if t["status"] == st_up]
         for t in matched:
             items.append((name, proj_dir, t))
-    if role is not None:
-        wanted_role = role.strip().lower()
-        items = [(name, proj_dir, t) for name, proj_dir, t in items if _task_matches_role(t, wanted_role)]
+    if status is not None:
+        st_w = status.strip().upper()
+        if st_w in ("ACTIVE", "OPEN"):
+            items = [(name, proj_dir, t) for name, proj_dir, t in items if t["file"] == "TODO.md"]
+        elif st_w == "ARCHIVE":
+            items = [(name, proj_dir, t) for name, proj_dir, t in items if t["file"] == "TODO_ARCHIVE.md"]
+        elif st_w != "ALL":
+            items = [(name, proj_dir, t) for name, proj_dir, t in items if str(t["status"]) == st_w]
+    if prefix is not None:
+        wanted_prefix = prefix.strip().upper()
+        items = [(name, proj_dir, t) for name, proj_dir, t in items if _task_matches_prefix(t, wanted_prefix)]
 
     dep_cache: dict[tuple[Path, str, str], tuple[bool, str]] = {}
 
@@ -665,8 +695,10 @@ def cmd_workspace_list(
         items = items[:limit]
     if not items:
         notes: list[str] = []
-        if role is not None:
-            notes.append(f"role={role.strip()}")
+        if prefix is not None:
+            notes.append(f"prefix={prefix.strip().upper()}")
+        if status is not None:
+            notes.append(f"status={status.strip().upper()}")
         if ready:
             notes.append("ready")
         extra = f", {', '.join(notes)}" if notes else ""
@@ -691,14 +723,12 @@ def cmd_workspace_list(
         ref = f"{name}:{t['id']}"
         emoji = "⏳" if (st_str in ("WIP", "NEXT") and is_blocked) else str(t["emoji"])
         badge = f"{emoji} [{st_str}]"
-        role_badge = _task_role_badge(t)
-        prefix = (
+        row_prefix = (
             f"  {_pad_display(ref, 28)}  "
             f"{_pad_display(badge, 14)}  "
-            f"{_pad_display(role_badge, 10)}  "
         )
         desc = f"{t['title']}{dep_suffix}"
-        rendered = _wrap_table_row(prefix, desc, term_width) + "\n"
+        rendered = _wrap_table_row(row_prefix, desc, term_width) + "\n"
         is_highlighted = (proj_dir.resolve(), tid_up) in target_set or tid_up in unscoped_ids
         sys.stdout.write(
             _style_task_row(

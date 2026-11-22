@@ -32,33 +32,31 @@ class TestBundle(TodoMdTestCase):
     def _todo(self):
         return (self.tmp / "TODO.md").read_text(encoding="utf-8")
 
-    def test_task_bundle_stream_is_read_only(self):
+    def test_task_bundle_stream_is_read_only_and_declarative(self):
         self._setup_task()
         r = self._run([str(SCRIPT), "--bundle", "F1"], check=True)
         headers, parts = self._parse(r.stdout)
         self.assertTrue(r.stdout.startswith("Bundle-Protocol: 1\n"), msg=r.stdout)
+        self.assertEqual(headers["Bundle-Name"], "todo_md")
         self.assertIn("===== Rules =====", r.stdout)
         self.assertTrue(headers["Bundle-Command"].endswith("--bundle F1"))
         self.assertRegex(headers["Bundle-Boundary"], r"^[0-9a-f]{32}$")
-        self.assertEqual(headers["Bundle-Expose"], "Role, Task, Title")
-        self.assertEqual((headers["Task"], headers["Role"]), ("F1", "work"))
+        self.assertNotIn("Bundle-Expose", headers)
+        self.assertNotIn("Role", headers)
+        self.assertEqual(headers["Task"], "F1")
+        self.assertEqual(headers["Prefix"], "F")
+        self.assertEqual(headers["Status"], "NEXT")
         self.assertEqual(headers["Title"], "Bundle task")
+        self.assertEqual(headers["Files"], "app.py")
         self.assertEqual(headers["Workdir"], str(self.tmp.resolve()))
-        self.assertEqual([m["kind"] for m, _ in parts], ["rule", "include", "task"])
+        self.assertEqual([m["kind"] for m, _ in parts], ["rule", "task"])
         rule_meta, rule_body = parts[0]
         self.assertEqual(rule_meta, {"kind": "rule", "id": "todo_md:todo_md", "chain": ["todo_md"]})
         self.assertNotIn("# Description:", rule_body)
         self.assertNotIn("[if ", rule_body)
-        self.assertIn("role=work", rule_body)
-        self.assertIn("todo_md done <ID>", rule_body)
-        self.assertIn("todo_md status <ID> WIP", rule_body)
-        self.assertIn('todo_md add "<title>" -b "<problem_and_impact>"', rule_body)
-        self.assertNotIn("Target files contract", rule_body)
-        self.assertLessEqual(len(rule_body.splitlines()), 18)
-        inc_meta, inc_body = parts[1]
-        self.assertEqual(inc_meta, {"kind": "include", "name": "app.py", "chain": ["todo_md"]})
-        self.assertTrue(inc_body.startswith("===== $ cat app.py ====="), msg=inc_body)
-        task_meta, task_body = parts[2]
+        self.assertIn("Target files contract", rule_body)
+        self.assertIn("`L` is a", rule_body)
+        task_meta, task_body = parts[1]
         self.assertEqual(
             task_meta, {"kind": "task", "id": "F1", "name": "TODO.md:F1", "chain": ["todo_md"]}
         )
@@ -66,23 +64,24 @@ class TestBundle(TodoMdTestCase):
         self.assertIn("# 🎯 [NEXT] F1:", task_body)
         self.assertIn("# 🎯 [NEXT] F1:", self._todo())
 
-    def test_bundle_slice_include_uses_sed_header(self):
+    def test_bundle_slice_spec_emitted_in_files_header(self):
         self._run([str(SCRIPT), "init"], check=True)
         (self.tmp / "big.py").write_text("".join(f"l{i}\n" for i in range(1, 21)), encoding="utf-8")
+        (self.tmp / "app.py").write_text("print('hi')\n", encoding="utf-8")
         self._run(
-            [str(SCRIPT), "add", "Slice", "--next", "-b", "- Target files: `big.py:3-5`."],
+            [str(SCRIPT), "add", "Slice", "--next", "-b", "- Target files: `big.py:3-5`, `app.py`."],
             check=True,
         )
         r = self._run([str(SCRIPT), "--bundle", "F1"], check=True)
-        _, parts = self._parse(r.stdout)
-        meta, body = parts[1]
-        self.assertEqual(meta["name"], "big.py:3-5")
-        self.assertEqual(body, "===== $ sed -n '3,5p' big.py =====\nl3\nl4\nl5")
+        headers, parts = self._parse(r.stdout)
+        self.assertEqual(headers["Files"], "big.py:3-5 app.py")
+        self.assertEqual([m["kind"] for m, _ in parts], ["rule", "task"])
 
     def test_bundle_no_files(self):
         self._setup_task()
         r = self._run([str(SCRIPT), "--bundle", "--no-files", "F1"], check=True)
-        _, parts = self._parse(r.stdout)
+        headers, parts = self._parse(r.stdout)
+        self.assertNotIn("Files", headers)
         self.assertEqual([m["kind"] for m, _ in parts], ["rule", "task"])
         self.assertIn("# 🎯 [NEXT] F1:", self._todo())
 
@@ -91,32 +90,40 @@ class TestBundle(TodoMdTestCase):
         r = self._run([str(SCRIPT), "F1"], check=True)
         self.assertNotIn("Bundle-Protocol", r.stdout)
         self.assertIn("Task: F1", r.stdout)
+        self.assertIn("Prefix: F", r.stdout)
+        self.assertIn("Status: NEXT", r.stdout)
+        self.assertNotIn("Role:", r.stdout)
         self.assertIn("# 🎯 [NEXT] F1:", self._todo())
 
-    def test_bundle_role_follows_resolved_task_role_without_mutation(self):
+    def test_bundle_task_headers_across_prefixes_and_statuses(self):
         self._run([str(SCRIPT), "init"], check=True)
         self._run([str(SCRIPT), "add", "Plan only"], check=True)
         self._run([str(SCRIPT), "add", "D", "Design only"], check=True)
-        r_plan = self._run([str(SCRIPT), "--bundle", "F1"], check=True)
-        plan_headers, plan_parts = self._parse(r_plan.stdout)
-        self.assertEqual(plan_headers["Role"], "plan")
+        self._run([str(SCRIPT), "add", "L", "Law rule update"], check=True)
+        r_f = self._run([str(SCRIPT), "--bundle", "F1"], check=True)
+        f_headers, f_parts = self._parse(r_f.stdout)
+        self.assertEqual((f_headers["Prefix"], f_headers["Status"]), ("F", "NEW"))
+        self.assertNotIn("Role", f_headers)
+        self.assertNotIn("Files", f_headers)
         self.assertIn("# ⚪ [NEW] F1:", self._todo())
-        self.assertNotIn("# Description:", plan_parts[0][1])
-        self.assertNotIn("[if ", plan_parts[0][1])
-        self.assertIn("Target files contract", plan_parts[0][1])
-        self.assertLess(len(plan_parts[0][1]), 3800)
-        r_design = self._run([str(SCRIPT), "--bundle", "D1"], check=True)
-        design_headers, design_parts = self._parse(r_design.stdout)
-        self.assertEqual(design_headers["Role"], "design")
-        self.assertIn("# ⚪ [NEW] D1:", self._todo())
-        self.assertNotIn("# Description:", design_parts[0][1])
-        self.assertIn("Target files contract", design_parts[0][1])
+        self.assertIn("Target files contract", f_parts[0][1])
+
+        r_d = self._run([str(SCRIPT), "--bundle", "D1"], check=True)
+        d_headers, _ = self._parse(r_d.stdout)
+        self.assertEqual((d_headers["Prefix"], d_headers["Status"]), ("D", "NEW"))
+        self.assertNotIn("Role", d_headers)
+
+        r_l = self._run([str(SCRIPT), "--bundle", "L1"], check=True)
+        l_headers, _ = self._parse(r_l.stdout)
+        self.assertEqual((l_headers["Prefix"], l_headers["Status"]), ("L", "NEW"))
+        self.assertNotIn("Role", l_headers)
 
     def test_archived_task_is_not_mutated(self):
         self._setup_task()
         self._run([str(SCRIPT), "done", "F1"], check=True)
         r = self._run([str(SCRIPT), "--bundle", "F1"], check=True)
-        _, parts = self._parse(r.stdout)
+        headers, parts = self._parse(r.stdout)
+        self.assertEqual(headers["Status"], "DONE")
         self.assertEqual(parts[-1][0]["name"], "TODO_ARCHIVE.md:F1")
         self.assertNotIn("F1:", self._todo())
 
@@ -126,7 +133,9 @@ class TestBundle(TodoMdTestCase):
             with self.subTest(args=args):
                 r = self._run([str(SCRIPT), *args], check=True)
                 headers, parts = self._parse(r.stdout)
+                self.assertEqual(headers["Bundle-Name"], "todo_md")
                 self.assertNotIn("Task", headers)
+                self.assertNotIn("Role", headers)
                 self.assertEqual(headers["Workdir"], str(self.tmp.resolve()))
                 self.assertEqual([m["kind"] for m, _ in parts], ["rule", "context"])
                 self.assertNotIn("# Description:", parts[0][1])
@@ -160,68 +169,55 @@ class TestBundle(TodoMdTestCase):
             with self.subTest(frag=frag):
                 self.assertIn(frag, r.stdout)
 
-    def test_help_drops_no_wip_flag(self):
+    def test_help_drops_no_wip_and_role_flags(self):
         r = self._run_subprocess([str(SCRIPT), "--help"], check=True)
         self.assertNotIn("--no-wip", r.stdout)
+        self.assertNotIn("--role", r.stdout)
+        self.assertNotIn("--by-role", r.stdout)
 
-    def test_role_override_selects_rule_and_header(self):
+    def test_role_override_emits_role_header(self):
         self._setup_task()
         cases = (
-            (["F1", "role=plan"], "plan", True),
-            (["role=plan", "F1"], "plan", True),
-            (["show", "F1", "--role", "plan"], "plan", True),
-            (["F1", "--role=plan"], "plan", True),
-            (["F1", "role=work"], "work", False),
+            (["F1", "role=plan"], "plan"),
+            (["role=plan", "F1"], "plan"),
+            (["show", "F1", "role=law"], "law"),
+            (["F1", "role=work"], "work"),
         )
-        for args, role, full in cases:
+        for args, role in cases:
             with self.subTest(args=args):
                 r = self._run([str(SCRIPT), "--bundle", *args], check=True)
                 headers, parts = self._parse(r.stdout)
                 self.assertEqual(headers["Role"], role)
-                self.assertEqual("Target files contract" in parts[0][1], full)
+                self.assertIn("Target files contract", parts[0][1])
                 self.assertIn("# 🎯 [NEXT] F1:", self._todo())
 
     def test_role_override_on_context_streams(self):
         self._setup_task()
-        cases = (
-            (["role=work"], False),
-            (["overview", "role=work"], False),
-            (["-w", "role=plan"], True),
-        )
-        for args, full in cases:
+        for args, expected_role in (
+            (["role=work"], "work"),
+            (["overview", "role=work"], "work"),
+            (["-w", "role=plan"], "plan"),
+        ):
             with self.subTest(args=args):
                 r = self._run([str(SCRIPT), "--bundle", *args], check=True)
                 headers, parts = self._parse(r.stdout)
                 self.assertNotIn("Task", headers)
-                self.assertEqual(headers["Role"], "work" if not full else "plan")
-                self.assertEqual("Target files contract" in parts[0][1], full)
+                self.assertEqual(headers["Role"], expected_role)
+                self.assertIn("Target files contract", parts[0][1])
         r = self._run([str(SCRIPT), "--bundle", "last", "NEXT", "role=plan"], check=True)
         headers, parts = self._parse(r.stdout)
         self.assertEqual((headers["Task"], headers["Role"]), ("F1", "plan"))
         self.assertIn("Target files contract", parts[0][1])
 
-    def test_role_flag_stays_row_filter_for_list(self):
-        self._setup_task()
-        r = self._run([str(SCRIPT), "list", "--role", "plan"], check=True)
-        self.assertNotIn("F1", r.stdout)
-        r = self._run([str(SCRIPT), "list", "--role", "work"], check=True)
-        self.assertIn("F1", r.stdout)
-
-    def test_embedded_rule_selection_and_pure_markdown_files(self):
+    def test_embedded_rule_is_single_pure_markdown_file(self):
         mod = self.todo_md_mod
-        work = mod.get_embedded_todo_rule("work")
-        full = mod.get_embedded_todo_rule("plan")
-        self.assertEqual(full, mod.get_embedded_todo_rule(None))
-        self.assertEqual(full, mod.get_embedded_todo_rule("design"))
-        self.assertIn("todo_md status <ID> WIP", work)
-        self.assertNotIn("Target files contract", work)
+        full = mod.get_embedded_todo_rule()
         self.assertIn("Target files contract", full)
-        self.assertFalse(hasattr(mod, "RULE_IF_BLOCK_RE"))
-        for name in ("todo_md.md", "todo_md_work.md"):
-            with self.subTest(name=name):
-                text = (ROOT / "agents" / name).read_text(encoding="utf-8")
-                self.assertNotIn("[if ", text)
-                self.assertNotIn("[endif]", text)
+        self.assertFalse(hasattr(mod, "EMBEDDED_RULE_TODO_MD_WORK"))
+        self.assertFalse((ROOT / "agents" / "todo_md_work.md").exists())
+        text = (ROOT / "agents" / "todo_md.md").read_text(encoding="utf-8")
+        self.assertNotIn("[if ", text)
+        self.assertNotIn("[endif]", text)
 
 
 if __name__ == "__main__":

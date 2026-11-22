@@ -124,42 +124,6 @@ def _is_bug_node_key(u: tuple[Path, str]) -> bool:
     tid = u[1].split(":")[-1].strip().upper()
     return tid.startswith("B")
 
-def _resolve_node_role(
-    nodes: dict[tuple[Path, str], dict[str, object]],
-    u: tuple[Path, str],
-) -> str | None:
-    nd = nodes.get(u)
-    if nd is None or not nd.get("exists", True):
-        return None
-    raw_role = nd.get("role")
-    if not raw_role:
-        raw_id = str(nd.get("id") or u[1]).split(":")[-1].strip()
-        raw_role = resolve_task_role(
-            raw_id,
-            str(nd.get("section", "")),
-            status=str(nd.get("status", "")),
-        )
-    if not raw_role:
-        return None
-    return str(raw_role).strip().lower() or None
-
-def _resolve_node_role_ease(
-    nodes: dict[tuple[Path, str], dict[str, object]],
-    u: tuple[Path, str],
-) -> int:
-    role = _resolve_node_role(nodes, u)
-    if not role:
-        return len(ROLE_EASE_ORDER)
-    return ROLE_EASE_ORDER.get(role, len(ROLE_EASE_ORDER))
-
-def _resolve_node_role_weight(
-    nodes: dict[tuple[Path, str], dict[str, object]],
-    u: tuple[Path, str],
-) -> int:
-    role = _resolve_node_role(nodes, u)
-    if not role:
-        return ROLE_EFFORT_WEIGHTS["design"]
-    return ROLE_EFFORT_WEIGHTS.get(role, ROLE_EFFORT_WEIGHTS["design"])
 
 def _prepare_active_plan(
     dag: dict[str, object],
@@ -199,7 +163,7 @@ def _prepare_active_plan(
         if bool(done_prereqs.get(u) or done_nodes.get(u))
         and _is_ready_in_dag(nodes, prereqs, u, include_hold=include_hold)
         and active_unblocks.get(u, 0) == 0
-        and _resolve_node_role(nodes, u) == "work"
+        and str(nodes[u]["status"]) in ("WIP", "NEXT")
     }
 
     latest_done_task: tuple[Path, str] | None = dag.get("latest_done_task")  # type: ignore[assignment]
@@ -267,11 +231,11 @@ def _prepare_active_plan(
         st = str(nodes[u]["status"])
         prio = ACTIVE_STATUS_ORDER.get(st, 99)
         is_fin = 0 if u in finale_set else 1
+        is_bug = 0 if _is_bug_task_node(nodes, u) else 1
         is_blocked = 0 if initial_in_deg.get(u, 0) == 0 else 1
         return (
             prio,
             is_fin,
-            _resolve_node_role_ease(nodes, u),
             is_blocked,
             is_momentum_next.get(u, 1),
             best_chain_rank.get(u, 0),
@@ -279,6 +243,7 @@ def _prepare_active_plan(
             -done_counts.get(u, 0),
             -ready_unblocks.get(u, 0),
             -active_unblocks.get(u, 0),
+            is_bug,
             -ready_step,
             order_idx.get(u, 0),
             _canonical_task_ref_key(nodes, u),
@@ -676,10 +641,9 @@ def plan_execution_chains(
 
     def _standalone_sort_key(
         u: tuple[Path, str],
-    ) -> tuple[int, int, int, int, tuple[str, str, str]]:
+    ) -> tuple[int, int, int, tuple[str, str, str]]:
         return (
             0 if _is_bug_task_node(nodes, u) else 1,
-            _resolve_node_role_ease(nodes, u),
             ACTIVE_STATUS_ORDER.get(str(nodes[u]["status"]), 99),
             order_idx.get(u, 0),
             _canonical_task_ref_key(nodes, u),
@@ -746,41 +710,25 @@ def plan_execution_chains(
             min_bug_dist = None
         bug_dist_rank = min_bug_dist if min_bug_dist is not None else 10**9
 
-        open_eases = [_resolve_node_role_ease(nodes, u) for u in comp_open]
-        ready_eases = [_resolve_node_role_ease(nodes, u) for u in ready_in_comp] or open_eases
-        rem_eases = [_resolve_node_role_ease(nodes, u) for u in comp_open if u not in ready_set] or open_eases
-        ready_role_ease = min(ready_eases) if ready_eases else len(ROLE_EASE_ORDER)
-        min_rem_ease = min(rem_eases) if rem_eases else len(ROLE_EASE_ORDER)
-        max_rem_ease = max(rem_eases) if rem_eases else len(ROLE_EASE_ORDER)
-        max_open_ease = max(open_eases) if open_eases else len(ROLE_EASE_ORDER)
-        role_ease_key = (ready_role_ease, min_rem_ease, max_rem_ease, max_open_ease)
-
-        remaining_effort = sum(_resolve_node_role_weight(nodes, u) for u in comp_open)
+        open_statuses = [ACTIVE_STATUS_ORDER.get(str(nodes[u]["status"]), 99) for u in comp_open]
+        remaining_effort = open_count
         weighted_denom = done_count + remaining_effort
         weighted_velocity = (done_count / weighted_denom) if weighted_denom > 0 else 0.0
 
-        raw_best_status = min(
-            (ACTIVE_STATUS_ORDER.get(str(nodes[u]["status"]), 99) for u in comp_open),
-            default=99,
-        )
+        raw_best_status = min(open_statuses, default=99)
         has_wip = any(str(nodes[u]["status"]) == "WIP" for u in comp_open)
         is_active_quest = has_wip or (
             latest_done_task is not None and latest_done_task in comp_done
         )
-        if is_active_quest:
-            best_status = ACTIVE_STATUS_ORDER["WIP"]
-        elif done_count > 0:
-            best_status = min(raw_best_status, ACTIVE_STATUS_ORDER["NEXT"])
-        else:
-            best_status = raw_best_status
+        best_status = ACTIVE_STATUS_ORDER["WIP"] if is_active_quest else raw_best_status
 
         canon_ref = _canonical_task_ref_key(nodes, root)
         root_nd = nodes[root]
         root_ref = str(root_nd["ref"])
         root_title = str(root_nd["title"])
 
-        is_work_finale = root in finale_set and len(comp_open) == 1
-        finale_tier = 0 if is_work_finale else 1
+        is_finale = root in finale_set and len(comp_open) == 1
+        finale_tier = 0 if is_finale else 1
         finale_order_key: tuple[int, int, int, int, tuple[str, str, str]] = (
             (
                 0 if _is_bug_task_node(nodes, root) else 1,
@@ -789,7 +737,7 @@ def plan_execution_chains(
                 order_idx.get(root, 0),
                 canon_ref,
             )
-            if is_work_finale
+            if is_finale
             else (0, 0, 0, 0, ("", "", ""))
         )
         rank_key = (
@@ -798,7 +746,6 @@ def plan_execution_chains(
             -(ready_bugs + done_bugs),
             -total_bugs,
             bug_dist_rank,
-            role_ease_key,
             best_status,
             -weighted_velocity,
             -total_tasks,
@@ -827,7 +774,6 @@ def plan_execution_chains(
             "done_bugs": done_bugs,
             "total_bugs": total_bugs,
             "min_bug_dist": min_bug_dist,
-            "role_ease": role_ease_key,
             "best_status": best_status,
             "rank_key": rank_key,
         }
@@ -929,110 +875,3 @@ def plan_execution_chains(
         "ready_tasks": [],
     }
 
-def plan_execution_chains_by_role(
-    dag: dict[str, object],
-    include_hold: bool = False,
-    ready_only: bool = False,
-    limit: int | None = None,
-    role: str | None = None,
-) -> dict[str, object]:
-    nodes: dict[tuple[Path, str], dict[str, object]] = dag["nodes"]  # type: ignore[assignment]
-    prereqs: dict[tuple[Path, str], list[tuple[Path, str]]] = dag["prereqs"]  # type: ignore[assignment]
-    prep = _prepare_active_plan(dag, include_hold=include_hold)
-    ranked_active: list[tuple[Path, str]] = prep["ranked_active"]  # type: ignore[assignment]
-    active_unblocks: dict[tuple[Path, str], int] = prep["active_unblocks"]  # type: ignore[assignment]
-    excluded_hold: set[tuple[Path, str]] = prep["excluded_hold"]  # type: ignore[assignment]
-    finale_set: set[tuple[Path, str]] = prep["finale_set"]  # type: ignore[assignment]
-
-    trans_cache: dict[tuple[Path, str], set[tuple[Path, str]]] = {}
-
-    def _trans_prereqs(u: tuple[Path, str]) -> set[tuple[Path, str]]:
-        if u not in trans_cache:
-            seen: set[tuple[Path, str]] = set()
-            stack = list(prereqs.get(u, []))
-            while stack:
-                cur = stack.pop()
-                if cur == u or cur in seen:
-                    continue
-                seen.add(cur)
-                for nxt in prereqs.get(cur, []):
-                    if nxt != u and nxt not in seen:
-                        stack.append(nxt)
-            trans_cache[u] = seen
-        return trans_cache[u]
-
-    def _node_role(u: tuple[Path, str]) -> str | None:
-        nd = nodes[u]
-        if not nd.get("exists"):
-            return None
-        resolved = resolve_task_role(
-            str(nd["id"]),
-            str(nd["section"]),
-            status=str(nd.get("status", "")),
-        )
-        return resolved.strip().lower() if resolved else None
-
-    q_work: list[tuple[Path, str]] = []
-    q_plan: list[tuple[Path, str]] = []
-    q_design: list[tuple[Path, str]] = []
-    q_deferred_work: list[tuple[Path, str]] = []
-    q_other: list[tuple[Path, str]] = []
-
-    wanted_role = role.strip().lower() if role is not None else None
-
-    for u in ranked_active:
-        if ready_only and not _is_ready_in_dag(nodes, prereqs, u, include_hold=include_hold):
-            continue
-        u_role = _node_role(u)
-        if wanted_role is not None and u_role != wanted_role:
-            continue
-        dep_roles = {_node_role(p) for p in _trans_prereqs(u)}
-        if u_role == "work":
-            if not dep_roles or dep_roles <= {"work"}:
-                q_work.append(u)
-            elif not ready_only:
-                q_deferred_work.append(u)
-        elif u_role == "plan":
-            if not dep_roles or dep_roles <= {"work", "plan"}:
-                q_plan.append(u)
-            else:
-                q_other.append(u)
-        elif u_role == "design":
-            q_design.append(u)
-        else:
-            q_other.append(u)
-
-    queues: list[tuple[str, str, list[tuple[Path, str]]]] = [
-        ("work", "Queue 1 (work)", q_work),
-        ("plan", "Queue 2 (plan)", q_plan),
-        ("design", "Queue 3 (design)", q_design),
-    ]
-    if not ready_only:
-        queues.append(("deferred_work", "Queue 4 (deferred work)", q_deferred_work))
-    if q_other:
-        queues.append(("other", "Other tasks", q_other))
-
-    if limit is not None:
-        rem = limit
-        limited_queues: list[tuple[str, str, list[tuple[Path, str]]]] = []
-        for q_key, q_label, q_items in queues:
-            if rem <= 0:
-                limited_queues.append((q_key, q_label, []))
-                continue
-            take = q_items[:rem]
-            limited_queues.append((q_key, q_label, take))
-            rem -= len(take)
-        queues = limited_queues
-
-    return {
-        "active_nodes": ranked_active,
-        "active_unblocks": active_unblocks,
-        "excluded_hold": excluded_hold,
-        "finale_set": finale_set,
-        "chain_counts": prep["chain_counts"],
-        "done_counts": prep["done_counts"],
-        "is_momentum_next": prep["is_momentum_next"],
-        "ready_unblocks": prep["ready_unblocks"],
-        "immediate_ready_targets": prep["immediate_ready_targets"],
-        "queues": queues,
-    }

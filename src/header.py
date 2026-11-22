@@ -28,9 +28,7 @@ REPO_MARKER = "todo_md-repo: vitalio/todo_md"
 DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/vitalio/todo_md/main/todo_md"
 FENCE = chr(96) * 3
 EMBEDDED_RULE_TODO_MD = "__EMBEDDED_RULE_TODO_MD__"
-EMBEDDED_RULE_TODO_MD_WORK = "__EMBEDDED_RULE_TODO_MD_WORK__"
 RULE_SOURCE_PATH = Path(__file__).resolve().parent.parent / "agents" / "todo_md.md"
-RULE_WORK_SOURCE_PATH = Path(__file__).resolve().parent.parent / "agents" / "todo_md_work.md"
 
 VALID_STATUSES: dict[str, str] = {
     "WIP": "🔵",
@@ -75,49 +73,22 @@ SYMBOL_SPEC_RE = re.compile(
 DEPENDS_LINE_RE = re.compile(r"^\s*[-*]\s*Depends on:\s*(.+?)\s*$", re.IGNORECASE)
 ROLE_LINE_RE = re.compile(r"^\s*[-*]\s*Role:\s*(.*?)\s*$", re.IGNORECASE)
 ROLE_NAME_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
-RETIRED_ROLES: dict[str, str] = {
-    "execute": "work",
-    "audit": "review",
-}
 DEFAULT_TASK_PREFIX = "F"
-PREFIX_INFO: dict[str, tuple[str, str | None]] = {
-    "F": ("feature", None),
-    "B": ("bugfix", None),
-    "D": ("design", "design"),
-}
-PREFIX_DEFAULT_ROLES: dict[str, str] = {
-    prefix: role for prefix, (_, role) in PREFIX_INFO.items() if role
-}
-STATUS_ROLES: dict[str, str] = {
-    "WIP": "work",
-    "NEXT": "work",
-    "NEW": "plan",
-    "QUESTION": "plan",
-    "HOLD": "plan",
+PREFIX_INFO: dict[str, str] = {
+    "F": "feature",
+    "B": "bugfix",
+    "D": "design",
+    "L": "legislative rule",
 }
 
 def prefix_legend_lines() -> list[str]:
     prefixes = ", ".join(
         f"{p}={name}" + (" (default)" if p == DEFAULT_TASK_PREFIX else "")
-        for p, (name, _) in PREFIX_INFO.items()
+        for p, name in PREFIX_INFO.items()
     )
-    design = ", ".join(f"{p}*={role}" for p, role in PREFIX_DEFAULT_ROLES.items())
-    work = "/".join(s for s, r in STATUS_ROLES.items() if r == "work")
-    plan = "/".join(s for s, r in STATUS_ROLES.items() if r == "plan")
     return [
         f"Prefixes: {prefixes}, other A-Z=custom domain",
-        f"Roles: {design}; others: {work}=work, {plan}=plan",
     ]
-ROLE_EASE_ORDER: dict[str, int] = {
-    "work": 0,
-    "plan": 1,
-    "design": 2,
-}
-ROLE_EFFORT_WEIGHTS: dict[str, int] = {
-    "work": 1,
-    "plan": 2,
-    "design": 5,
-}
 WORKSPACE_SKIP_DIRS = frozenset({
     "node_modules",
     "vendor",
@@ -133,18 +104,13 @@ WORKSPACE_SKIP_DIRS = frozenset({
 WORKSPACE_MAX_DEPTH = 3
 
 
-def _rule_text(embedded: str, name: str, path: Path) -> str:
-    if embedded != "__EMBEDDED_RULE_" + name + "__":
-        raw = embedded
+def get_embedded_todo_rule() -> str:
+    if EMBEDDED_RULE_TODO_MD != "__EMBEDDED_RULE_" + "TODO_MD__":
+        raw = EMBEDDED_RULE_TODO_MD
     else:
-        raw = path.read_text(encoding="utf-8")
+        raw = RULE_SOURCE_PATH.read_text(encoding="utf-8")
     lines = [line for line in raw.splitlines() if not line.startswith("# Description:")]
     return "\n".join(lines).strip("\n") + "\n"
-
-def get_embedded_todo_rule(role: str | None = None) -> str:
-    if (role or "").strip().lower() == "work":
-        return _rule_text(EMBEDDED_RULE_TODO_MD_WORK, "TODO_MD_WORK", RULE_WORK_SOURCE_PATH)
-    return _rule_text(EMBEDDED_RULE_TODO_MD, "TODO_MD", RULE_SOURCE_PATH)
 
 def prog_name() -> str:
     raw = Path(sys.argv[0]).name if sys.argv and sys.argv[0] else "todo_md"
@@ -180,7 +146,7 @@ HELP_COMMANDS: tuple[tuple[str, str], ...] = (
     ("{prog} projects", "List discovered workspace projects and open task counts"),
     ("{prog} <ID>... | show <ID>...",
      "Show tasks <ID>... (space- or comma-separated, <project>:<ID> supported) with "
-     "Task/Title/Role/Workdir headers, separated by blank lines"),
+     "Task/Prefix/Status/Title/Workdir headers, separated by blank lines"),
     ("{prog} last [<STATUS|archive>]",
      "Show full section for the last task in a status or the archive (default: NEW); "
      "also available as show last"),
@@ -188,7 +154,7 @@ HELP_COMMANDS: tuple[tuple[str, str], ...] = (
      "Print ID of the last task in a status or the archive (default: NEW)"),
     ("{prog} list [filter] [<ID>...] [opts]",
      "List tasks; filter is active | archive | all | <STATUS>; <ID>... are highlighted. "
-     "Options: --role ROLE, -r/--ready, --limit N, --full"),
+     "Options: --prefix PREFIX, --status STATUS, -r/--ready, --limit N, --full"),
     ("{prog} archive [<ID>] [-m NOTE]", "Print TODO_ARCHIVE.md, or archive task <ID>"),
     ("{prog} add [<PROJ>] [<PREFIX>] <TITLE>",
      "Add a task with an auto-assigned ID; body comes from -b or stdin. Options: "
@@ -199,9 +165,9 @@ HELP_COMMANDS: tuple[tuple[str, str], ...] = (
     ("{prog} append <ID> [-b TEXT|-]",
      "Append text to the body of task <ID> (from -b TEXT|- or stdin)"),
     ("{prog} status <ID>... <STATUS> [opts]",
-     "Set status (WIP|NEXT|NEW|HOLD|QUESTION|DONE|CANCELED). Options: -m NOTE, --reopen"),
+     "Set task status (WIP, NEXT, NEW, HOLD, QUESTION, DONE, CANCELED). Options: -m NOTE, --reopen"),
     ("{prog} next <ID>... [-m NOTE] [--reopen]",
-     "Promote task(s) <ID>... to 🎯 [NEXT] at the top of TODO.md (strips - Role: plan; "
+     "Promote task(s) <ID>... to 🎯 [NEXT] at the top of TODO.md (strips - Role:; "
      "--reopen if archived)"),
     ("{prog} reopen <ID>... [opts]",
      "Move archived task(s) <ID>... back to TODO.md. Options: -s/--status STATUS (default: "
@@ -212,10 +178,10 @@ HELP_COMMANDS: tuple[tuple[str, str], ...] = (
      "Mark <ID>... as CANCELED and move to TODO_ARCHIVE.md"),
     ("{prog} ids", "Print highest task IDs in use and next available ID per prefix"),
     ("{prog} chain [<ID>...] [opts]",
-     "Show the Quest-Log: top-ranked work finales, root-anchored chains, role queues, "
+     "Show the Quest-Log: top-ranked finales, root-anchored chains, and "
      "ready tasks (see Quest-Log options)"),
-    ("{prog} next-id [<ID>] [--role ROLE] | --top",
-     "Print the top ready WIP/NEXT ID, or the first ready ID in <ID>'s queue"),
+    ("{prog} next-id [<ID>] [--prefix P] [--status S] | --top",
+     "Print the top ready WIP/NEXT ID (or matching --status), or the first ready ID in <ID>'s queue"),
     ("{prog} files [<ID>] | --files [<ID>]",
      "List files named on the '- Target files:' bullet of task <ID>: paths, glob patterns, "
      "symbol slices (path:SYMBOL, path:SYM1..SYM2; Python, sh/Bash and brace languages; "
@@ -251,11 +217,10 @@ HELP_GLOBAL_OPTIONS: tuple[tuple[str, str], ...] = (
      "overview; auto-enabled when stdout is a pipe other than the run_block step output. "
      "The stream is read-only: it never changes task status"),
     ("--plain", "Disable bundle auto-detection (--bundle takes precedence)"),
-    ("--no-files", "Bundle mode: do not preload the '- Target files:' of the task"),
-    ("role=ROLE, --role ROLE",
-     "Bundle mode session role for <ID>, show, last, overview, and the default view (--role "
-     "ROLE only for <ID>, show, last, overview): sets the Role: header and selects the "
-     "matching embedded rule (work -> compact rule, others -> full rule)"),
+    ("--no-files", "Bundle mode: omit the Files: preamble header for the task"),
+    ("role=ROLE",
+     "Bundle mode explicit role override for <ID>, show, last, overview, and the default view: "
+     "emits Role: ROLE in the bundle preamble"),
 )
 
 HELP_QUEST_OPTIONS: tuple[tuple[str, str], ...] = (
@@ -270,13 +235,11 @@ HELP_QUEST_OPTIONS: tuple[tuple[str, str], ...] = (
      "Include archived DONE/CANCELED tasks from TODO_ARCHIVE.md (same as the ALL status "
      "keyword)"),
     ("-r, --ready",
-     "Show only ready tasks ranked by role ease, Quest Momentum, best chain rank, chain "
-     "count, done count, and ready unlocks (rows show [FINAL | STAGE | COMBO | chain: N, "
-     "ready: +M, "
-     "unblocks: K], with chain only when N > 1 and ready only when M > 0); also accepted "
-     "by list"),
-    ("--by-role", "Partition active tasks into role queues"),
-    ("--role ROLE", "Show only tasks matching ROLE"),
+     "Show only ready tasks ranked by bugfix prefix, status tier, Quest Momentum, best chain "
+     "rank, chain count, done count, and ready unlocks (rows show [FINAL | STAGE | COMBO | "
+     "chain: N, ready: +M, unblocks: K], with chain only when N > 1 and ready only when "
+     "M > 0); also accepted by list"),
+    ("--prefix PREFIX", "Show only tasks matching single-letter ID prefix PREFIX (A-Z)"),
     ("--include-hold", "Include HOLD tasks and branches blocked by HOLD"),
     ("--status STATUS",
      "Status filter WIP|NEXT|QUESTION|NEW|HOLD|ACTIVE|ALL (also accepted as a bare "
@@ -298,10 +261,10 @@ HELP_QUEST_OPTIONS: tuple[tuple[str, str], ...] = (
 HELP_PREFIXES: tuple[tuple[str, str], ...] = (
     ("F", "Feature (default prefix for add)"),
     ("B", "Bugfix (ranked ahead of other tasks in chain)"),
-    ("D", "Design (role: design in any status)"),
+    ("D", "Design task"),
+    ("L", "Legislative rule task (agents/, AGENTS.md)"),
     ("A-Z", "Any other letter is a custom domain prefix"),
-    ("Status roles", "WIP/NEXT -> work; NEW/QUESTION/HOLD -> plan (non-D prefixes)"),
-    ("Note", "{prog} check rejects '- Role:' lines in TODO.md; --role only filters views"),
+    ("Note", "{prog} check rejects '- Role:' lines in TODO.md; filter with --prefix and --status"),
 )
 
 HELP_NOTES = (
@@ -390,8 +353,7 @@ def usage_text() -> str:
         ("Commands:", HELP_COMMANDS),
         ("Global options:", HELP_GLOBAL_OPTIONS),
         ("Quest-Log options (default view, chain, search):", HELP_QUEST_OPTIONS),
-        ("Task ID prefixes and roles (derived from the ID prefix and status, never from the "
-         "task body):", HELP_PREFIXES),
+        ("Task ID prefixes:", HELP_PREFIXES),
     )
     for title, rows in sections:
         lines += [title, *_help_table(rows, prog), ""]

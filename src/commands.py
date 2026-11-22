@@ -566,11 +566,9 @@ def _strip_plan_role_from_section_lines(sec_lines: list[str]) -> tuple[list[str]
     for line in sec_lines[1:]:
         if line.lstrip().startswith(FENCE):
             in_fence = not in_fence
-        if not in_fence:
-            m = ROLE_LINE_RE.match(line)
-            if m and m.group(1).strip().lower() == "plan":
-                removed = True
-                continue
+        if not in_fence and ROLE_LINE_RE.match(line):
+            removed = True
+            continue
         body_lines.append(line)
     if not removed:
         return sec_lines, False
@@ -582,24 +580,29 @@ def _strip_plan_role_from_section_lines(sec_lines: list[str]) -> tuple[list[str]
         return [heading], True
     return [heading, "", *body_lines], True
 
-def _normalize_role_arg(raw_role: str) -> str:
+def _normalize_role_override(raw_role: str) -> str:
     if "\n" in raw_role or "\r" in raw_role:
-        raise SystemExit(f"{prog_name()}: --role value must be a single line")
+        raise SystemExit(f"{prog_name()}: role=<role> value must be a single line")
     stripped = raw_role.strip()
     if not stripped:
-        raise SystemExit(f"{prog_name()}: --role requires a non-empty role name")
+        raise SystemExit(f"{prog_name()}: role=<role> requires a non-empty role name")
     role = stripped.lower()
-    if role in RETIRED_ROLES:
-        replacement = RETIRED_ROLES[role]
-        raise SystemExit(
-            f"{prog_name()}: retired --role value {stripped!r}; use {replacement!r} instead"
-        )
     if not ROLE_NAME_RE.match(role):
         raise SystemExit(
-            f"{prog_name()}: invalid --role value {stripped!r}; "
+            f"{prog_name()}: invalid role=<role> value {stripped!r}; "
             "expected lowercase role identifier matching ^[a-z][a-z0-9_-]*$"
         )
     return role
+
+def _normalize_prefix_arg(raw_prefix: str) -> str:
+    if "\n" in raw_prefix or "\r" in raw_prefix:
+        raise SystemExit(f"{prog_name()}: --prefix value must be a single letter A-Z")
+    stripped = raw_prefix.strip().upper()
+    if not re.fullmatch(r"[A-Z]", stripped):
+        raise SystemExit(
+            f"{prog_name()}: invalid --prefix value {raw_prefix!r}; expected a single letter A-Z"
+        )
+    return stripped
 
 def _apply_depends_to_body_lines(lines: list[str], depends_clauses: list[str] | None) -> list[str]:
     if depends_clauses is None:
@@ -964,19 +967,27 @@ def cmd_append(base_dir: Path, argv: list[str], commit: bool = False, no_commit:
 @_discovery_scoped
 def resolve_top_task_id(
     base_dir: Path,
-    role: str | None = None,
+    prefix: str | None = None,
+    status: str | None = None,
     explicit_dir: str | None = None,
 ) -> str | None:
     todo_path = base_dir / "TODO.md"
     if not todo_path.is_file():
         return None
     active_tasks = parse_tasks_in_text(read_if_exists(todo_path), "TODO.md")
-    wanted_role = role.strip().lower() if role is not None else None
-    for wanted in ("WIP", "NEXT"):
+    wanted_prefix = prefix.strip().upper() if prefix is not None else None
+    if status is not None:
+        st_up = status.strip().upper()
+        wanted_statuses: tuple[str, ...] = (
+            tuple(ACTIVE_STATUS_ORDER) if st_up in ("ACTIVE", "ALL") else (st_up,)
+        )
+    else:
+        wanted_statuses = ("WIP", "NEXT")
+    for wanted in wanted_statuses:
         for t in active_tasks:
             if str(t["status"]) != wanted:
                 continue
-            if wanted_role is not None and not _task_matches_role(t, wanted_role):
+            if wanted_prefix is not None and not _task_matches_prefix(t, wanted_prefix):
                 continue
             if _is_task_blocked(base_dir, t, explicit_dir=explicit_dir):
                 continue
@@ -989,14 +1000,21 @@ def cmd_next_id(
     target_dir: Path | None = None,
     task_id: str | None = None,
     explicit_dir: str | None = None,
-    role: str | None = None,
+    prefix: str | None = None,
+    status: str | None = None,
 ) -> int:
+    notes: list[str] = []
+    if prefix is not None:
+        notes.append(f"prefix={prefix.strip().upper()}")
+    if status is not None:
+        notes.append(f"status={status.strip().upper()}")
+    filter_note = f" ({', '.join(notes)})" if notes else ""
     if task_id is None:
-        tid = resolve_top_task_id(base_dir, role=role, explicit_dir=explicit_dir)
+        tid = resolve_top_task_id(base_dir, prefix=prefix, status=status, explicit_dir=explicit_dir)
         if not tid:
-            role_note = f" (role={role.strip()})" if role is not None else ""
+            st_label = status.strip().upper() if status is not None else "WIP or NEXT"
             sys.stderr.write(
-                f"{prog_name()}: no active WIP or NEXT task{role_note} found in TODO.md under {base_dir}\n"
+                f"{prog_name()}: no active {st_label} task{filter_note} found in TODO.md under {base_dir}\n"
             )
             return 1
         sys.stdout.write(f"{tid}\n")
@@ -1040,11 +1058,15 @@ def cmd_next_id(
             f"{prog_name()}: task {root_node['ref']} is blocked by {', '.join(bad_blockers)}\n"
         )
         return 1
-    next_act = _first_actionable_in_dag(dag, role=role)
+    wanted_st_set: frozenset[str] | None = None
+    if status is not None:
+        st_u = status.strip().upper()
+        if st_u not in ("ACTIVE", "ALL"):
+            wanted_st_set = frozenset({st_u})
+    next_act = _first_actionable_in_dag(dag, prefix=prefix, status=wanted_st_set)
     if not next_act:
-        role_note = f" (role={role.strip()})" if role is not None else ""
         sys.stderr.write(
-            f"{prog_name()}: no unblocked actionable task{role_note} found for {root_node['ref']}\n"
+            f"{prog_name()}: no unblocked actionable task{filter_note} found for {root_node['ref']}\n"
         )
         return 1
     sys.stdout.write(f"{next_act}\n")

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for todo_md chain dependency tree rendering, role queues, Quest Momentum, and orchestrator scoping."""
+"""Tests for todo_md chain dependency tree rendering, Quest Momentum, and orchestrator scoping."""
 
 import os
 import re
@@ -72,8 +72,8 @@ class TestChain(TodoMdTestCase):
         r_ws = self._run([str(SCRIPT), "chain", "--numbered=right", "-w"], cwd=str(proj_a), check=True)
         self.assertIn("[25% | 1/4] Chain 1 -> proj_a:F4: Step C:", r_ws.stdout)
         self.assertIn("[20% | 1/5] Chain 2 -> proj_b:F2: Cross leaf:", r_ws.stdout)
-        self.assertIn("[also in: proj_b:F2]", r_ws.stdout)
-        self.assertIn("[also in: proj_a:F4]", r_ws.stdout)
+        self.assertIn("[also in: proj_b:F2]", self._flat_text(r_ws.stdout))
+        self.assertIn("[also in: proj_a:F4]", self._flat_text(r_ws.stdout))
         self.assertIn("proj_a:F2", r_ws.stdout)
         self.assertIn("proj_b:F1", r_ws.stdout)
         self.assertIn("proj_b:F2", r_ws.stdout)
@@ -228,9 +228,8 @@ class TestChain(TodoMdTestCase):
         self.assertIn("[ready: +1, unblocks: 3]", rows["1."])
         self.assertIn("F1", rows["2."])
         self.assertIn("[chain: 2, ready: +2, unblocks: 2]", rows["2."])
-        # Role ease: work tasks rank ahead of the design root within the same status tier
+        # Status tier: NEXT tasks rank ahead of the NEW D1 task
         self.assertIn("D1", rows["3."])
-        self.assertIn("[design]", rows["3."])
         self.assertTrue(rows["3."].endswith("Design root"), msg=rows["3."])
 
         r_list = self._run([str(SCRIPT), "list", "-r"], cwd=str(proj), check=True)
@@ -279,8 +278,8 @@ class TestChain(TodoMdTestCase):
                 self.assertNotIn("ready: +", rows[key])
                 self.assertNotIn("chain:", rows[key])
 
-    def test_chain_role_badges_and_role_filter(self):
-        ws = self.tmp / "ws_chain_role"
+    def test_chain_prefix_and_status_filters(self):
+        ws = self.tmp / "ws_chain_prefix"
         proj_a = ws / "proj_a"
         proj_b = ws / "proj_b"
         proj_a.mkdir(parents=True)
@@ -288,9 +287,9 @@ class TestChain(TodoMdTestCase):
         self._run([str(SCRIPT), "init"], cwd=str(proj_a), check=True)
         self._run([str(SCRIPT), "init"], cwd=str(proj_b), check=True)
 
-        # Chain in proj_a: D1 (design) -> F1 (work) -> F2 (NEW defaults to plan)
-        # Standalone in proj_a: P1 (NEW defaults to plan), B1 (NEXT defaults to work)
-        # Held branch in proj_a: D2 (HOLD, design) -> F3 (NEXT, work)
+        # Chain in proj_a: D1 (NEXT) -> F1 (NEXT) -> F2 (NEW)
+        # Standalone in proj_a: L1 (NEW), B1 (NEXT)
+        # Held branch in proj_a: D2 (HOLD) -> F3 (NEXT)
         self._run([str(SCRIPT), "add", "D", "Design schema", "--next"], cwd=str(proj_a), check=True)
         self._run([str(SCRIPT), "add", "F", "Build backend", "--next", "--depends", "D1"], cwd=str(proj_a), check=True)
         self._run(
@@ -298,288 +297,107 @@ class TestChain(TodoMdTestCase):
             cwd=str(proj_a),
             check=True,
         )
-        self._run([str(SCRIPT), "add", "P", "Unassigned idea"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "L", "Draft rule"], cwd=str(proj_a), check=True)
         self._run([str(SCRIPT), "add", "B", "Ready bugfix", "--next"], cwd=str(proj_a), check=True)
         self._run([str(SCRIPT), "add", "D", "Paused design", "--status", "HOLD"], cwd=str(proj_a), check=True)
         self._run([str(SCRIPT), "add", "F", "Waiting work", "--next", "--depends", "D2"], cwd=str(proj_a), check=True)
 
-        # Cross-project task in proj_b: F1 (work, depends on proj_a:F1)
+        # Cross-project task in proj_b: F1 (NEXT, depends on proj_a:F1)
         self._run(
             [str(SCRIPT), "add", "F", "Cross repo work", "--next", "--depends", "proj_a:F1"],
             cwd=str(proj_b),
             check=True,
         )
 
-        # 1. Default chain displays aligned [role] column across Chain:, Standalone tasks:, and --ready
+        # 1. Default chain omits [role] column and ranks bugfix B1 ahead of non-bugfix tasks
         r_all = self._run([str(SCRIPT), "chain", "--numbered=right"], cwd=str(proj_a), env={**os.environ, "COLUMNS": "160"}, check=True)
-        rows = self._table_rows(r_all.stdout)
-        self.assertIn("[design]", rows["1."])
-        self.assertIn("[work]", rows["2."])
-        self.assertIn("[plan]", rows["3."])
-        self.assertIn("[work]", rows["4."])
-        self.assertIn("[plan]", rows["5."])
-        role_cols = {
-            line.index("[design]" if "[design]" in line else ("[work]" if "[work]" in line else "[plan]"))
-            for k, line in rows.items()
-            if k in ("1.", "2.", "3.", "4.")
-        }
-        self.assertEqual(len(role_cols), 1, msg=f"misaligned role column: {rows!r}")
+        for role_tag in ("[design]", "[work]", "[plan]"):
+            self.assertNotIn(role_tag, r_all.stdout)
 
         r_ready_all = self._run([str(SCRIPT), "chain", "--numbered=right", "--ready"], cwd=str(proj_a), check=True)
         ready_rows = self._table_rows(r_ready_all.stdout)
-        # work ranks ahead of design (role execution ease) within the same status tier
-        self.assertIn("[work]", ready_rows["1."])
-        self.assertIn("[design]", ready_rows["2."])
+        self.assertIn("D1", ready_rows["1."])
+        self.assertIn("B1", ready_rows["2."])
+        self.assertIn("L1", ready_rows["3."])
 
-        # 2. --role work filters Chain <N>, Standalone tasks:, and preserves unblock/blocker context & Held branches
-        r_work = self._run([str(SCRIPT), "chain", "--numbered=right", "--role", "WORK"], cwd=str(proj_a), check=True)
-        self.assertIn("[0% | 0/3] Chain 1 -> F2: Plan rollout:", r_work.stdout)
-        self.assertIn("1 F1", r_work.stdout)
-        self.assertIn("[work]", r_work.stdout)
-        self.assertIn("[blocked by: D1 | unblocks: 1]", " ".join(r_work.stdout.split()))
-        self.assertIn("Standalone tasks:", r_work.stdout)
-        self.assertIn("B1", r_work.stdout)
-        self.assertNotIn("D1: Design schema", r_work.stdout)
-        self.assertNotIn("1 F2", r_work.stdout)
-        self.assertNotIn("P1", r_work.stdout)
-        self.assertIn("Held branches:", r_work.stdout)
-        self.assertIn("D2 (HOLD) -> F3 (NEXT)", r_work.stdout)
+        # 2. --prefix F filters Chain <N>, Standalone tasks:, and preserves unblock/blocker context & Held branches
+        r_f = self._run([str(SCRIPT), "chain", "--numbered=right", "--prefix", "f"], cwd=str(proj_a), check=True)
+        self.assertIn("[0% | 0/3] Chain 1 -> F2: Plan rollout:", r_f.stdout)
+        self.assertIn("1 F1", r_f.stdout)
+        self.assertIn("2 F2", r_f.stdout)
+        self.assertIn("[blocked by: D1 | unblocks: 1]", " ".join(r_f.stdout.split()))
+        self.assertNotIn("D1: Design schema", r_f.stdout)
+        self.assertNotIn("B1", r_f.stdout)
+        self.assertNotIn("L1", r_f.stdout)
+        self.assertIn("Held branches:", r_f.stdout)
+        self.assertIn("D2 (HOLD) -> F3 (NEXT)", r_f.stdout)
 
-        # 3. --role plan hides unrelated held branches and standalone tasks
-        r_plan = self._run([str(SCRIPT), "chain", "--numbered=right", "--role=plan"], cwd=str(proj_a), check=True)
-        self.assertIn("[0% | 0/3] Chain 1 -> F2: Plan rollout:", r_plan.stdout)
-        self.assertIn("1 F2", r_plan.stdout)
-        self.assertIn("[plan]", r_plan.stdout)
-        self.assertIn("[blocked by: F1]", r_plan.stdout)
-        self.assertIn("Standalone tasks:", r_plan.stdout)
-        self.assertIn("P1", r_plan.stdout)
-        self.assertNotIn("Held branches:", r_plan.stdout)
-        self.assertNotIn("D1", r_plan.stdout)
-        self.assertNotIn("B1", r_plan.stdout)
+        # 3. --prefix L hides unrelated held branches and chains
+        r_l = self._run([str(SCRIPT), "chain", "--numbered=right", "--prefix=L"], cwd=str(proj_a), check=True)
+        self.assertIn("Standalone tasks:", r_l.stdout)
+        self.assertIn("L1", r_l.stdout)
+        self.assertNotIn("Held branches:", r_l.stdout)
+        self.assertNotIn("D1", r_l.stdout)
+        self.assertNotIn("B1", r_l.stdout)
 
-        # 4. --role with --ready and -w (workspace) and --limit
-        r_ws_work_ready = self._run(
-            [str(SCRIPT), "chain", "--numbered=right", "-w", "--role", "work", "--ready"],
+        # 4. --prefix with --ready, -w (workspace), and --limit
+        r_ws_b_ready = self._run(
+            [str(SCRIPT), "chain", "--numbered=right", "-w", "--prefix", "B", "--ready"],
             cwd=str(ws),
             check=True,
         )
-        self.assertIn("Ready tasks:", r_ws_work_ready.stdout)
-        self.assertIn("proj_a:B1", r_ws_work_ready.stdout)
-        self.assertIn("[work]", r_ws_work_ready.stdout)
-        self.assertNotIn("proj_a:D1", r_ws_work_ready.stdout)
-        self.assertNotIn("proj_a:F1", r_ws_work_ready.stdout)
-        self.assertNotIn("proj_b:F1", r_ws_work_ready.stdout)
+        self.assertIn("Ready tasks:", r_ws_b_ready.stdout)
+        self.assertIn("proj_a:B1", r_ws_b_ready.stdout)
+        self.assertNotIn("proj_a:D1", r_ws_b_ready.stdout)
 
-        r_ws_work_lim = self._run(
-            [str(SCRIPT), "chain", "--numbered=right", "-w", "--role", "work", "--limit", "2"],
+        r_ws_f_lim = self._run(
+            [str(SCRIPT), "chain", "--numbered=right", "-w", "--prefix", "F", "--limit", "2"],
             cwd=str(ws),
             check=True,
         )
         lim_rows = {
-            k: v for k, v in self._table_rows(r_ws_work_lim.stdout).items() if k.endswith(".")
+            k: v for k, v in self._table_rows(r_ws_f_lim.stdout).items() if k.endswith(".")
         }
-        self.assertEqual(sorted(lim_rows), ["1.", "2."], msg=r_ws_work_lim.stdout)
+        self.assertEqual(sorted(lim_rows), ["1.", "2."], msg=r_ws_f_lim.stdout)
 
-        # 5. Empty role match reports clean message; --include-hold brings in held matching tasks
-        r_none = self._run([str(SCRIPT), "chain", "--numbered=right", "--role", "review"], cwd=str(proj_a), check=True)
-        self.assertIn("Chain: (none matching role=review)", r_none.stdout)
+        # 5. Empty prefix match reports clean message; --include-hold brings in held matching tasks
+        r_none = self._run([str(SCRIPT), "chain", "--numbered=right", "--prefix", "Z"], cwd=str(proj_a), check=True)
+        self.assertIn("Chain: (none matching prefix=Z)", r_none.stdout)
 
-        r_none_ready = self._run([str(SCRIPT), "chain", "--numbered=right", "--role", "review", "--ready"], cwd=str(proj_a), check=True)
-        self.assertIn("Ready tasks: (none matching role=review)", r_none_ready.stdout)
+        r_none_ready = self._run([str(SCRIPT), "chain", "--numbered=right", "--prefix", "Z", "--ready"], cwd=str(proj_a), check=True)
+        self.assertIn("Ready tasks: (none matching prefix=Z)", r_none_ready.stdout)
 
-        r_work_hold = self._run([str(SCRIPT), "chain", "--numbered=right", "--role", "work", "--include-hold"], cwd=str(proj_a), check=True)
-        self.assertIn("F3", r_work_hold.stdout)
-        self.assertNotIn("Held branches:", r_work_hold.stdout)
+        r_f_hold = self._run([str(SCRIPT), "chain", "--numbered=right", "--prefix", "F", "--include-hold"], cwd=str(proj_a), check=True)
+        self.assertIn("F3", r_f_hold.stdout)
+        self.assertNotIn("Held branches:", r_f_hold.stdout)
 
-        # 6. MISSING placeholder leaves role column blank without crashing and still surfaces DAG error
-        miss_dir = ws / "miss_role"
+        # 6. MISSING placeholder renders without crashing and still surfaces DAG error
+        miss_dir = ws / "miss_prefix"
         miss_dir.mkdir()
         self._run([str(SCRIPT), "init"], cwd=str(miss_dir), check=True)
         (miss_dir / "TODO.md").write_text("# 🎯 [NEXT] F1: Orphan\n\n- Depends on: F99\n", encoding="utf-8")
         r_miss = self._run([str(SCRIPT), "chain", "--numbered=right"], cwd=str(miss_dir))
         self.assertNotEqual(r_miss.returncode, 0, msg=r_miss.stderr)
         self.assertIn("[MISSING]", r_miss.stdout)
-        self.assertIn("[work]", r_miss.stdout)
         self.assertIn("unresolved blocker F99 (MISSING)", r_miss.stderr)
-        miss_rows = self._table_rows(r_miss.stdout)
-        self.assertNotIn("[work]", miss_rows["1."])
-        self.assertIn("[work]", miss_rows["2."])
 
-        r_miss_role = self._run([str(SCRIPT), "chain", "--numbered=right", "--role", "work"], cwd=str(miss_dir))
-        self.assertNotEqual(r_miss_role.returncode, 0, msg=r_miss_role.stderr)
-        self.assertIn("F1", r_miss_role.stdout)
-        self.assertNotIn("[MISSING]", r_miss_role.stdout)
-        self.assertIn("unresolved blocker F99 (MISSING)", r_miss_role.stderr)
+        r_miss_pref = self._run([str(SCRIPT), "chain", "--numbered=right", "--prefix", "F"], cwd=str(miss_dir))
+        self.assertNotEqual(r_miss_pref.returncode, 0, msg=r_miss_pref.stderr)
+        self.assertIn("F1", r_miss_pref.stdout)
+        self.assertNotIn("[MISSING]", r_miss_pref.stdout)
+        self.assertIn("unresolved blocker F99 (MISSING)", r_miss_pref.stderr)
 
-        # 7. Invalid --role values fail explicitly
+        # 7. Invalid --prefix values fail explicitly
         for bad_args in (
-            ["chain", "--role"],
-            ["chain", "--role", ""],
-            ["chain", "--role="],
-            ["chain", "--role", "a\nb"],
+            ["chain", "--prefix"],
+            ["chain", "--prefix", ""],
+            ["chain", "--prefix="],
+            ["chain", "--prefix", "AB"],
+            ["chain", "--prefix", "a\nb"],
         ):
             with self.subTest(bad_args=bad_args):
                 proc = self._run([str(SCRIPT), *bad_args], cwd=str(proj_a))
                 self.assertNotEqual(proc.returncode, 0, msg=proc.stdout)
-
-    def test_chain_by_role_queues_and_composition(self):
-        ws = self.tmp / "ws_by_role"
-        proj_a = ws / "proj_a"
-        proj_b = ws / "proj_b"
-        proj_a.mkdir(parents=True)
-        proj_b.mkdir(parents=True)
-        self._run([str(SCRIPT), "init"], cwd=str(proj_a), check=True)
-        self._run([str(SCRIPT), "init"], cwd=str(proj_b), check=True)
-
-        # Completed prerequisite should not block Queue 1 (work) or Queue 2 (plan)
-        self._run([str(SCRIPT), "add", "D", "Done design prereq"], cwd=str(proj_a), check=True)
-        self._run([str(SCRIPT), "done", "D1", "-m", "done"], cwd=str(proj_a), check=True)
-
-        # Queue 1 (work): ready work (F1), work blocked only by work/DONE (F2), standalone work (B1)
-        self._run([str(SCRIPT), "add", "F", "Ready work root", "--next", "--depends", "D1"], cwd=str(proj_a), check=True)
-        self._run([str(SCRIPT), "add", "F", "Work after work", "--next", "--depends", "F1"], cwd=str(proj_a), check=True)
-        self._run([str(SCRIPT), "add", "B", "Standalone bugfix", "--next"], cwd=str(proj_a), check=True)
-
-        # Queue 2 (plan): ready plan (F3, NEW fallback), plan depending on work (F4, NEW fallback), plan depending on plan (F5)
-        self._run([str(SCRIPT), "add", "F", "Ready plan", "--depends", "D1"], cwd=str(proj_a), check=True)
-        self._run([str(SCRIPT), "add", "F", "Plan after work", "--depends", "F2"], cwd=str(proj_a), check=True)
-        self._run([str(SCRIPT), "add", "F", "Plan after plan", "--depends", "F4"], cwd=str(proj_a), check=True)
-
-        # Queue 3 (design): ready design (D2), design depending on design (D3)
-        self._run([str(SCRIPT), "add", "D", "Core design", "--next"], cwd=str(proj_a), check=True)
-        self._run([str(SCRIPT), "add", "D", "Followup design", "--depends", "D2"], cwd=str(proj_a), check=True)
-
-        # Queue 4 (deferred work): work blocked by plan (F6), work blocked by design (F7),
-        # and work blocked transitively by design through work (F8 -> F7 -> D2)
-        self._run([str(SCRIPT), "add", "F", "Work after plan", "--next", "--depends", "F4"], cwd=str(proj_a), check=True)
-        self._run([str(SCRIPT), "add", "F", "Work after design", "--next", "--depends", "D2"], cwd=str(proj_a), check=True)
-        self._run([str(SCRIPT), "add", "F", "Work transitively after design", "--next", "--depends", "F7"], cwd=str(proj_a), check=True)
-
-        # Held branch: D4 (HOLD, design) -> F9 (NEXT, work)
-        self._run([str(SCRIPT), "add", "D", "Paused design", "--status", "HOLD"], cwd=str(proj_a), check=True)
-        self._run([str(SCRIPT), "add", "F", "Waiting on held design", "--next", "--depends", "D4"], cwd=str(proj_a), check=True)
-
-        # 1. Default --by-role renders all 4 queues in topological order + Held branches
-        r_by_role = self._run(
-            [str(SCRIPT), "chain", "--numbered=right", "--by-role"],
-            cwd=str(proj_a),
-            env={**os.environ, "COLUMNS": "160"},
-            check=True,
-        )
-        out = r_by_role.stdout
-        self.assertIn("Queue 1 (work):", out)
-        self.assertIn("Queue 2 (plan):", out)
-        self.assertIn("Queue 3 (design):", out)
-        self.assertIn("Queue 4 (deferred work):", out)
-        self.assertIn("Held branches:", out)
-        self.assertIn("D4 (HOLD) -> F9 (NEXT)", out)
-        self.assertNotIn("Done design prereq", out)
-        self.assertNotIn("[blocked by: D1]", out)
-        self.assertIn("[ready | FINAL | COMBO]", out)
-
-        # Order between queues
-        self.assertLess(out.index("Queue 1 (work):"), out.index("Queue 2 (plan):"))
-        self.assertLess(out.index("Queue 2 (plan):"), out.index("Queue 3 (design):"))
-        self.assertLess(out.index("Queue 3 (design):"), out.index("Queue 4 (deferred work):"))
-
-        # Topological order and membership within queues
-        q1_sec = out[out.index("Queue 1 (work):"):out.index("Queue 2 (plan):")]
-        q2_sec = out[out.index("Queue 2 (plan):"):out.index("Queue 3 (design):")]
-        q3_sec = out[out.index("Queue 3 (design):"):out.index("Queue 4 (deferred work):")]
-        q4_sec = out[out.index("Queue 4 (deferred work):"):out.index("Held branches:")]
-
-        self.assertIn("F1", q1_sec)
-        self.assertIn("F2", q1_sec)
-        self.assertIn("B1", q1_sec)
-        self.assertLess(q1_sec.index("F1"), q1_sec.index("F2"))
-        self.assertIn("[ready]", q1_sec)
-        self.assertIn("[ready | STAGE | COMBO | unblocks: 4]", q1_sec)
-        self.assertIn("[blocked by: F1 | unblocks: 3]", q1_sec)
-        self.assertNotIn("F6", q1_sec)
-        self.assertNotIn("F7", q1_sec)
-
-        self.assertIn("F3", q2_sec)
-        self.assertIn("F4", q2_sec)
-        self.assertIn("F5", q2_sec)
-        self.assertLess(q2_sec.index("F4"), q2_sec.index("F5"))
-        self.assertIn("[plan]", q2_sec)
-        self.assertIn("[blocked by: F2 | unblocks: 2]", q2_sec)
-
-        self.assertIn("D2", q3_sec)
-        self.assertIn("D3", q3_sec)
-        self.assertLess(q3_sec.index("D2"), q3_sec.index("D3"))
-        self.assertIn("[design]", q3_sec)
-
-        self.assertIn("F6", q4_sec)
-        self.assertIn("F7", q4_sec)
-        self.assertIn("F8", q4_sec)
-        self.assertLess(q4_sec.index("F7"), q4_sec.index("F8"))
-        self.assertIn("[blocked by: F4]", q4_sec)
-        self.assertIn("[blocked by: D2 | unblocks: 1]", q4_sec)
-        self.assertIn("[blocked by: F7]", q4_sec)
-
-        # 2. --by-role --ready filters to ready tasks and omits Queue 4 (deferred work)
-        r_ready = self._run([str(SCRIPT), "chain", "--numbered=right", "--by-role", "--ready"], cwd=str(proj_a), check=True)
-        r_out = r_ready.stdout
-        self.assertIn("Queue 1 (work):", r_out)
-        self.assertIn("Queue 2 (plan):", r_out)
-        self.assertIn("Queue 3 (design):", r_out)
-        self.assertNotIn("Queue 4 (deferred work):", r_out)
-        self.assertIn("F1", r_out)
-        self.assertIn("B1", r_out)
-        self.assertIn("F3", r_out)
-        self.assertIn("D2", r_out)
-        for blocked_id in ("F2", "F4", "F5", "D3", "F6", "F7", "F8"):
-            self.assertNotIn(blocked_id, r_out)
-
-        # 3. --by-role with --role filters cleanly and omits empty queues
-        r_role_work = self._run([str(SCRIPT), "chain", "--numbered=right", "--by-role", "--role", "work"], cwd=str(proj_a), check=True)
-        self.assertIn("Queue 1 (work):", r_role_work.stdout)
-        self.assertIn("Queue 4 (deferred work):", r_role_work.stdout)
-        self.assertNotIn("Queue 2 (plan):", r_role_work.stdout)
-        self.assertNotIn("Queue 3 (design):", r_role_work.stdout)
-        self.assertIn("Held branches:", r_role_work.stdout)
-
-        r_role_plan = self._run([str(SCRIPT), "chain", "--numbered=right", "--by-role", "--role", "plan"], cwd=str(proj_a), check=True)
-        self.assertIn("Queue 2 (plan):", r_role_plan.stdout)
-        self.assertNotIn("Queue 1 (work):", r_role_plan.stdout)
-        self.assertNotIn("Queue 3 (design):", r_role_plan.stdout)
-        self.assertNotIn("Queue 4 (deferred work):", r_role_plan.stdout)
-        self.assertNotIn("Held branches:", r_role_plan.stdout)
-
-        r_role_none = self._run([str(SCRIPT), "chain", "--numbered=right", "--by-role", "--role", "review"], cwd=str(proj_a), check=True)
-        self.assertIn("Queues: (none matching role=review)", r_role_none.stdout)
-
-        # 4. --by-role with --limit and --include-hold
-        r_lim = self._run([str(SCRIPT), "chain", "--numbered=right", "--by-role", "--limit", "4"], cwd=str(proj_a), check=True)
-        lim_rows = {k: v for k, v in self._table_rows(r_lim.stdout).items() if k.endswith(".")}
-        self.assertEqual(sorted(lim_rows), ["1.", "2.", "3.", "4."], msg=r_lim.stdout)
-        self.assertNotIn("Queue 3 (design):", r_lim.stdout)
-
-        r_hold = self._run([str(SCRIPT), "chain", "--numbered=right", "--by-role", "--include-hold"], cwd=str(proj_a), check=True)
-        self.assertNotIn("Held branches:", r_hold.stdout)
-        h_q3 = r_hold.stdout[r_hold.stdout.index("Queue 3 (design):"):r_hold.stdout.index("Queue 4 (deferred work):")]
-        h_q4 = r_hold.stdout[r_hold.stdout.index("Queue 4 (deferred work):"):]
-        self.assertIn("D4", h_q3)
-        self.assertIn("F9", h_q4)
-
-        # 5. Workspace -w --by-role with cross-project design -> work dependency
-        self._run(
-            [str(SCRIPT), "add", "F", "Cross-project deferred work", "--next", "--depends", "proj_a:D2"],
-            cwd=str(proj_b),
-            check=True,
-        )
-        self._run(
-            [str(SCRIPT), "add", "F", "Cross-project ready work", "--next"],
-            cwd=str(proj_b),
-            check=True,
-        )
-        r_ws = self._run([str(SCRIPT), "chain", "--numbered=right", "-w", "--by-role"], cwd=str(ws), check=True)
-        ws_q1 = r_ws.stdout[r_ws.stdout.index("Queue 1 (work):"):r_ws.stdout.index("Queue 2 (plan):")]
-        ws_q4 = r_ws.stdout[r_ws.stdout.index("Queue 4 (deferred work):"):r_ws.stdout.index("Held branches:")]
-        self.assertIn("proj_b:F2", ws_q1)
-        self.assertIn("proj_b:F1", ws_q4)
-        self.assertIn("[blocked by: proj_a:D2]", " ".join(ws_q4.split()))
 
     def test_chain_ready_downstream_targets(self):
         ws = self.tmp / "ws_ready_downstream"
@@ -615,28 +433,27 @@ class TestChain(TodoMdTestCase):
         )
         rows = {k: v for k, v in self._table_rows(r_local.stdout).items() if k.endswith(".")}
         self.assertEqual(sorted(rows), ["1.", "2."], msg=r_local.stdout)
-        # B1 (work) ranks ahead of D1 (design); its only local dependent is HOLD,
-        # so without --include-hold it has zero stats and omits the trailing bracket tag
-        self.assertIn("B1", rows["1."])
-        self.assertTrue(rows["1."].endswith("Ready bugfix"), msg=rows["1."])
-        self.assertNotIn("unblocks", rows["1."])
         # D1 has 5 active downstream tasks (F3, F2, F1, F4, F5), 4 immediate ready dependents,
-        # and sits in 4 root chains (F1, F3, F4, F5)
-        self.assertIn("D1", rows["2."])
-        self.assertIn("[chain: 4, ready: +4, unblocks: 5]", rows["2."])
+        # and sits in 4 root chains (F1, F3, F4, F5), so it ranks ahead of standalone B1
+        self.assertIn("D1", rows["1."])
+        self.assertIn("[chain: 4, ready: +4, unblocks: 5]", rows["1."])
+        # B1's only local dependent is HOLD, so without --include-hold it has zero stats
+        self.assertIn("B1", rows["2."])
+        self.assertTrue(rows["2."].endswith("Ready bugfix"), msg=rows["2."])
+        self.assertNotIn("unblocks", rows["2."])
 
-        # --role design --ready keeps downstream unblock stats of mixed roles visible on D1
-        r_role = self._run(
-            [str(SCRIPT), "chain", "--numbered=right", "--ready", "--role", "design"],
+        # --prefix D --ready keeps downstream unblock stats visible on D1
+        r_pref = self._run(
+            [str(SCRIPT), "chain", "--numbered=right", "--ready", "--prefix", "D"],
             cwd=str(proj_a),
             env={**os.environ, "COLUMNS": "160"},
             check=True,
         )
-        role_rows = {k: v for k, v in self._table_rows(r_role.stdout).items() if k.endswith(".")}
-        self.assertEqual(sorted(role_rows), ["1."], msg=r_role.stdout)
-        self.assertIn("[chain: 4, ready: +4, unblocks: 5]", role_rows["1."])
+        pref_rows = {k: v for k, v in self._table_rows(r_pref.stdout).items() if k.endswith(".")}
+        self.assertEqual(sorted(pref_rows), ["1."], msg=r_pref.stdout)
+        self.assertIn("[chain: 4, ready: +4, unblocks: 5]", pref_rows["1."])
 
-        # --include-hold includes the held dependent in --ready downstream stats
+        # --include-hold includes the held dependent in --ready downstream stats (B1 chain ranks 1st as bug chain)
         r_hold = self._run(
             [str(SCRIPT), "chain", "--numbered=right", "--ready", "--include-hold"],
             cwd=str(proj_a),
@@ -647,7 +464,7 @@ class TestChain(TodoMdTestCase):
         self.assertIn("B1", hold_rows["1."])
         self.assertIn("[ready: +1, unblocks: 1]", hold_rows["1."])
 
-        # Workspace -w --ready includes cross-project downstream unblock stats
+        # Workspace -w --ready includes cross-project downstream unblock stats (B1 chain ranks 1st as bug chain)
         r_ws = self._run(
             [str(SCRIPT), "chain", "--numbered=right", "-w", "--ready"],
             cwd=str(ws),
@@ -802,20 +619,7 @@ class TestChain(TodoMdTestCase):
                 self.assertIn(tag, row, msg=r_ready.stdout)
         self.assertTrue(ready_rows["6."].endswith("Standalone next"), msg=ready_rows["6."])
 
-        # 3. --by-role ranks chain finales first within their status tier in each role queue
-        r_by_role = self._run(
-            [str(SCRIPT), "chain", "--numbered=right", "--by-role"],
-            cwd=str(proj_a),
-            env={**os.environ, "COLUMNS": "160"},
-            check=True,
-        )
-        br_rows = {k: v for k, v in self._table_rows(r_by_role.stdout).items() if k.endswith(".")}
-        self.assertIn("F6", br_rows["1."], msg=r_by_role.stdout)
-        self.assertIn("[ready | FINAL | COMBO]", br_rows["1."])
-        self.assertIn("F11", br_rows["2."], msg=r_by_role.stdout)
-        self.assertIn("F10", br_rows["3."], msg=r_by_role.stdout)
-
-        # 4. --role and --limit apply consistently starting from top-ranked finale Chain 1:
+        # 3. --status and --limit apply consistently starting from top-ranked finale Chain 1:
         r_lim = self._run(
             [str(SCRIPT), "chain", "--numbered=right", "--limit", "1"],
             cwd=str(proj_a),
@@ -829,17 +633,17 @@ class TestChain(TodoMdTestCase):
         self.assertNotIn("Chain 2", r_lim.stdout)
         self.assertNotIn("Standalone tasks:", r_lim.stdout)
 
-        r_role_lim = self._run(
-            [str(SCRIPT), "chain", "--numbered=right", "--role", "plan", "--limit", "1"],
+        r_st_lim = self._run(
+            [str(SCRIPT), "chain", "--numbered=right", "--status", "NEW", "--limit", "1"],
             cwd=str(proj_a),
             env={**os.environ, "COLUMNS": "160"},
             check=True,
         )
-        self.assertNotIn("Chain finales:", r_role_lim.stdout)
-        self.assertIn("[50% | 1/2] Chain 1 -> F7: Plan after done:", r_role_lim.stdout)
-        self.assertIn("F7", r_role_lim.stdout)
-        self.assertIn("[ready | FINAL]", r_role_lim.stdout)
-        self.assertNotIn("F6", r_role_lim.stdout)
+        self.assertNotIn("Chain finales:", r_st_lim.stdout)
+        self.assertIn("[50% | 1/2] Chain 1 -> F7: Plan after done:", r_st_lim.stdout)
+        self.assertIn("F7", r_st_lim.stdout)
+        self.assertIn("[ready | FINAL]", r_st_lim.stdout)
+        self.assertNotIn("F6", r_st_lim.stdout)
 
         # 5. Workspace -w formats cross-project finale as a Chain header with done stats
         r_ws = self._run(
@@ -943,27 +747,27 @@ class TestChain(TodoMdTestCase):
             check=True,
         )
 
-        # Chain F (design chain: D1 [design] -> D2 [design]): 0 bugs, role=design -> ranks after plan Chain E!
-        self._run([str(SCRIPT), "add", "D", "Design chain root", "--next"], cwd=str(proj_a), check=True)
+        # Chain F (design chain: D1 [NEW] -> D2 [NEW]): 0 bugs, NEW status tier
+        self._run([str(SCRIPT), "add", "D", "Design chain root"], cwd=str(proj_a), check=True)
         self._run(
             [str(SCRIPT), "add", "D", "Design chain leaf", "--depends", "D1"],
             cwd=str(proj_a),
             check=True,
         )
 
-        # Standalone tasks to verify bug-first, role-ease, and status ordering:
-        # - D3: NEXT, design
-        # - F10: NEXT, plan
-        # - F11: NEW, work
-        # - B4: NEXT, work (bug task B* must rank above other work tasks!)
-        self._run([str(SCRIPT), "add", "D", "Standalone design next", "--next"], cwd=str(proj_a), check=True)
+        # Standalone tasks to verify bug-first and status-tier ordering:
+        # - D3: NEW
+        # - F10: NEW
+        # - F11: NEXT
+        # - B4: NEXT (bug task B* must rank above other tasks!)
+        self._run([str(SCRIPT), "add", "D", "Standalone design new"], cwd=str(proj_a), check=True)
         self._run(
-            [str(SCRIPT), "add", "F", "Standalone plan next"],
+            [str(SCRIPT), "add", "F", "Standalone feature new"],
             cwd=str(proj_a),
             check=True,
         )
-        self._run([str(SCRIPT), "add", "F", "Standalone work new", "--next"], cwd=str(proj_a), check=True)
-        self._run([str(SCRIPT), "add", "B", "Standalone bug new", "--next"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Standalone feature next", "--next"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "B", "Standalone bug next", "--next"], cwd=str(proj_a), check=True)
 
         r_chain = self._run(
             [str(SCRIPT), "chain", "--numbered=right"],
@@ -978,26 +782,26 @@ class TestChain(TodoMdTestCase):
         h2 = "[0% | 0/2] Chain 2 -> B2: Blocked bug dist 1:"
         h3 = "[0% | 0/3] Chain 3 -> B3: Blocked bug dist 2:"
         h4 = "[60% | 3/5] Chain 4 -> F3: Progress chain open 2:"
-        h5 = "[0% | 0/2] Chain 5 -> F9: Plan chain leaf:"
-        h6 = "[0% | 0/2] Chain 6 -> D2: Design chain leaf:"
+        h5 = "[0% | 0/2] Chain 5 -> D2: Design chain leaf:"
+        h6 = "[0% | 0/2] Chain 6 -> F9: Plan chain leaf:"
         for h in (h1, h2, h3, h4, h5, h6):
             self.assertIn(h, out, msg=out)
 
         # Verify chain ranking order:
         # Chain 1 (B1 -> F4, ready bug) -> Chain 2 (F5 -> B2, bug dist 1)
-        # -> Chain 3 (F6 -> F7 -> B3, bug dist 2) -> Chain 4 (F2 -> F3, work, 5 total tasks)
-        # -> Chain 5 (F8 -> F9, plan) -> Chain 6 (D1 -> D2, design)
+        # -> Chain 3 (F6 -> F7 -> B3, bug dist 2) -> Chain 4 (F2 -> F3, NEXT, 5 total tasks)
+        # -> Chain 5 (D1 -> D2, NEW) -> Chain 6 (F8 -> F9, NEW)
         self.assertLess(out.index("1 B1"), out.index("3 F5"), msg=out)
         self.assertLess(out.index("3 F5"), out.index("5 F6"), msg=out)
         self.assertLess(out.index("5 F6"), out.index("8 F2"), msg=out)
-        self.assertLess(out.index("8 F2"), out.index("10 F8"), msg=out)
-        self.assertLess(out.index("10 F8"), out.index("12 D1"), msg=out)
+        self.assertLess(out.index("8 F2"), out.index("10 D1"), msg=out)
+        self.assertLess(out.index("10 D1"), out.index("12 F8"), msg=out)
 
-        # Verify Standalone tasks ordering: B4 (bug, work, NEW) -> F11 (work, NEW) -> F10 (plan, NEXT) -> D3 (design, NEXT)
+        # Verify Standalone tasks ordering: B4 (bug, NEXT) -> F11 (NEXT) -> D3 (NEW) -> F10 (NEW)
         solo_sec = out[out.index("Standalone tasks:"):]
         self.assertLess(solo_sec.index("B4"), solo_sec.index("F11"), msg=solo_sec)
-        self.assertLess(solo_sec.index("F11"), solo_sec.index("F10"), msg=solo_sec)
-        self.assertLess(solo_sec.index("F10"), solo_sec.index("D3"), msg=solo_sec)
+        self.assertLess(solo_sec.index("F11"), solo_sec.index("D3"), msg=solo_sec)
+        self.assertLess(solo_sec.index("D3"), solo_sec.index("F10"), msg=solo_sec)
 
         # Complete B1: B1 moves to DONE; if B1 -> F4 -> F12 had 2 open tasks left, total_tasks and total_bugs stay non-decreasing
         # Complete F2 in Chain 4: Chain 4 is now a finale F3 with 4 done tasks; complete F5 in Chain 2 so B2 becomes ready!
@@ -1224,9 +1028,7 @@ class TestChain(TodoMdTestCase):
                 self.assertNotIn("Flow internal step", out_ext)
                 self.assertNotIn("Todo md standalone task", out_ext)
 
-        # 5. Project-scoped `--ready` and `--by-role` filters to target project tasks while preserving orchestrator blockers
-        # Because run_block:F1 is blocked by todo_flow:D1 (design) and todo_flow:F1 (work),
-        # run_block:F1 is NOT ready in `--ready` and is placed in `Queue 4 (deferred work)` in `--by-role`!
+        # 5. Project-scoped `--ready` filters to target project tasks while preserving orchestrator blockers
         r_ready = self._run(
             [str(SCRIPT), "-C", "run_block", "chain", "--ready"],
             cwd=str(ws),
@@ -1238,20 +1040,6 @@ class TestChain(TodoMdTestCase):
         self.assertNotIn("run_block:F1", r_ready.stdout)
         self.assertNotIn("todo_flow:", r_ready.stdout)
         self.assertNotIn("todo_md:", r_ready.stdout)
-
-        r_by_role = self._run(
-            [str(SCRIPT), "-C", "run_block", "chain", "--by-role"],
-            cwd=str(ws),
-            env=base_env,
-            check=True,
-        )
-        self.assertIn("Queue 1 (work):", r_by_role.stdout)
-        self.assertIn("run_block:F3", r_by_role.stdout)
-        self.assertIn("run_block:F2", r_by_role.stdout)
-        self.assertIn("Queue 4 (deferred work):", r_by_role.stdout)
-        self.assertIn("run_block:F1", r_by_role.stdout)
-        self.assertNotIn("Queue 3 (design):", r_by_role.stdout)
-        self.assertNotIn("todo_md:F2", r_by_role.stdout)
 
         # 6. ANSI dim-italic styling for external-project tasks inside displayed chains:
         # - In pipes (default without FORCE_COLOR): no ANSI escape sequences
@@ -1435,8 +1223,8 @@ class TestChain(TodoMdTestCase):
         out_all_plain = r_all_plain.stdout
         self.assertIn("todo_flow:D1", out_all_plain)
         self.assertIn("✅ [DONE]", out_all_plain)
-        self.assertRegex(out_all_plain, r"todo_flow:D1\s+✅ \[DONE\]\s+\[design\]\s+Shared architecture spec.*\[also in: F3\]")
-        self.assertRegex(out_all_plain, r"todo_flow:D1\s+✅ \[DONE\]\s+\[design\]\s+Shared architecture spec.*\[also in: F4\]")
+        self.assertRegex(out_all_plain, r"todo_flow:D1\s+✅ \[DONE\]\s+Shared architecture spec.*\[also in: F3\]")
+        self.assertRegex(out_all_plain, r"todo_flow:D1\s+✅ \[DONE\]\s+Shared architecture spec.*\[also in: F4\]")
         self.assertLess(out_all_plain.index("1 todo_flow:D1"), out_all_plain.index("2 F1"))
 
         # Test composable ANSI styling under --all:
@@ -1535,7 +1323,7 @@ class TestChain(TodoMdTestCase):
         mod = self.todo_md_mod
 
         # 1. Direct unit test for _wrap_table_row() with cont_prefix preserving vertical bars
-        prefix = "  │   ├─ 1. F1            🎯 [NEXT]       [work]      "
+        prefix = "  │   ├─ 1. F1            🎯 [NEXT]       "
         desc = (
             "Long nested sub-chain task description that wraps cleanly across multiple lines "
             "without ellipsis truncation while keeping active vertical tree bars"

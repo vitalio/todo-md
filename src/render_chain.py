@@ -4,8 +4,7 @@ def cmd_chain(
     include_hold: bool = False,
     include_done: bool = False,
     ready: bool = False,
-    role: str | None = None,
-    by_role: bool = False,
+    prefix: str | None = None,
     workspace: bool = False,
     explicit_dir: str | None = None,
     targets: list[tuple[Path, str]] | None = None,
@@ -71,22 +70,13 @@ def cmd_chain(
         sys.stdout.write(f"No open tasks {scope_msg}\n")
         return 0
 
-    if by_role:
-        plan = plan_execution_chains_by_role(
-            dag,
-            include_hold=include_hold,
-            ready_only=ready,
-            limit=(None if (target_project is not None or row_scoped) else limit),
-            role=role,
-        )
-    else:
-        plan = plan_execution_chains(
-            dag,
-            include_hold=include_hold,
-            ready_only=ready,
-            limit=(None if (role is not None or row_scoped or target_project is not None) else limit),
-            include_done=include_done,
-        )
+    plan = plan_execution_chains(
+        dag,
+        include_hold=include_hold,
+        ready_only=ready,
+        limit=(None if (prefix is not None or row_scoped or target_project is not None) else limit),
+        include_done=include_done,
+    )
     active_nodes: list[tuple[Path, str]] = plan["active_nodes"]  # type: ignore[assignment]
     active_unblocks: dict[tuple[Path, str], int] = plan["active_unblocks"]  # type: ignore[assignment]
     excluded_hold: set[tuple[Path, str]] = plan["excluded_hold"]  # type: ignore[assignment]
@@ -135,16 +125,16 @@ def cmd_chain(
     term_width = _get_terminal_columns()
     use_color = _use_ansi_color()
     target_set, unscoped_target_ids = _normalize_target_refs(base_dir, targets, explicit_dir=explicit_dir)
-    wanted_role = role.strip().lower() if role is not None else None
+    wanted_prefix = prefix.strip().upper() if prefix is not None else None
 
     def _is_highlighted_node(u: tuple[Path, str]) -> bool:
         return (u[0].resolve(), u[1].upper()) in target_set or u[1].upper() in unscoped_target_ids
 
-    def _matches_role(u: tuple[Path, str]) -> bool:
-        if wanted_role is None:
+    def _matches_prefix(u: tuple[Path, str]) -> bool:
+        if wanted_prefix is None:
             return True
         nd = nodes[u]
-        return bool(nd.get("exists")) and _task_matches_role(nd, wanted_role)
+        return bool(nd.get("exists")) and _task_matches_prefix(nd, wanted_prefix)
 
     focus_set, focus_unscoped = _normalize_target_refs(base_dir, focus, explicit_dir=explicit_dir)
     focus_active = bool(focus_set or focus_unscoped)
@@ -182,7 +172,6 @@ def cmd_chain(
         ref = str(nd["ref"])
         title = str(nd["title"])
         blockers = [str(nodes[p]["ref"]) for p in prereqs.get(u, []) if str(nodes[p]["status"]) != "DONE"]
-        role_badge = _task_role_badge(nd) if nd.get("exists") else ""
         impact = active_unblocks.get(u, 0)
         done_c = done_counts.get(u, len(done_nodes.get(u, set())))
         if st == "MISSING":
@@ -236,13 +225,12 @@ def cmd_chain(
             also_tag = f"[also in: {', '.join(also_in_refs)}]"
             status_tag = f"{status_tag} {also_tag}" if status_tag else also_tag
         lead_cell = _lead_cell(tree_prefix, idx, ref)
-        prefix = (
+        row_prefix = (
             f"  {_pad_display(lead_cell, lead_col_width)}  "
             f"{_pad_display(badge, 14)}  "
-            f"{_pad_display(role_badge, 10)}  "
         )
         desc = f"{title}  {status_tag}" if status_tag else title
-        rendered = _wrap_table_row(prefix, desc, term_width, cont_prefix=cont_prefix) + "\n"
+        rendered = _wrap_table_row(row_prefix, desc, term_width, cont_prefix=cont_prefix) + "\n"
         return _style_task_row(
             rendered,
             is_external=not _is_target_node(u),
@@ -272,8 +260,8 @@ def cmd_chain(
 
         if target_project is not None:
             held_paths = [path for path in held_paths if any(_is_target_node(k) for k in path)]
-        if wanted_role is not None:
-            held_paths = [path for path in held_paths if any(_matches_role(k) for k in path)]
+        if wanted_prefix is not None:
+            held_paths = [path for path in held_paths if any(_matches_prefix(k) for k in path)]
         if focus_active:
             held_paths = [path for path in held_paths if any(_is_focus_node(k) for k in path)]
         if status is not None:
@@ -285,68 +273,32 @@ def cmd_chain(
         if _is_target_node(u) or any(u in path for path in held_paths)
     }
 
-    if by_role:
-        queues: list[tuple[str, str, list[tuple[Path, str]]]] = plan["queues"]  # type: ignore[assignment]
-        if target_project is not None or row_scoped:
-            queues = [
-                (q_key, q_label, [u for u in q_items if _is_target_node(u) and _row_ok(u)])
-                for q_key, q_label, q_items in queues
-            ]
-            if limit is not None:
-                rem = limit
-                limited_queues: list[tuple[str, str, list[tuple[Path, str]]]] = []
-                for q_key, q_label, q_items in queues:
-                    if rem <= 0:
-                        limited_queues.append((q_key, q_label, []))
-                        continue
-                    take = q_items[:rem]
-                    limited_queues.append((q_key, q_label, take))
-                    rem -= len(take)
-                queues = limited_queues
-        non_empty_queues = [(q_label, q_items) for _, q_label, q_items in queues if q_items]
-        num_w_box[0] = len(str(max(1, sum(len(q_items) for _, q_items in non_empty_queues))))
-        matching_held = [u for u in scoped_excluded_hold if _matches_role(u) and _is_target_node(u) and _row_ok(u)]
-        if non_empty_queues:
-            row_idx = 1
-            for sec_idx, (q_label, q_items) in enumerate(non_empty_queues):
-                if sec_idx > 0:
-                    sys.stdout.write("\n")
-                sys.stdout.write(f"{q_label}:\n")
-                for u in q_items:
-                    sys.stdout.write(_format_row(row_idx, u))
-                    row_idx += 1
-        elif matching_held:
-            role_note = f" matching role={role.strip()}" if role is not None else ""
-            sys.stdout.write(
-                f"Queues: (none{role_note} — {len(matching_held)} held task(s); pass --include-hold to include)\n"
-            )
-        elif role is not None:
-            sys.stdout.write(f"Queues: (none matching role={role.strip()})\n")
-        else:
-            sys.stdout.write("Queues: (none)\n")
-    elif ready:
+    def _filter_note() -> str:
+        return f" matching prefix={wanted_prefix}" if wanted_prefix is not None else ""
+
+    if ready:
         ready_tasks: list[tuple[Path, str]] = plan["ready_tasks"]  # type: ignore[assignment]
         if target_project is not None:
             ready_tasks = [u for u in ready_tasks if _is_target_node(u)]
-        if wanted_role is not None:
-            ready_tasks = [u for u in ready_tasks if _matches_role(u)]
+        if wanted_prefix is not None:
+            ready_tasks = [u for u in ready_tasks if _matches_prefix(u)]
         if row_scoped:
             ready_tasks = [u for u in ready_tasks if _row_ok(u)]
-        if (target_project is not None or wanted_role is not None or row_scoped) and limit is not None:
+        if (target_project is not None or wanted_prefix is not None or row_scoped) and limit is not None:
             ready_tasks = ready_tasks[:limit]
-        matching_held = [u for u in scoped_excluded_hold if _matches_role(u) and _is_target_node(u) and _row_ok(u)]
+        matching_held = [u for u in scoped_excluded_hold if _matches_prefix(u) and _is_target_node(u) and _row_ok(u)]
         num_w_box[0] = len(str(max(1, len(ready_tasks))))
+        f_note = _filter_note()
         if ready_tasks:
             sys.stdout.write("Ready tasks:\n")
             for idx, u in enumerate(ready_tasks, start=1):
                 sys.stdout.write(_format_row(idx, u, show_downstream=True))
         elif matching_held:
-            role_note = f" matching role={role.strip()}" if role is not None else ""
             sys.stdout.write(
-                f"Ready tasks: (none{role_note} — {len(matching_held)} held task(s); pass --include-hold to include)\n"
+                f"Ready tasks: (none{f_note} — {len(matching_held)} held task(s); pass --include-hold to include)\n"
             )
-        elif role is not None:
-            sys.stdout.write(f"Ready tasks: (none matching role={role.strip()})\n")
+        elif f_note:
+            sys.stdout.write(f"Ready tasks: (none{f_note})\n")
         else:
             sys.stdout.write("Ready tasks: (none)\n")
     else:
@@ -389,14 +341,14 @@ def cmd_chain(
                 if _chain_has_target_node(comp, st_info)
             ]
             standalone = [u for u in standalone if _is_target_node(u)]
-        if wanted_role is not None:
+        if wanted_prefix is not None:
             filtered_chains_with_stats: list[tuple[list[tuple[Path, str]], dict[str, object]]] = []
             for comp, st_info in chains_with_stats:
-                f_comp = [u for u in comp if _matches_role(u)]
+                f_comp = [u for u in comp if _matches_prefix(u)]
                 if f_comp and (target_project is None or any(_is_target_node(u) for u in f_comp)):
                     filtered_chains_with_stats.append((f_comp, st_info))
             chains_with_stats = filtered_chains_with_stats
-            standalone = [u for u in standalone if _matches_role(u)]
+            standalone = [u for u in standalone if _matches_prefix(u)]
         if row_scoped:
             scoped_chains: list[tuple[list[tuple[Path, str]], dict[str, object]]] = []
             for comp, st_info in chains_with_stats:
@@ -413,7 +365,7 @@ def cmd_chain(
                     scoped_chains.append((f_comp, st_info))
             chains_with_stats = scoped_chains
             standalone = [u for u in standalone if _row_ok(u)]
-        if (target_project is not None or wanted_role is not None or row_scoped) and limit is not None:
+        if (target_project is not None or wanted_prefix is not None or row_scoped) and limit is not None:
             rem = limit
             limited_chains_with_stats: list[tuple[list[tuple[Path, str]], dict[str, object]]] = []
             for comp, st_info in chains_with_stats:
@@ -424,7 +376,7 @@ def cmd_chain(
                 rem -= len(take)
             standalone = standalone[:rem] if rem > 0 else []
             chains_with_stats = limited_chains_with_stats
-        matching_held = [u for u in scoped_excluded_hold if _matches_role(u) and _is_target_node(u) and _row_ok(u)]
+        matching_held = [u for u in scoped_excluded_hold if _matches_prefix(u) and _is_target_node(u) and _row_ok(u)]
         if chains_with_stats or standalone:
             row_idx = 1
             wrote_section = False
@@ -647,12 +599,12 @@ def cmd_chain(
                     sys.stdout.write(_format_row(row_idx, u))
                     row_idx += 1
         elif matching_held:
-            role_note = f" matching role={role.strip()}" if role is not None else ""
+            f_note = _filter_note()
             sys.stdout.write(
-                f"Chain: (none{role_note} — {len(matching_held)} held task(s); pass --include-hold to include)\n"
+                f"Chain: (none{f_note} — {len(matching_held)} held task(s); pass --include-hold to include)\n"
             )
-        elif role is not None:
-            sys.stdout.write(f"Chain: (none matching role={role.strip()})\n")
+        elif _filter_note():
+            sys.stdout.write(f"Chain: (none{_filter_note()})\n")
         else:
             sys.stdout.write("Chain: (none)\n")
 

@@ -1,13 +1,3 @@
-# 🎯 [NEXT] F72: Emit Bundle-Name and declarative Files preamble headers, decouple hardcoded roles from todo_md, and drop Windows support
-
-- Depends on: B7, F71
-- Implement the Producer side of `todo_flow` `docs/adr/0003-task-targeted-bundle-architecture-and-atomic-rule-taxonomy.md`:
-  - In `src/bundle.py`, emit `Bundle-Name: todo_md` and native task preamble headers `Task: <ID>`, `Prefix: <P>`, `Status: <S>`, `Title: <title>`, and `Files: <space-separated path or path:start-end specs>` (plus `Role: <role>` only when an explicit `role=<role>` CLI override is passed). Stop reading and streaming target file contents as `kind: "include"` body fragments in `todo_md`, leaving file reading and span deduplication to `agents_bundle` (`file {todo_md.files:}`).
-  - Decouple `todo_md` from `agents-rules` role names: remove hardcoded `resolve_task_role()`, `PREFIX_DEFAULT_ROLES`, `STATUS_ROLES`, `ROLE_EASE_ORDER`, `ROLE_EFFORT_WEIGHTS`, `RETIRED_ROLES`, `--role`, `--by-role`, and the `[role]` table column from `src/header.py`, `src/parser.py`, `src/dag.py`, `src/chains.py`, `src/render.py`, `src/render_chain.py`, `src/commands.py`, and `src/cli.py`; rank chains and tasks natively by bugfix prefix (`B*`), status tier (`WIP` -> `NEXT` -> `QUESTION` -> `NEW` -> `HOLD`), and Quest Momentum; support native `--prefix <P>` and `--status <S>` filtering in `list`, `chain`, and `next-id`.
-  - Remove `agents/todo_md_work.md` (`EMBEDDED_RULE_TODO_MD_WORK` in `build.py` and `src/header.py`) and keep `agents/todo_md.md` focused strictly on `todo_md` CLI commands, statuses, prefixes (`A-Z`, noting `L` for legislative rule tasks alongside `F`, `B`, `D`), `--depends`, and `- Target files:` without hardcoded role workflow instructions (which move to `agents-rules` `agents/adapters/todo_md.bundle`).
-  - Drop Windows support: remove `install.ps1` and remove `install.ps1` / `windows-latest` references from `.github/workflows/ci.yml`, `build.py`, `README.md`, and `AGENTS.md`.
-- Target files: `src/header.py`, `src/parser.py`, `src/render.py`, `src/chains.py`, `src/bundle.py`, `src/cli.py`, `agents/todo_md.md`, `AGENTS.md`, `README.md`.
-
 # 🎯 [NEXT] D3: Design explicit HOLD task review workflow and reverse dependency visibility
 
 - Specify how `HOLD` tasks expose downstream blocked dependents (`Blocks: ...` in `show` / `list HOLD`, including cross-project references under `-w`) so reviewers see what unblocks when a `HOLD` condition is met.

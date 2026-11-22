@@ -322,11 +322,7 @@ class TestDeps(TodoMdTestCase):
         # Completing F1 unblocks F2 -> F2 becomes ready with [deps: DONE] and moves before F3/F5
         self._run([str(SCRIPT), "done", "F1", "-m", "d1"], cwd=str(proj_a), check=True)
         r_after_done = self._run([str(SCRIPT), "list", "-w"], cwd=str(proj_a), check=True)
-        ws_after = {
-            line.split()[0]: line
-            for line in r_after_done.stdout.splitlines()
-            if line.startswith("  ")
-        }
+        ws_after = self._table_rows(r_after_done.stdout)
         self.assertIn("🎯 [NEXT]", ws_after["proj_a:F2"])
         self.assertIn("[deps: DONE]", ws_after["proj_a:F2"])
         self.assertIn("⏳ [NEXT]", ws_after["proj_a:F3"])

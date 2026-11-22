@@ -26,8 +26,8 @@ class TestCli(TodoMdTestCase):
         self.assertIn("--reopen", rh.stdout)
         self.assertIn("-C DIR|PROJ, --project NAME", rh.stdout)
         self.assertIn("add", rh.stdout)
-        self.assertIn("--role ROLE", rh.stdout)
-        self.assertIn("Options: --role ROLE, -r/--ready, --limit N, --full", flat)
+        self.assertIn("--prefix PREFIX", rh.stdout)
+        self.assertIn("Options: --prefix PREFIX, --status STATUS, -r/--ready, --limit N, --full", flat)
         self.assertIn("edit", rh.stdout)
         self.assertIn("append", rh.stdout)
 
@@ -46,7 +46,7 @@ class TestCli(TodoMdTestCase):
         self.assertIn("- Target files:", rule_txt)
         self.assertNotIn("Mode: ", rule_txt)
         self.assertIn("-C <dir|project>` or `--project <name>`", rule_txt)
-        self.assertIn("list [active|archive|all|<STATUS>] [<ID>...] [--role <role>] [-r|--ready] [--limit N] [--full]", rule_txt)
+        self.assertIn("list [active|archive|all|<STATUS>] [<ID>...] [--prefix <P>] [--status <S>] [-r|--ready] [--limit N] [--full]", rule_txt)
         self.assertIn("--max-total-lines N", flat)
         self.assertIn("-r, --ready", rh.stdout)
         self.assertIn("Chain integration (both directions)", rule_txt)
@@ -59,6 +59,7 @@ class TestCli(TodoMdTestCase):
             "-t, --tree",
             "--numbered[=left|right]",
             "-l N, --limit N, -n N",
+            "--prefix PREFIX",
             "--status STATUS",
             "-f, --filter <ID>...",
             "-H, --highlight [<ID>...]",
@@ -67,29 +68,30 @@ class TestCli(TodoMdTestCase):
         ):
             with self.subTest(help_frag=help_frag):
                 self.assertIn(help_frag, rh.stdout)
-        self.assertIn("next-id [<ID>] [--role ROLE]", rh.stdout)
+        self.assertIn("next-id [<ID>] [--prefix P] [--status S]", rh.stdout)
         self.assertIn("queue <ID> [--all]", rule_txt)
         self.assertIn(
-            "chain [<ID>...] [--all] [--by-role] [--role <role>] [--ready] [-l N|--limit N] [--include-hold] [--tree] [--numbered[=left|right]]",
+            "chain [<ID>...] [--all] [--prefix <P>] [--status <S>] [--ready] [-l N|--limit N] [--include-hold] [--tree] [--numbered[=left|right]]",
             rule_txt,
         )
         self.assertIn("alias for `todo_md chain <ID> [--all]`", rule_txt)
-        self.assertIn("next-id [<ID>] [--role <role>]", rule_txt)
+        self.assertIn("next-id [<ID>] [--prefix <P>] [--status <S>]", rule_txt)
         self.assertIn("A -> B -> C", rule_txt)
         self.assertIn("do not introduce a separate `- Order:` field", rule_txt)
-        self.assertIn("role=work", rule_txt)
-        self.assertIn("role=review", rule_txt)
-        self.assertIn("strips an existing `- Role: plan` line", rule_txt)
+        self.assertIn("Bundle-Name: todo_md", rule_txt)
+        self.assertIn("Files: <space-separated specs>", rule_txt)
+        self.assertIn("strips any existing `- Role:` line", rule_txt)
         self.assertIn("agents_bundle | run_block", rule_txt)
-        self.assertNotIn("role=execute", rule_txt)
-        self.assertIn("Task ID prefixes and roles", rh.stdout)
-        self.assertIn("D Design (role: design in any status)", flat)
-        self.assertNotIn("--role ROLE, --depends SPEC", rh.stdout)
-        self.assertIn("Task ID prefixes: `F` is a feature", rule_txt)
-        self.assertIn("rejects `- Role:` lines in active `TODO.md` tasks", rule_txt)
-        self.assertIn("inside the final commit step", rule_txt)
-        self.assertNotIn("--role <role>] [--depends <spec>]", rule_txt)
-        self.assertNotIn("role=audit", rule_txt)
+        self.assertNotIn("role=work", rule_txt)
+        self.assertNotIn("role=plan", rule_txt)
+        self.assertNotIn("role=review", rule_txt)
+        self.assertIn("Task ID prefixes:", rh.stdout)
+        self.assertIn("L Legislative rule task (agents/, AGENTS.md)", flat)
+        self.assertNotIn("--role", rh.stdout)
+        self.assertNotIn("--by-role", rh.stdout)
+        self.assertIn("Task ID prefixes (`A-Z`): `F` is a feature", rule_txt)
+        self.assertIn("rejects `- Role:` lines in active", rule_txt)
+        self.assertFalse((ROOT / "install.ps1").exists())
 
     def _assert_help_aligned(self, text: str) -> None:
         lines = text.splitlines()
@@ -102,7 +104,7 @@ class TestCli(TodoMdTestCase):
             "Commands:",
             "Global options:",
             "Quest-Log options",
-            "Task ID prefixes and roles",
+            "Task ID prefixes:",
             "Files:",
             "Environment variables:",
         )

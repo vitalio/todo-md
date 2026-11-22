@@ -23,14 +23,12 @@ import unicodedata
 from datetime import date
 from pathlib import Path
 
-VERSION = "0.42.7"
+VERSION = "0.43.0"
 REPO_MARKER = "todo_md-repo: vitalio/todo_md"
 DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/vitalio/todo_md/main/todo_md"
 FENCE = chr(96) * 3
-EMBEDDED_RULE_TODO_MD = '# Description: Structured Markdown task management (TODO.md and TODO_ARCHIVE.md) via todo_md\n- Task management (`todo_md`: `TODO.md`, `TODO_ARCHIVE.md`): Always inspect and\n  modify `TODO.md` and `TODO_ARCHIVE.md` via `todo_md` (never via `cat` or\n  manual file edits). Repository scope only: record each task in the `TODO.md`\n  of the repository it belongs to (run `todo_md -h` for full CLI option lists).\n  - Status lifecycle & role derivation: `TODO.md` orders active tasks as\n    `🔵 [WIP]` -> `🎯 [NEXT]` -> `❓ [QUESTION]` -> `⚪ [NEW]` -> `⏸️ [HOLD]`,\n    and `TODO_ARCHIVE.md` keeps `✅ [DONE]` and `❌ [CANCELED]` newest-first.\n    Task ID prefixes: `F` is a feature (default on `add`), `B` is a bugfix\n    (ranked ahead in `chain`), `D` is a design task (`D*` -> `design` in any\n    status), and other `A-Z` prefixes are custom domains; non-`D` tasks resolve\n    to `work` in `WIP`/`NEXT` and `plan` in `NEW`/`QUESTION`/`HOLD`.\n    `todo_md check` rejects `- Role:` lines in active `TODO.md` tasks,\n    `todo_md next <ID>` strips an existing `- Role: plan` line, and\n    `todo_md <ID> [role=<role>]` in bundle mode\n    (`todo_md <ID> | agents_bundle | run_block`) is read-only: it emits\n    `Role: <role>` (derived, or the `role=<role>` override that also selects\n    this rule) and preloads target files (`--no-files` opts out); start a task\n    with `todo_md status <ID> WIP` or `todo_md next <ID>`.\n  - Inspect & target selection: pass `-C <dir|project>` or `--project <name>`\n    before subcommands (or `<project>:<ID>` on task refs). Core views:\n    `todo_md [opts] [-w]`, `todo_md overview [--full] [-w]`, `todo_md projects`,\n    `todo_md [show] <ID>...`, `todo_md last[-id] [<STATUS|archive>]`,\n    `todo_md list [active|archive|all|<STATUS>] [<ID>...] [--role <role>] [-r|--ready] [--limit N] [--full]`,\n    `todo_md archive`, `todo_md ids`, `todo_md queue <ID> [--all]` (alias for `todo_md chain <ID> [--all]`),\n    `todo_md chain [<ID>...] [--all] [--by-role] [--role <role>] [--ready] [-l N|--limit N] [--include-hold] [--tree] [--numbered[=left|right]] [-f <ID>...] [-H] [-s <QUERY>]`,\n    `todo_md next-id [<ID>] [--role <role>]`,\n    `todo_md files [<ID>] [--max-lines N] [--max-total-lines N] [--max-bytes N] [--max-total-bytes N]`.\n  - Mutate & validate: `todo_md add [<PROJECT>] [<PREFIX>] "<title>" [-p <P>]\n    [--next] [--status <S>] [-m "<note>"] [-b "<body_md>"|-] [--depends <spec>]\n    [-c]`, `todo_md edit <ID> [-t "<title>"] [-m "<note>"] [-b "<body_md>"|-]\n    [--depends <spec>] [-c]`, `todo_md append <ID> [-b "<text>"|-] [-c]`,\n    `todo_md next <ID>... [-m "<note>"] [--reopen] [-c]`,\n    `todo_md status <ID>... <STATUS> [-m "<note>"] [--reopen] [-c]`,\n    `todo_md reopen <ID>... [--status <S>] [-m "<note>"] [-c]`,\n    `todo_md done <ID>... [-m "<note>"] [-c]`,\n    `todo_md cancel <ID>... [-m "<reason>"] [-c]`, `todo_md check`. In\n    `role=plan`, `role=design`, and `role=review`, batch mutations without `-c`\n    and commit `TODO*.md` once backlog updates are complete; in `role=work`,\n    run `todo_md done <ID>` inside the final commit step without `-c`.\n  - Dependencies & Chain integration (both directions): in `--depends` and\n    `- Depends on:`, use `,` for parallel items (`A,B`) and `->` for sequential\n    stages (`"A -> B -> C"`, `,` binds tighter than `->`; repeat for AND\n    branches; do not introduce a separate `- Order:` field). Wire new or refined\n    tasks both upstream (`--depends`) and downstream (`todo_md edit <ID>\n    --depends ...` on existing open tasks or waves).\n  - Target files contract: when target files are already known during planning,\n    record them as plain backticked paths on one `- Target files:` bullet\n    (excluding `TODO*.md` and `AGENTS.md`); do not spend extra steps searching\n    for files or computing symbol or line slices.\n'
-EMBEDDED_RULE_TODO_MD_WORK = '# Description: Compact todo_md execution rule for role=work\n- Task management (`todo_md`: `TODO.md`, `TODO_ARCHIVE.md`, `role=work`):\n  - Always inspect and modify `TODO.md` and `TODO_ARCHIVE.md` via `todo_md`\n    (never via `cat` or manual file edits). Repository scope only: record each\n    task in the `TODO.md` of the repository it belongs to.\n  - Start the task in the first `run_block` step: `todo_md status <ID> WIP`\n    (without `-c` / `--commit`) unless it is already `WIP`; `todo_md <ID>`\n    never changes status.\n  - Close the active task via `todo_md done <ID>` inside the final guarded\n    commit step (after the edit-and-diff step is verified clean, immediately\n    before staging and `git commit`, never during the edit step). Do not pass\n    `-c` / `--commit`; stage `TODO.md` and `TODO_ARCHIVE.md` into the final\n    code commit so backlog updates are committed atomically with code changes.\n  - Record out-of-scope findings via\n    `todo_md add "<title>" -b "<problem_and_impact>"` in default `NEW` status\n    without `--depends`; stage them into the final code commit (or pass `-c` /\n    `--commit` when recorded after the code commit is already pushed or when no\n    code commit follows). Run `todo_md -h` for full CLI flags and options.\n'
+EMBEDDED_RULE_TODO_MD = '# Description: Structured Markdown task management (TODO.md and TODO_ARCHIVE.md) via todo_md\n- Task management (`todo_md`: `TODO.md`, `TODO_ARCHIVE.md`): Always inspect and\n  modify `TODO.md` and `TODO_ARCHIVE.md` via `todo_md` (never via `cat` or\n  manual file edits). Repository scope only: record each task in the `TODO.md`\n  of the repository it belongs to (run `todo_md -h` for full CLI option lists).\n  - Status lifecycle & task ID prefixes: `TODO.md` orders active tasks as\n    `🔵 [WIP]` -> `🎯 [NEXT]` -> `❓ [QUESTION]` -> `⚪ [NEW]` -> `⏸️ [HOLD]`,\n    and `TODO_ARCHIVE.md` keeps `✅ [DONE]` and `❌ [CANCELED]` newest-first.\n    Task ID prefixes (`A-Z`): `F` is a feature (default on `add`), `B` is a\n    bugfix (ranked ahead in `chain`), `D` is a design task, `L` is a\n    legislative rule task (`agents/`, `AGENTS.md`), and other `A-Z` prefixes\n    are custom domains. `todo_md check` rejects `- Role:` lines in active\n    `TODO.md` tasks, `todo_md next <ID>` strips any existing `- Role:` line,\n    and `todo_md <ID> [role=<role>]` in bundle mode\n    (`todo_md <ID> | agents_bundle | run_block`) is read-only: it emits\n    `Bundle-Name: todo_md`, `Task: <ID>`, `Prefix: <P>`, `Status: <S>`,\n    `Title: <title>`, and `Files: <space-separated specs>` (`--no-files` opts\n    out; `Role: <role>` is emitted only when `role=<role>` is passed); start a\n    task with `todo_md status <ID> WIP` or `todo_md next <ID>`.\n  - Inspect & target selection: pass `-C <dir|project>` or `--project <name>`\n    before subcommands (or `<project>:<ID>` on task refs). Core views:\n    `todo_md [opts] [-w]`, `todo_md overview [--full] [-w]`, `todo_md projects`,\n    `todo_md [show] <ID>...`, `todo_md last[-id] [<STATUS|archive>]`,\n    `todo_md list [active|archive|all|<STATUS>] [<ID>...] [--prefix <P>] [--status <S>] [-r|--ready] [--limit N] [--full]`,\n    `todo_md archive`, `todo_md ids`, `todo_md queue <ID> [--all]` (alias for `todo_md chain <ID> [--all]`),\n    `todo_md chain [<ID>...] [--all] [--prefix <P>] [--status <S>] [--ready] [-l N|--limit N] [--include-hold] [--tree] [--numbered[=left|right]] [-f <ID>...] [-H] [-s <QUERY>]`,\n    `todo_md next-id [<ID>] [--prefix <P>] [--status <S>]`,\n    `todo_md files [<ID>] [--max-lines N] [--max-total-lines N] [--max-bytes N] [--max-total-bytes N]`.\n  - Mutate & validate: `todo_md add [<PROJECT>] [<PREFIX>] "<title>" [-p <P>]\n    [--next] [--status <S>] [-m "<note>"] [-b "<body_md>"|-] [--depends <spec>]\n    [-c]`, `todo_md edit <ID> [-t "<title>"] [-m "<note>"] [-b "<body_md>"|-]\n    [--depends <spec>] [-c]`, `todo_md append <ID> [-b "<text>"|-] [-c]`,\n    `todo_md next <ID>... [-m "<note>"] [--reopen] [-c]`,\n    `todo_md status <ID>... <STATUS> [-m "<note>"] [--reopen] [-c]`,\n    `todo_md reopen <ID>... [--status <S>] [-m "<note>"] [-c]`,\n    `todo_md done <ID>... [-m "<note>"] [-c]`,\n    `todo_md cancel <ID>... [-m "<reason>"] [-c]`, `todo_md check`.\n  - Dependencies & Chain integration (both directions): in `--depends` and\n    `- Depends on:`, use `,` for parallel items (`A,B`) and `->` for sequential\n    stages (`"A -> B -> C"`, `,` binds tighter than `->`; repeat for AND\n    branches; do not introduce a separate `- Order:` field). Wire new or refined\n    tasks both upstream (`--depends`) and downstream (`todo_md edit <ID>\n    --depends ...` on existing open tasks or waves).\n  - Target files contract: when target files are already known during planning,\n    record them as plain backticked paths on one `- Target files:` bullet\n    (excluding `TODO*.md` and `AGENTS.md`); do not spend extra steps searching\n    for files or computing symbol or line slices.\n'
 RULE_SOURCE_PATH = Path(__file__).resolve().parent.parent / "agents" / "todo_md.md"
-RULE_WORK_SOURCE_PATH = Path(__file__).resolve().parent.parent / "agents" / "todo_md_work.md"
 
 VALID_STATUSES: dict[str, str] = {
     "WIP": "🔵",
@@ -75,49 +73,22 @@ SYMBOL_SPEC_RE = re.compile(
 DEPENDS_LINE_RE = re.compile(r"^\s*[-*]\s*Depends on:\s*(.+?)\s*$", re.IGNORECASE)
 ROLE_LINE_RE = re.compile(r"^\s*[-*]\s*Role:\s*(.*?)\s*$", re.IGNORECASE)
 ROLE_NAME_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
-RETIRED_ROLES: dict[str, str] = {
-    "execute": "work",
-    "audit": "review",
-}
 DEFAULT_TASK_PREFIX = "F"
-PREFIX_INFO: dict[str, tuple[str, str | None]] = {
-    "F": ("feature", None),
-    "B": ("bugfix", None),
-    "D": ("design", "design"),
-}
-PREFIX_DEFAULT_ROLES: dict[str, str] = {
-    prefix: role for prefix, (_, role) in PREFIX_INFO.items() if role
-}
-STATUS_ROLES: dict[str, str] = {
-    "WIP": "work",
-    "NEXT": "work",
-    "NEW": "plan",
-    "QUESTION": "plan",
-    "HOLD": "plan",
+PREFIX_INFO: dict[str, str] = {
+    "F": "feature",
+    "B": "bugfix",
+    "D": "design",
+    "L": "legislative rule",
 }
 
 def prefix_legend_lines() -> list[str]:
     prefixes = ", ".join(
         f"{p}={name}" + (" (default)" if p == DEFAULT_TASK_PREFIX else "")
-        for p, (name, _) in PREFIX_INFO.items()
+        for p, name in PREFIX_INFO.items()
     )
-    design = ", ".join(f"{p}*={role}" for p, role in PREFIX_DEFAULT_ROLES.items())
-    work = "/".join(s for s, r in STATUS_ROLES.items() if r == "work")
-    plan = "/".join(s for s, r in STATUS_ROLES.items() if r == "plan")
     return [
         f"Prefixes: {prefixes}, other A-Z=custom domain",
-        f"Roles: {design}; others: {work}=work, {plan}=plan",
     ]
-ROLE_EASE_ORDER: dict[str, int] = {
-    "work": 0,
-    "plan": 1,
-    "design": 2,
-}
-ROLE_EFFORT_WEIGHTS: dict[str, int] = {
-    "work": 1,
-    "plan": 2,
-    "design": 5,
-}
 WORKSPACE_SKIP_DIRS = frozenset({
     "node_modules",
     "vendor",
@@ -133,18 +104,13 @@ WORKSPACE_SKIP_DIRS = frozenset({
 WORKSPACE_MAX_DEPTH = 3
 
 
-def _rule_text(embedded: str, name: str, path: Path) -> str:
-    if embedded != "__EMBEDDED_RULE_" + name + "__":
-        raw = embedded
+def get_embedded_todo_rule() -> str:
+    if EMBEDDED_RULE_TODO_MD != "__EMBEDDED_RULE_" + "TODO_MD__":
+        raw = EMBEDDED_RULE_TODO_MD
     else:
-        raw = path.read_text(encoding="utf-8")
+        raw = RULE_SOURCE_PATH.read_text(encoding="utf-8")
     lines = [line for line in raw.splitlines() if not line.startswith("# Description:")]
     return "\n".join(lines).strip("\n") + "\n"
-
-def get_embedded_todo_rule(role: str | None = None) -> str:
-    if (role or "").strip().lower() == "work":
-        return _rule_text(EMBEDDED_RULE_TODO_MD_WORK, "TODO_MD_WORK", RULE_WORK_SOURCE_PATH)
-    return _rule_text(EMBEDDED_RULE_TODO_MD, "TODO_MD", RULE_SOURCE_PATH)
 
 def prog_name() -> str:
     raw = Path(sys.argv[0]).name if sys.argv and sys.argv[0] else "todo_md"
@@ -180,7 +146,7 @@ HELP_COMMANDS: tuple[tuple[str, str], ...] = (
     ("{prog} projects", "List discovered workspace projects and open task counts"),
     ("{prog} <ID>... | show <ID>...",
      "Show tasks <ID>... (space- or comma-separated, <project>:<ID> supported) with "
-     "Task/Title/Role/Workdir headers, separated by blank lines"),
+     "Task/Prefix/Status/Title/Workdir headers, separated by blank lines"),
     ("{prog} last [<STATUS|archive>]",
      "Show full section for the last task in a status or the archive (default: NEW); "
      "also available as show last"),
@@ -188,7 +154,7 @@ HELP_COMMANDS: tuple[tuple[str, str], ...] = (
      "Print ID of the last task in a status or the archive (default: NEW)"),
     ("{prog} list [filter] [<ID>...] [opts]",
      "List tasks; filter is active | archive | all | <STATUS>; <ID>... are highlighted. "
-     "Options: --role ROLE, -r/--ready, --limit N, --full"),
+     "Options: --prefix PREFIX, --status STATUS, -r/--ready, --limit N, --full"),
     ("{prog} archive [<ID>] [-m NOTE]", "Print TODO_ARCHIVE.md, or archive task <ID>"),
     ("{prog} add [<PROJ>] [<PREFIX>] <TITLE>",
      "Add a task with an auto-assigned ID; body comes from -b or stdin. Options: "
@@ -199,9 +165,9 @@ HELP_COMMANDS: tuple[tuple[str, str], ...] = (
     ("{prog} append <ID> [-b TEXT|-]",
      "Append text to the body of task <ID> (from -b TEXT|- or stdin)"),
     ("{prog} status <ID>... <STATUS> [opts]",
-     "Set status (WIP|NEXT|NEW|HOLD|QUESTION|DONE|CANCELED). Options: -m NOTE, --reopen"),
+     "Set task status (WIP, NEXT, NEW, HOLD, QUESTION, DONE, CANCELED). Options: -m NOTE, --reopen"),
     ("{prog} next <ID>... [-m NOTE] [--reopen]",
-     "Promote task(s) <ID>... to 🎯 [NEXT] at the top of TODO.md (strips - Role: plan; "
+     "Promote task(s) <ID>... to 🎯 [NEXT] at the top of TODO.md (strips - Role:; "
      "--reopen if archived)"),
     ("{prog} reopen <ID>... [opts]",
      "Move archived task(s) <ID>... back to TODO.md. Options: -s/--status STATUS (default: "
@@ -212,10 +178,10 @@ HELP_COMMANDS: tuple[tuple[str, str], ...] = (
      "Mark <ID>... as CANCELED and move to TODO_ARCHIVE.md"),
     ("{prog} ids", "Print highest task IDs in use and next available ID per prefix"),
     ("{prog} chain [<ID>...] [opts]",
-     "Show the Quest-Log: top-ranked work finales, root-anchored chains, role queues, "
+     "Show the Quest-Log: top-ranked finales, root-anchored chains, and "
      "ready tasks (see Quest-Log options)"),
-    ("{prog} next-id [<ID>] [--role ROLE] | --top",
-     "Print the top ready WIP/NEXT ID, or the first ready ID in <ID>'s queue"),
+    ("{prog} next-id [<ID>] [--prefix P] [--status S] | --top",
+     "Print the top ready WIP/NEXT ID (or matching --status), or the first ready ID in <ID>'s queue"),
     ("{prog} files [<ID>] | --files [<ID>]",
      "List files named on the '- Target files:' bullet of task <ID>: paths, glob patterns, "
      "symbol slices (path:SYMBOL, path:SYM1..SYM2; Python, sh/Bash and brace languages; "
@@ -251,11 +217,10 @@ HELP_GLOBAL_OPTIONS: tuple[tuple[str, str], ...] = (
      "overview; auto-enabled when stdout is a pipe other than the run_block step output. "
      "The stream is read-only: it never changes task status"),
     ("--plain", "Disable bundle auto-detection (--bundle takes precedence)"),
-    ("--no-files", "Bundle mode: do not preload the '- Target files:' of the task"),
-    ("role=ROLE, --role ROLE",
-     "Bundle mode session role for <ID>, show, last, overview, and the default view (--role "
-     "ROLE only for <ID>, show, last, overview): sets the Role: header and selects the "
-     "matching embedded rule (work -> compact rule, others -> full rule)"),
+    ("--no-files", "Bundle mode: omit the Files: preamble header for the task"),
+    ("role=ROLE",
+     "Bundle mode explicit role override for <ID>, show, last, overview, and the default view: "
+     "emits Role: ROLE in the bundle preamble"),
 )
 
 HELP_QUEST_OPTIONS: tuple[tuple[str, str], ...] = (
@@ -270,13 +235,11 @@ HELP_QUEST_OPTIONS: tuple[tuple[str, str], ...] = (
      "Include archived DONE/CANCELED tasks from TODO_ARCHIVE.md (same as the ALL status "
      "keyword)"),
     ("-r, --ready",
-     "Show only ready tasks ranked by role ease, Quest Momentum, best chain rank, chain "
-     "count, done count, and ready unlocks (rows show [FINAL | STAGE | COMBO | chain: N, "
-     "ready: +M, "
-     "unblocks: K], with chain only when N > 1 and ready only when M > 0); also accepted "
-     "by list"),
-    ("--by-role", "Partition active tasks into role queues"),
-    ("--role ROLE", "Show only tasks matching ROLE"),
+     "Show only ready tasks ranked by bugfix prefix, status tier, Quest Momentum, best chain "
+     "rank, chain count, done count, and ready unlocks (rows show [FINAL | STAGE | COMBO | "
+     "chain: N, ready: +M, unblocks: K], with chain only when N > 1 and ready only when "
+     "M > 0); also accepted by list"),
+    ("--prefix PREFIX", "Show only tasks matching single-letter ID prefix PREFIX (A-Z)"),
     ("--include-hold", "Include HOLD tasks and branches blocked by HOLD"),
     ("--status STATUS",
      "Status filter WIP|NEXT|QUESTION|NEW|HOLD|ACTIVE|ALL (also accepted as a bare "
@@ -298,10 +261,10 @@ HELP_QUEST_OPTIONS: tuple[tuple[str, str], ...] = (
 HELP_PREFIXES: tuple[tuple[str, str], ...] = (
     ("F", "Feature (default prefix for add)"),
     ("B", "Bugfix (ranked ahead of other tasks in chain)"),
-    ("D", "Design (role: design in any status)"),
+    ("D", "Design task"),
+    ("L", "Legislative rule task (agents/, AGENTS.md)"),
     ("A-Z", "Any other letter is a custom domain prefix"),
-    ("Status roles", "WIP/NEXT -> work; NEW/QUESTION/HOLD -> plan (non-D prefixes)"),
-    ("Note", "{prog} check rejects '- Role:' lines in TODO.md; --role only filters views"),
+    ("Note", "{prog} check rejects '- Role:' lines in TODO.md; filter with --prefix and --status"),
 )
 
 HELP_NOTES = (
@@ -390,8 +353,7 @@ def usage_text() -> str:
         ("Commands:", HELP_COMMANDS),
         ("Global options:", HELP_GLOBAL_OPTIONS),
         ("Quest-Log options (default view, chain, search):", HELP_QUEST_OPTIONS),
-        ("Task ID prefixes and roles (derived from the ID prefix and status, never from the "
-         "task body):", HELP_PREFIXES),
+        ("Task ID prefixes:", HELP_PREFIXES),
     )
     for title, rows in sections:
         lines += [title, *_help_table(rows, prog), ""]
@@ -1147,23 +1109,6 @@ def parse_task_dependencies(section_text: str) -> list[str]:
                     refs.append(val)
     return refs
 
-def resolve_task_role(
-    task_id: str,
-    section_text: str,
-    status: str | None = None,
-) -> str:
-    prefix = task_id.strip().upper().split(":")[-1][:1]
-    if prefix in PREFIX_DEFAULT_ROLES:
-        return PREFIX_DEFAULT_ROLES[prefix]
-    norm_status = (status or "").strip().upper()
-    if not norm_status and section_text:
-        first_line = section_text.splitlines()[0].strip()
-        m = HEADING_RE.match(first_line)
-        if m:
-            norm_status = m.group(2).upper()
-    if norm_status in STATUS_ROLES:
-        return STATUS_ROLES[norm_status]
-    return "work" if norm_status in ("DONE", "CANCELED") else "plan"
 
 def read_if_exists(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="replace") if path.is_file() else ""
@@ -1311,13 +1256,12 @@ def _strip_heading_note(title: str) -> tuple[str, str | None]:
         return m.group(1).strip(), m.group(2).strip()
     return title.strip(), None
 
-def _task_matches_role(task: dict[str, object], wanted_role: str) -> bool:
-    role = resolve_task_role(
-        str(task["id"]),
-        str(task["section"]),
-        status=str(task.get("status", "")),
-    )
-    return bool(role) and role.lower() == wanted_role.strip().lower()
+def _task_prefix(task_id: str) -> str:
+    return task_id.strip().upper().split(":")[-1][:1]
+
+def _task_matches_prefix(task: dict[str, object], wanted_prefix: str) -> bool:
+    raw_id = str(task.get("id") or task.get("ref") or "")
+    return bool(raw_id) and _task_prefix(raw_id) == wanted_prefix.strip().upper()
 
 def validate_all(base_dir: Path) -> tuple[list[str], int]:
     errors: list[str] = []
@@ -1384,8 +1328,7 @@ def validate_all(base_dir: Path) -> tuple[list[str], int]:
                 if ROLE_LINE_RE.match(sline):
                     errors.append(
                         f"TODO.md:{lineno + offset}: task {tid} has an in-body 'Role:' line "
-                        "(roles are derived from the ID prefix and status; remove it, "
-                        "use a D* prefix for design tasks or 'todo_md next <ID>' to promote to work)"
+                        "(remove it; task prefixes and statuses are managed via headings)"
                     )
             clauses, syntax_errs = parse_dependency_clauses(sec)
             for serr in syntax_errs:
@@ -1994,17 +1937,21 @@ def build_dependency_dag(
 
 def _first_actionable_in_dag(
     dag: dict[str, object],
-    role: str | None = None,
+    prefix: str | None = None,
+    status: frozenset[str] | None = None,
 ) -> str | None:
     nodes: dict[tuple[Path, str], dict[str, object]] = dag["nodes"]  # type: ignore[assignment]
     prereqs: dict[tuple[Path, str], list[tuple[Path, str]]] = dag["prereqs"]  # type: ignore[assignment]
     topo_order: list[tuple[Path, str]] = dag["topo_order"]  # type: ignore[assignment]
-    wanted_role = role.strip().lower() if role is not None else None
+    wanted_prefix = prefix.strip().upper() if prefix is not None else None
     for u in topo_order:
         nd = nodes[u]
-        if str(nd["status"]) not in ACTIVE_STATUS_ORDER:
+        st = str(nd["status"])
+        if st not in ACTIVE_STATUS_ORDER:
             continue
-        if wanted_role is not None and not _task_matches_role(nd, wanted_role):
+        if status is not None and st not in status:
+            continue
+        if wanted_prefix is not None and not _task_matches_prefix(nd, wanted_prefix):
             continue
         blockers = [p for p in prereqs[u] if str(nodes[p]["status"]) != "DONE"]
         if not blockers:
@@ -2803,42 +2750,6 @@ def _is_bug_node_key(u: tuple[Path, str]) -> bool:
     tid = u[1].split(":")[-1].strip().upper()
     return tid.startswith("B")
 
-def _resolve_node_role(
-    nodes: dict[tuple[Path, str], dict[str, object]],
-    u: tuple[Path, str],
-) -> str | None:
-    nd = nodes.get(u)
-    if nd is None or not nd.get("exists", True):
-        return None
-    raw_role = nd.get("role")
-    if not raw_role:
-        raw_id = str(nd.get("id") or u[1]).split(":")[-1].strip()
-        raw_role = resolve_task_role(
-            raw_id,
-            str(nd.get("section", "")),
-            status=str(nd.get("status", "")),
-        )
-    if not raw_role:
-        return None
-    return str(raw_role).strip().lower() or None
-
-def _resolve_node_role_ease(
-    nodes: dict[tuple[Path, str], dict[str, object]],
-    u: tuple[Path, str],
-) -> int:
-    role = _resolve_node_role(nodes, u)
-    if not role:
-        return len(ROLE_EASE_ORDER)
-    return ROLE_EASE_ORDER.get(role, len(ROLE_EASE_ORDER))
-
-def _resolve_node_role_weight(
-    nodes: dict[tuple[Path, str], dict[str, object]],
-    u: tuple[Path, str],
-) -> int:
-    role = _resolve_node_role(nodes, u)
-    if not role:
-        return ROLE_EFFORT_WEIGHTS["design"]
-    return ROLE_EFFORT_WEIGHTS.get(role, ROLE_EFFORT_WEIGHTS["design"])
 
 def _prepare_active_plan(
     dag: dict[str, object],
@@ -2878,7 +2789,7 @@ def _prepare_active_plan(
         if bool(done_prereqs.get(u) or done_nodes.get(u))
         and _is_ready_in_dag(nodes, prereqs, u, include_hold=include_hold)
         and active_unblocks.get(u, 0) == 0
-        and _resolve_node_role(nodes, u) == "work"
+        and str(nodes[u]["status"]) in ("WIP", "NEXT")
     }
 
     latest_done_task: tuple[Path, str] | None = dag.get("latest_done_task")  # type: ignore[assignment]
@@ -2946,11 +2857,11 @@ def _prepare_active_plan(
         st = str(nodes[u]["status"])
         prio = ACTIVE_STATUS_ORDER.get(st, 99)
         is_fin = 0 if u in finale_set else 1
+        is_bug = 0 if _is_bug_task_node(nodes, u) else 1
         is_blocked = 0 if initial_in_deg.get(u, 0) == 0 else 1
         return (
             prio,
             is_fin,
-            _resolve_node_role_ease(nodes, u),
             is_blocked,
             is_momentum_next.get(u, 1),
             best_chain_rank.get(u, 0),
@@ -2958,6 +2869,7 @@ def _prepare_active_plan(
             -done_counts.get(u, 0),
             -ready_unblocks.get(u, 0),
             -active_unblocks.get(u, 0),
+            is_bug,
             -ready_step,
             order_idx.get(u, 0),
             _canonical_task_ref_key(nodes, u),
@@ -3355,10 +3267,9 @@ def plan_execution_chains(
 
     def _standalone_sort_key(
         u: tuple[Path, str],
-    ) -> tuple[int, int, int, int, tuple[str, str, str]]:
+    ) -> tuple[int, int, int, tuple[str, str, str]]:
         return (
             0 if _is_bug_task_node(nodes, u) else 1,
-            _resolve_node_role_ease(nodes, u),
             ACTIVE_STATUS_ORDER.get(str(nodes[u]["status"]), 99),
             order_idx.get(u, 0),
             _canonical_task_ref_key(nodes, u),
@@ -3425,41 +3336,25 @@ def plan_execution_chains(
             min_bug_dist = None
         bug_dist_rank = min_bug_dist if min_bug_dist is not None else 10**9
 
-        open_eases = [_resolve_node_role_ease(nodes, u) for u in comp_open]
-        ready_eases = [_resolve_node_role_ease(nodes, u) for u in ready_in_comp] or open_eases
-        rem_eases = [_resolve_node_role_ease(nodes, u) for u in comp_open if u not in ready_set] or open_eases
-        ready_role_ease = min(ready_eases) if ready_eases else len(ROLE_EASE_ORDER)
-        min_rem_ease = min(rem_eases) if rem_eases else len(ROLE_EASE_ORDER)
-        max_rem_ease = max(rem_eases) if rem_eases else len(ROLE_EASE_ORDER)
-        max_open_ease = max(open_eases) if open_eases else len(ROLE_EASE_ORDER)
-        role_ease_key = (ready_role_ease, min_rem_ease, max_rem_ease, max_open_ease)
-
-        remaining_effort = sum(_resolve_node_role_weight(nodes, u) for u in comp_open)
+        open_statuses = [ACTIVE_STATUS_ORDER.get(str(nodes[u]["status"]), 99) for u in comp_open]
+        remaining_effort = open_count
         weighted_denom = done_count + remaining_effort
         weighted_velocity = (done_count / weighted_denom) if weighted_denom > 0 else 0.0
 
-        raw_best_status = min(
-            (ACTIVE_STATUS_ORDER.get(str(nodes[u]["status"]), 99) for u in comp_open),
-            default=99,
-        )
+        raw_best_status = min(open_statuses, default=99)
         has_wip = any(str(nodes[u]["status"]) == "WIP" for u in comp_open)
         is_active_quest = has_wip or (
             latest_done_task is not None and latest_done_task in comp_done
         )
-        if is_active_quest:
-            best_status = ACTIVE_STATUS_ORDER["WIP"]
-        elif done_count > 0:
-            best_status = min(raw_best_status, ACTIVE_STATUS_ORDER["NEXT"])
-        else:
-            best_status = raw_best_status
+        best_status = ACTIVE_STATUS_ORDER["WIP"] if is_active_quest else raw_best_status
 
         canon_ref = _canonical_task_ref_key(nodes, root)
         root_nd = nodes[root]
         root_ref = str(root_nd["ref"])
         root_title = str(root_nd["title"])
 
-        is_work_finale = root in finale_set and len(comp_open) == 1
-        finale_tier = 0 if is_work_finale else 1
+        is_finale = root in finale_set and len(comp_open) == 1
+        finale_tier = 0 if is_finale else 1
         finale_order_key: tuple[int, int, int, int, tuple[str, str, str]] = (
             (
                 0 if _is_bug_task_node(nodes, root) else 1,
@@ -3468,7 +3363,7 @@ def plan_execution_chains(
                 order_idx.get(root, 0),
                 canon_ref,
             )
-            if is_work_finale
+            if is_finale
             else (0, 0, 0, 0, ("", "", ""))
         )
         rank_key = (
@@ -3477,7 +3372,6 @@ def plan_execution_chains(
             -(ready_bugs + done_bugs),
             -total_bugs,
             bug_dist_rank,
-            role_ease_key,
             best_status,
             -weighted_velocity,
             -total_tasks,
@@ -3506,7 +3400,6 @@ def plan_execution_chains(
             "done_bugs": done_bugs,
             "total_bugs": total_bugs,
             "min_bug_dist": min_bug_dist,
-            "role_ease": role_ease_key,
             "best_status": best_status,
             "rank_key": rank_key,
         }
@@ -3606,114 +3499,6 @@ def plan_execution_chains(
         "chain_stats": chain_entries,
         "standalone": standalone,
         "ready_tasks": [],
-    }
-
-def plan_execution_chains_by_role(
-    dag: dict[str, object],
-    include_hold: bool = False,
-    ready_only: bool = False,
-    limit: int | None = None,
-    role: str | None = None,
-) -> dict[str, object]:
-    nodes: dict[tuple[Path, str], dict[str, object]] = dag["nodes"]  # type: ignore[assignment]
-    prereqs: dict[tuple[Path, str], list[tuple[Path, str]]] = dag["prereqs"]  # type: ignore[assignment]
-    prep = _prepare_active_plan(dag, include_hold=include_hold)
-    ranked_active: list[tuple[Path, str]] = prep["ranked_active"]  # type: ignore[assignment]
-    active_unblocks: dict[tuple[Path, str], int] = prep["active_unblocks"]  # type: ignore[assignment]
-    excluded_hold: set[tuple[Path, str]] = prep["excluded_hold"]  # type: ignore[assignment]
-    finale_set: set[tuple[Path, str]] = prep["finale_set"]  # type: ignore[assignment]
-
-    trans_cache: dict[tuple[Path, str], set[tuple[Path, str]]] = {}
-
-    def _trans_prereqs(u: tuple[Path, str]) -> set[tuple[Path, str]]:
-        if u not in trans_cache:
-            seen: set[tuple[Path, str]] = set()
-            stack = list(prereqs.get(u, []))
-            while stack:
-                cur = stack.pop()
-                if cur == u or cur in seen:
-                    continue
-                seen.add(cur)
-                for nxt in prereqs.get(cur, []):
-                    if nxt != u and nxt not in seen:
-                        stack.append(nxt)
-            trans_cache[u] = seen
-        return trans_cache[u]
-
-    def _node_role(u: tuple[Path, str]) -> str | None:
-        nd = nodes[u]
-        if not nd.get("exists"):
-            return None
-        resolved = resolve_task_role(
-            str(nd["id"]),
-            str(nd["section"]),
-            status=str(nd.get("status", "")),
-        )
-        return resolved.strip().lower() if resolved else None
-
-    q_work: list[tuple[Path, str]] = []
-    q_plan: list[tuple[Path, str]] = []
-    q_design: list[tuple[Path, str]] = []
-    q_deferred_work: list[tuple[Path, str]] = []
-    q_other: list[tuple[Path, str]] = []
-
-    wanted_role = role.strip().lower() if role is not None else None
-
-    for u in ranked_active:
-        if ready_only and not _is_ready_in_dag(nodes, prereqs, u, include_hold=include_hold):
-            continue
-        u_role = _node_role(u)
-        if wanted_role is not None and u_role != wanted_role:
-            continue
-        dep_roles = {_node_role(p) for p in _trans_prereqs(u)}
-        if u_role == "work":
-            if not dep_roles or dep_roles <= {"work"}:
-                q_work.append(u)
-            elif not ready_only:
-                q_deferred_work.append(u)
-        elif u_role == "plan":
-            if not dep_roles or dep_roles <= {"work", "plan"}:
-                q_plan.append(u)
-            else:
-                q_other.append(u)
-        elif u_role == "design":
-            q_design.append(u)
-        else:
-            q_other.append(u)
-
-    queues: list[tuple[str, str, list[tuple[Path, str]]]] = [
-        ("work", "Queue 1 (work)", q_work),
-        ("plan", "Queue 2 (plan)", q_plan),
-        ("design", "Queue 3 (design)", q_design),
-    ]
-    if not ready_only:
-        queues.append(("deferred_work", "Queue 4 (deferred work)", q_deferred_work))
-    if q_other:
-        queues.append(("other", "Other tasks", q_other))
-
-    if limit is not None:
-        rem = limit
-        limited_queues: list[tuple[str, str, list[tuple[Path, str]]]] = []
-        for q_key, q_label, q_items in queues:
-            if rem <= 0:
-                limited_queues.append((q_key, q_label, []))
-                continue
-            take = q_items[:rem]
-            limited_queues.append((q_key, q_label, take))
-            rem -= len(take)
-        queues = limited_queues
-
-    return {
-        "active_nodes": ranked_active,
-        "active_unblocks": active_unblocks,
-        "excluded_hold": excluded_hold,
-        "finale_set": finale_set,
-        "chain_counts": prep["chain_counts"],
-        "done_counts": prep["done_counts"],
-        "is_momentum_next": prep["is_momentum_next"],
-        "ready_unblocks": prep["ready_unblocks"],
-        "immediate_ready_targets": prep["immediate_ready_targets"],
-        "queues": queues,
     }
 
 
@@ -3915,13 +3700,15 @@ def cmd_show(base_dir: Path, task_id: str) -> int:
     t = task_cache[p_res].get(target)
     if t is not None:
         tid = str(t["id"]).upper()
+        prefix = _task_prefix(tid)
+        status = str(t.get("status", "")).upper()
         base_title, _ = _strip_heading_note(str(t["title"]))
         section = str(t["section"])
-        role = resolve_task_role(tid, section, status=str(t.get("status", "")))
         header_lines = [
             f"Task: {tid}",
+            f"Prefix: {prefix}",
+            f"Status: {status}",
             f"Title: {base_title}",
-            f"Role: {role}",
             f"Workdir: {workdir}",
         ]
         headers = "\n".join(header_lines)
@@ -3934,13 +3721,6 @@ def cmd_show(base_dir: Path, task_id: str) -> int:
     sys.stderr.write(f"{prog_name()}: task {target!r} not found in TODO*.md under {base_dir}\n")
     return 1
 
-def _task_role_badge(task: dict[str, object]) -> str:
-    role = resolve_task_role(
-        str(task["id"]),
-        str(task["section"]),
-        status=str(task.get("status", "")),
-    )
-    return f"[{role}]" if role else ""
 
 DEFAULT_TERMINAL_WIDTH = 100
 
@@ -4146,7 +3926,8 @@ def cmd_list(
     filt: str | None = None,
     limit: int | None = None,
     full: bool = False,
-    role: str | None = None,
+    prefix: str | None = None,
+    status: str | None = None,
     ready: bool = False,
     targets: list[tuple[Path, str]] | None = None,
     focus: list[tuple[Path, str]] | None = None,
@@ -4173,9 +3954,27 @@ def cmd_list(
     else:
         raise SystemExit(f"{prog_name()}: unknown list filter {filt!r}; expected active, archive, all, or a status name")
 
-    if role is not None:
-        wanted_role = role.strip().lower()
-        shown = [t for t in shown if _task_matches_role(t, wanted_role)]
+    if status is not None:
+        st_w = status.strip().upper()
+        if st_w == "ALL":
+            if filt is None:
+                shown = active_tasks + arch_tasks
+        elif st_w in ("ACTIVE", "OPEN"):
+            shown = [t for t in shown if t["file"] == "TODO.md"]
+        elif st_w == "ARCHIVE":
+            if filt is None:
+                shown = arch_tasks
+            else:
+                shown = [t for t in shown if t["file"] == "TODO_ARCHIVE.md"]
+        else:
+            if filt is None and st_w in ("DONE", "CANCELED"):
+                shown = [t for t in arch_tasks if str(t["status"]) == st_w]
+            else:
+                shown = [t for t in shown if str(t["status"]) == st_w]
+
+    if prefix is not None:
+        wanted_prefix = prefix.strip().upper()
+        shown = [t for t in shown if _task_matches_prefix(t, wanted_prefix)]
 
     dep_cache: dict[tuple[str, str], tuple[bool, str]] = {}
 
@@ -4207,8 +4006,10 @@ def cmd_list(
 
     if not shown:
         notes: list[str] = []
-        if role is not None:
-            notes.append(f"role={role.strip()}")
+        if prefix is not None:
+            notes.append(f"prefix={prefix.strip().upper()}")
+        if status is not None:
+            notes.append(f"status={status.strip().upper()}")
         if ready:
             notes.append("ready")
         extra = f", {', '.join(notes)}" if notes else ""
@@ -4227,16 +4028,14 @@ def cmd_list(
             tid_up = str(t["id"]).upper()
             emoji = "⏳" if (st_str in ("WIP", "NEXT") and is_blocked) else str(t["emoji"])
             badge = f"{emoji} [{st_str}]"
-            role_badge = _task_role_badge(t)
             loc = str(t["file"])
-            prefix = (
+            row_prefix = (
                 f"  {_pad_display(str(t['id']), 6)}  "
                 f"{_pad_display(badge, 14)}  "
-                f"{_pad_display(role_badge, 10)}  "
                 f"{_pad_display(loc, 16)}  "
             )
             desc = f"{t['title']}{dep_suffix}"
-            rendered = _wrap_table_row(prefix, desc, term_width) + "\n"
+            rendered = _wrap_table_row(row_prefix, desc, term_width) + "\n"
             is_highlighted = (b_res, tid_up) in target_set or tid_up in unscoped_ids
             sys.stdout.write(
                 _style_task_row(
@@ -4321,7 +4120,8 @@ def cmd_workspace_list(
     filt: str | None = None,
     limit: int | None = None,
     full: bool = False,
-    role: str | None = None,
+    prefix: str | None = None,
+    status: str | None = None,
     ready: bool = False,
     targets: list[tuple[Path, str]] | None = None,
     focus: list[tuple[Path, str]] | None = None,
@@ -4333,6 +4133,13 @@ def cmd_workspace_list(
     mode = (filt or "active").strip().lower()
     if mode not in ("active", "open", "archive", "all") and mode.upper() not in VALID_STATUSES:
         raise SystemExit(f"{prog_name()}: unknown list filter {filt!r}; expected active, archive, all, or a status name")
+    effective_mode = mode
+    if filt is None and status is not None:
+        st_m = status.strip().upper()
+        if st_m == "ALL":
+            effective_mode = "all"
+        elif st_m in ("ARCHIVE", "DONE", "CANCELED"):
+            effective_mode = st_m.lower()
     items: list[tuple[str, Path, dict[str, object]]] = []
     for name, proj_dir in projects:
         tasks = collect_all_tasks(proj_dir)
@@ -4341,20 +4148,28 @@ def cmd_workspace_list(
             base_dir=proj_dir,
         )
         arch = [t for t in tasks if t["file"] == "TODO_ARCHIVE.md"]
-        if mode in ("active", "open"):
+        if effective_mode in ("active", "open"):
             matched = active
-        elif mode == "archive":
+        elif effective_mode == "archive":
             matched = arch
-        elif mode == "all":
+        elif effective_mode == "all":
             matched = active + arch
         else:
-            st_up = mode.upper()
+            st_up = effective_mode.upper()
             matched = [t for t in (arch if st_up in ("DONE", "CANCELED") else active) if t["status"] == st_up]
         for t in matched:
             items.append((name, proj_dir, t))
-    if role is not None:
-        wanted_role = role.strip().lower()
-        items = [(name, proj_dir, t) for name, proj_dir, t in items if _task_matches_role(t, wanted_role)]
+    if status is not None:
+        st_w = status.strip().upper()
+        if st_w in ("ACTIVE", "OPEN"):
+            items = [(name, proj_dir, t) for name, proj_dir, t in items if t["file"] == "TODO.md"]
+        elif st_w == "ARCHIVE":
+            items = [(name, proj_dir, t) for name, proj_dir, t in items if t["file"] == "TODO_ARCHIVE.md"]
+        elif st_w != "ALL":
+            items = [(name, proj_dir, t) for name, proj_dir, t in items if str(t["status"]) == st_w]
+    if prefix is not None:
+        wanted_prefix = prefix.strip().upper()
+        items = [(name, proj_dir, t) for name, proj_dir, t in items if _task_matches_prefix(t, wanted_prefix)]
 
     dep_cache: dict[tuple[Path, str, str], tuple[bool, str]] = {}
 
@@ -4384,8 +4199,10 @@ def cmd_workspace_list(
         items = items[:limit]
     if not items:
         notes: list[str] = []
-        if role is not None:
-            notes.append(f"role={role.strip()}")
+        if prefix is not None:
+            notes.append(f"prefix={prefix.strip().upper()}")
+        if status is not None:
+            notes.append(f"status={status.strip().upper()}")
         if ready:
             notes.append("ready")
         extra = f", {', '.join(notes)}" if notes else ""
@@ -4410,14 +4227,12 @@ def cmd_workspace_list(
         ref = f"{name}:{t['id']}"
         emoji = "⏳" if (st_str in ("WIP", "NEXT") and is_blocked) else str(t["emoji"])
         badge = f"{emoji} [{st_str}]"
-        role_badge = _task_role_badge(t)
-        prefix = (
+        row_prefix = (
             f"  {_pad_display(ref, 28)}  "
             f"{_pad_display(badge, 14)}  "
-            f"{_pad_display(role_badge, 10)}  "
         )
         desc = f"{t['title']}{dep_suffix}"
-        rendered = _wrap_table_row(prefix, desc, term_width) + "\n"
+        rendered = _wrap_table_row(row_prefix, desc, term_width) + "\n"
         is_highlighted = (proj_dir.resolve(), tid_up) in target_set or tid_up in unscoped_ids
         sys.stdout.write(
             _style_task_row(
@@ -4463,8 +4278,7 @@ def cmd_chain(
     include_hold: bool = False,
     include_done: bool = False,
     ready: bool = False,
-    role: str | None = None,
-    by_role: bool = False,
+    prefix: str | None = None,
     workspace: bool = False,
     explicit_dir: str | None = None,
     targets: list[tuple[Path, str]] | None = None,
@@ -4530,22 +4344,13 @@ def cmd_chain(
         sys.stdout.write(f"No open tasks {scope_msg}\n")
         return 0
 
-    if by_role:
-        plan = plan_execution_chains_by_role(
-            dag,
-            include_hold=include_hold,
-            ready_only=ready,
-            limit=(None if (target_project is not None or row_scoped) else limit),
-            role=role,
-        )
-    else:
-        plan = plan_execution_chains(
-            dag,
-            include_hold=include_hold,
-            ready_only=ready,
-            limit=(None if (role is not None or row_scoped or target_project is not None) else limit),
-            include_done=include_done,
-        )
+    plan = plan_execution_chains(
+        dag,
+        include_hold=include_hold,
+        ready_only=ready,
+        limit=(None if (prefix is not None or row_scoped or target_project is not None) else limit),
+        include_done=include_done,
+    )
     active_nodes: list[tuple[Path, str]] = plan["active_nodes"]  # type: ignore[assignment]
     active_unblocks: dict[tuple[Path, str], int] = plan["active_unblocks"]  # type: ignore[assignment]
     excluded_hold: set[tuple[Path, str]] = plan["excluded_hold"]  # type: ignore[assignment]
@@ -4594,16 +4399,16 @@ def cmd_chain(
     term_width = _get_terminal_columns()
     use_color = _use_ansi_color()
     target_set, unscoped_target_ids = _normalize_target_refs(base_dir, targets, explicit_dir=explicit_dir)
-    wanted_role = role.strip().lower() if role is not None else None
+    wanted_prefix = prefix.strip().upper() if prefix is not None else None
 
     def _is_highlighted_node(u: tuple[Path, str]) -> bool:
         return (u[0].resolve(), u[1].upper()) in target_set or u[1].upper() in unscoped_target_ids
 
-    def _matches_role(u: tuple[Path, str]) -> bool:
-        if wanted_role is None:
+    def _matches_prefix(u: tuple[Path, str]) -> bool:
+        if wanted_prefix is None:
             return True
         nd = nodes[u]
-        return bool(nd.get("exists")) and _task_matches_role(nd, wanted_role)
+        return bool(nd.get("exists")) and _task_matches_prefix(nd, wanted_prefix)
 
     focus_set, focus_unscoped = _normalize_target_refs(base_dir, focus, explicit_dir=explicit_dir)
     focus_active = bool(focus_set or focus_unscoped)
@@ -4641,7 +4446,6 @@ def cmd_chain(
         ref = str(nd["ref"])
         title = str(nd["title"])
         blockers = [str(nodes[p]["ref"]) for p in prereqs.get(u, []) if str(nodes[p]["status"]) != "DONE"]
-        role_badge = _task_role_badge(nd) if nd.get("exists") else ""
         impact = active_unblocks.get(u, 0)
         done_c = done_counts.get(u, len(done_nodes.get(u, set())))
         if st == "MISSING":
@@ -4695,13 +4499,12 @@ def cmd_chain(
             also_tag = f"[also in: {', '.join(also_in_refs)}]"
             status_tag = f"{status_tag} {also_tag}" if status_tag else also_tag
         lead_cell = _lead_cell(tree_prefix, idx, ref)
-        prefix = (
+        row_prefix = (
             f"  {_pad_display(lead_cell, lead_col_width)}  "
             f"{_pad_display(badge, 14)}  "
-            f"{_pad_display(role_badge, 10)}  "
         )
         desc = f"{title}  {status_tag}" if status_tag else title
-        rendered = _wrap_table_row(prefix, desc, term_width, cont_prefix=cont_prefix) + "\n"
+        rendered = _wrap_table_row(row_prefix, desc, term_width, cont_prefix=cont_prefix) + "\n"
         return _style_task_row(
             rendered,
             is_external=not _is_target_node(u),
@@ -4731,8 +4534,8 @@ def cmd_chain(
 
         if target_project is not None:
             held_paths = [path for path in held_paths if any(_is_target_node(k) for k in path)]
-        if wanted_role is not None:
-            held_paths = [path for path in held_paths if any(_matches_role(k) for k in path)]
+        if wanted_prefix is not None:
+            held_paths = [path for path in held_paths if any(_matches_prefix(k) for k in path)]
         if focus_active:
             held_paths = [path for path in held_paths if any(_is_focus_node(k) for k in path)]
         if status is not None:
@@ -4744,68 +4547,32 @@ def cmd_chain(
         if _is_target_node(u) or any(u in path for path in held_paths)
     }
 
-    if by_role:
-        queues: list[tuple[str, str, list[tuple[Path, str]]]] = plan["queues"]  # type: ignore[assignment]
-        if target_project is not None or row_scoped:
-            queues = [
-                (q_key, q_label, [u for u in q_items if _is_target_node(u) and _row_ok(u)])
-                for q_key, q_label, q_items in queues
-            ]
-            if limit is not None:
-                rem = limit
-                limited_queues: list[tuple[str, str, list[tuple[Path, str]]]] = []
-                for q_key, q_label, q_items in queues:
-                    if rem <= 0:
-                        limited_queues.append((q_key, q_label, []))
-                        continue
-                    take = q_items[:rem]
-                    limited_queues.append((q_key, q_label, take))
-                    rem -= len(take)
-                queues = limited_queues
-        non_empty_queues = [(q_label, q_items) for _, q_label, q_items in queues if q_items]
-        num_w_box[0] = len(str(max(1, sum(len(q_items) for _, q_items in non_empty_queues))))
-        matching_held = [u for u in scoped_excluded_hold if _matches_role(u) and _is_target_node(u) and _row_ok(u)]
-        if non_empty_queues:
-            row_idx = 1
-            for sec_idx, (q_label, q_items) in enumerate(non_empty_queues):
-                if sec_idx > 0:
-                    sys.stdout.write("\n")
-                sys.stdout.write(f"{q_label}:\n")
-                for u in q_items:
-                    sys.stdout.write(_format_row(row_idx, u))
-                    row_idx += 1
-        elif matching_held:
-            role_note = f" matching role={role.strip()}" if role is not None else ""
-            sys.stdout.write(
-                f"Queues: (none{role_note} — {len(matching_held)} held task(s); pass --include-hold to include)\n"
-            )
-        elif role is not None:
-            sys.stdout.write(f"Queues: (none matching role={role.strip()})\n")
-        else:
-            sys.stdout.write("Queues: (none)\n")
-    elif ready:
+    def _filter_note() -> str:
+        return f" matching prefix={wanted_prefix}" if wanted_prefix is not None else ""
+
+    if ready:
         ready_tasks: list[tuple[Path, str]] = plan["ready_tasks"]  # type: ignore[assignment]
         if target_project is not None:
             ready_tasks = [u for u in ready_tasks if _is_target_node(u)]
-        if wanted_role is not None:
-            ready_tasks = [u for u in ready_tasks if _matches_role(u)]
+        if wanted_prefix is not None:
+            ready_tasks = [u for u in ready_tasks if _matches_prefix(u)]
         if row_scoped:
             ready_tasks = [u for u in ready_tasks if _row_ok(u)]
-        if (target_project is not None or wanted_role is not None or row_scoped) and limit is not None:
+        if (target_project is not None or wanted_prefix is not None or row_scoped) and limit is not None:
             ready_tasks = ready_tasks[:limit]
-        matching_held = [u for u in scoped_excluded_hold if _matches_role(u) and _is_target_node(u) and _row_ok(u)]
+        matching_held = [u for u in scoped_excluded_hold if _matches_prefix(u) and _is_target_node(u) and _row_ok(u)]
         num_w_box[0] = len(str(max(1, len(ready_tasks))))
+        f_note = _filter_note()
         if ready_tasks:
             sys.stdout.write("Ready tasks:\n")
             for idx, u in enumerate(ready_tasks, start=1):
                 sys.stdout.write(_format_row(idx, u, show_downstream=True))
         elif matching_held:
-            role_note = f" matching role={role.strip()}" if role is not None else ""
             sys.stdout.write(
-                f"Ready tasks: (none{role_note} — {len(matching_held)} held task(s); pass --include-hold to include)\n"
+                f"Ready tasks: (none{f_note} — {len(matching_held)} held task(s); pass --include-hold to include)\n"
             )
-        elif role is not None:
-            sys.stdout.write(f"Ready tasks: (none matching role={role.strip()})\n")
+        elif f_note:
+            sys.stdout.write(f"Ready tasks: (none{f_note})\n")
         else:
             sys.stdout.write("Ready tasks: (none)\n")
     else:
@@ -4848,14 +4615,14 @@ def cmd_chain(
                 if _chain_has_target_node(comp, st_info)
             ]
             standalone = [u for u in standalone if _is_target_node(u)]
-        if wanted_role is not None:
+        if wanted_prefix is not None:
             filtered_chains_with_stats: list[tuple[list[tuple[Path, str]], dict[str, object]]] = []
             for comp, st_info in chains_with_stats:
-                f_comp = [u for u in comp if _matches_role(u)]
+                f_comp = [u for u in comp if _matches_prefix(u)]
                 if f_comp and (target_project is None or any(_is_target_node(u) for u in f_comp)):
                     filtered_chains_with_stats.append((f_comp, st_info))
             chains_with_stats = filtered_chains_with_stats
-            standalone = [u for u in standalone if _matches_role(u)]
+            standalone = [u for u in standalone if _matches_prefix(u)]
         if row_scoped:
             scoped_chains: list[tuple[list[tuple[Path, str]], dict[str, object]]] = []
             for comp, st_info in chains_with_stats:
@@ -4872,7 +4639,7 @@ def cmd_chain(
                     scoped_chains.append((f_comp, st_info))
             chains_with_stats = scoped_chains
             standalone = [u for u in standalone if _row_ok(u)]
-        if (target_project is not None or wanted_role is not None or row_scoped) and limit is not None:
+        if (target_project is not None or wanted_prefix is not None or row_scoped) and limit is not None:
             rem = limit
             limited_chains_with_stats: list[tuple[list[tuple[Path, str]], dict[str, object]]] = []
             for comp, st_info in chains_with_stats:
@@ -4883,7 +4650,7 @@ def cmd_chain(
                 rem -= len(take)
             standalone = standalone[:rem] if rem > 0 else []
             chains_with_stats = limited_chains_with_stats
-        matching_held = [u for u in scoped_excluded_hold if _matches_role(u) and _is_target_node(u) and _row_ok(u)]
+        matching_held = [u for u in scoped_excluded_hold if _matches_prefix(u) and _is_target_node(u) and _row_ok(u)]
         if chains_with_stats or standalone:
             row_idx = 1
             wrote_section = False
@@ -5106,12 +4873,12 @@ def cmd_chain(
                     sys.stdout.write(_format_row(row_idx, u))
                     row_idx += 1
         elif matching_held:
-            role_note = f" matching role={role.strip()}" if role is not None else ""
+            f_note = _filter_note()
             sys.stdout.write(
-                f"Chain: (none{role_note} — {len(matching_held)} held task(s); pass --include-hold to include)\n"
+                f"Chain: (none{f_note} — {len(matching_held)} held task(s); pass --include-hold to include)\n"
             )
-        elif role is not None:
-            sys.stdout.write(f"Chain: (none matching role={role.strip()})\n")
+        elif _filter_note():
+            sys.stdout.write(f"Chain: (none{_filter_note()})\n")
         else:
             sys.stdout.write("Chain: (none)\n")
 
@@ -5717,11 +5484,9 @@ def _strip_plan_role_from_section_lines(sec_lines: list[str]) -> tuple[list[str]
     for line in sec_lines[1:]:
         if line.lstrip().startswith(FENCE):
             in_fence = not in_fence
-        if not in_fence:
-            m = ROLE_LINE_RE.match(line)
-            if m and m.group(1).strip().lower() == "plan":
-                removed = True
-                continue
+        if not in_fence and ROLE_LINE_RE.match(line):
+            removed = True
+            continue
         body_lines.append(line)
     if not removed:
         return sec_lines, False
@@ -5733,24 +5498,29 @@ def _strip_plan_role_from_section_lines(sec_lines: list[str]) -> tuple[list[str]
         return [heading], True
     return [heading, "", *body_lines], True
 
-def _normalize_role_arg(raw_role: str) -> str:
+def _normalize_role_override(raw_role: str) -> str:
     if "\n" in raw_role or "\r" in raw_role:
-        raise SystemExit(f"{prog_name()}: --role value must be a single line")
+        raise SystemExit(f"{prog_name()}: role=<role> value must be a single line")
     stripped = raw_role.strip()
     if not stripped:
-        raise SystemExit(f"{prog_name()}: --role requires a non-empty role name")
+        raise SystemExit(f"{prog_name()}: role=<role> requires a non-empty role name")
     role = stripped.lower()
-    if role in RETIRED_ROLES:
-        replacement = RETIRED_ROLES[role]
-        raise SystemExit(
-            f"{prog_name()}: retired --role value {stripped!r}; use {replacement!r} instead"
-        )
     if not ROLE_NAME_RE.match(role):
         raise SystemExit(
-            f"{prog_name()}: invalid --role value {stripped!r}; "
+            f"{prog_name()}: invalid role=<role> value {stripped!r}; "
             "expected lowercase role identifier matching ^[a-z][a-z0-9_-]*$"
         )
     return role
+
+def _normalize_prefix_arg(raw_prefix: str) -> str:
+    if "\n" in raw_prefix or "\r" in raw_prefix:
+        raise SystemExit(f"{prog_name()}: --prefix value must be a single letter A-Z")
+    stripped = raw_prefix.strip().upper()
+    if not re.fullmatch(r"[A-Z]", stripped):
+        raise SystemExit(
+            f"{prog_name()}: invalid --prefix value {raw_prefix!r}; expected a single letter A-Z"
+        )
+    return stripped
 
 def _apply_depends_to_body_lines(lines: list[str], depends_clauses: list[str] | None) -> list[str]:
     if depends_clauses is None:
@@ -6115,19 +5885,27 @@ def cmd_append(base_dir: Path, argv: list[str], commit: bool = False, no_commit:
 @_discovery_scoped
 def resolve_top_task_id(
     base_dir: Path,
-    role: str | None = None,
+    prefix: str | None = None,
+    status: str | None = None,
     explicit_dir: str | None = None,
 ) -> str | None:
     todo_path = base_dir / "TODO.md"
     if not todo_path.is_file():
         return None
     active_tasks = parse_tasks_in_text(read_if_exists(todo_path), "TODO.md")
-    wanted_role = role.strip().lower() if role is not None else None
-    for wanted in ("WIP", "NEXT"):
+    wanted_prefix = prefix.strip().upper() if prefix is not None else None
+    if status is not None:
+        st_up = status.strip().upper()
+        wanted_statuses: tuple[str, ...] = (
+            tuple(ACTIVE_STATUS_ORDER) if st_up in ("ACTIVE", "ALL") else (st_up,)
+        )
+    else:
+        wanted_statuses = ("WIP", "NEXT")
+    for wanted in wanted_statuses:
         for t in active_tasks:
             if str(t["status"]) != wanted:
                 continue
-            if wanted_role is not None and not _task_matches_role(t, wanted_role):
+            if wanted_prefix is not None and not _task_matches_prefix(t, wanted_prefix):
                 continue
             if _is_task_blocked(base_dir, t, explicit_dir=explicit_dir):
                 continue
@@ -6140,14 +5918,21 @@ def cmd_next_id(
     target_dir: Path | None = None,
     task_id: str | None = None,
     explicit_dir: str | None = None,
-    role: str | None = None,
+    prefix: str | None = None,
+    status: str | None = None,
 ) -> int:
+    notes: list[str] = []
+    if prefix is not None:
+        notes.append(f"prefix={prefix.strip().upper()}")
+    if status is not None:
+        notes.append(f"status={status.strip().upper()}")
+    filter_note = f" ({', '.join(notes)})" if notes else ""
     if task_id is None:
-        tid = resolve_top_task_id(base_dir, role=role, explicit_dir=explicit_dir)
+        tid = resolve_top_task_id(base_dir, prefix=prefix, status=status, explicit_dir=explicit_dir)
         if not tid:
-            role_note = f" (role={role.strip()})" if role is not None else ""
+            st_label = status.strip().upper() if status is not None else "WIP or NEXT"
             sys.stderr.write(
-                f"{prog_name()}: no active WIP or NEXT task{role_note} found in TODO.md under {base_dir}\n"
+                f"{prog_name()}: no active {st_label} task{filter_note} found in TODO.md under {base_dir}\n"
             )
             return 1
         sys.stdout.write(f"{tid}\n")
@@ -6191,11 +5976,15 @@ def cmd_next_id(
             f"{prog_name()}: task {root_node['ref']} is blocked by {', '.join(bad_blockers)}\n"
         )
         return 1
-    next_act = _first_actionable_in_dag(dag, role=role)
+    wanted_st_set: frozenset[str] | None = None
+    if status is not None:
+        st_u = status.strip().upper()
+        if st_u not in ("ACTIVE", "ALL"):
+            wanted_st_set = frozenset({st_u})
+    next_act = _first_actionable_in_dag(dag, prefix=prefix, status=wanted_st_set)
     if not next_act:
-        role_note = f" (role={role.strip()})" if role is not None else ""
         sys.stderr.write(
-            f"{prog_name()}: no unblocked actionable task{role_note} found for {root_node['ref']}\n"
+            f"{prog_name()}: no unblocked actionable task{filter_note} found for {root_node['ref']}\n"
         )
         return 1
     sys.stdout.write(f"{next_act}\n")
@@ -6218,6 +6007,7 @@ def cmd_files(
 
 
 BUNDLE_PROTOCOL_VERSION = "1"
+BUNDLE_NAME = "todo_md"
 BUNDLE_FLAGS = ("--bundle", "--plain", "--no-files")
 BUNDLE_CHAIN = ["todo_md"]
 BUNDLE_RULE_ID = "todo_md:todo_md"
@@ -6227,7 +6017,6 @@ BUNDLE_MAX_BYTES = 32768
 CONTEXT_HEADER_RE = re.compile(r"^[A-Za-z][A-Za-z-]*: ")
 TASK_SOURCE_RE = re.compile(r"^# (TODO(?:_ARCHIVE)?\.md):\d+", re.MULTILINE)
 
-
 class BundleOptions:
     def __init__(self, enabled: bool, no_files: bool = False, role: str | None = None,
                  argv: list[str] | None = None) -> None:
@@ -6235,7 +6024,6 @@ class BundleOptions:
         self.no_files = no_files
         self.role = role
         self.argv = list(argv or [])
-
 
 def bundle_mode_enabled(bundle_flag: bool, plain_flag: bool) -> bool:
     env = os.environ
@@ -6258,70 +6046,48 @@ def bundle_mode_enabled(bundle_flag: bool, plain_flag: bool) -> bool:
         return step_ino != f"{st.st_dev}:{st.st_ino}"
     return env.get("IN_RUN_BLOCK") != "1"
 
-
 def _capture(render) -> tuple[int, str]:
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
         rc = int(render())
     return rc, buf.getvalue()
 
-
 def _fragment(nonce: str, meta: dict[str, object], body: str) -> str:
     marker = json.dumps(meta, ensure_ascii=False)
     return f"<!-- bundle:{nonce}:part {marker} -->\n{body.rstrip(chr(10))}\n<!-- bundle:{nonce}:end -->\n"
 
-
-def _include_fragments(nonce: str, base_dir: Path, specs: list[str]) -> list[str]:
-    root = base_dir.resolve()
-    out: list[str] = []
-    for spec in specs:
-        rel, span = split_file_spec(spec)
-        raw_lines = (root / rel).read_bytes().splitlines(keepends=True)
-        if span is None:
-            header = f"===== $ cat {rel} ====="
-        else:
-            raw_lines = raw_lines[span[0] - 1 : span[1]]
-            header = f"===== $ sed -n '{span[0]},{span[1]}p' {rel} ====="
-        text = b"".join(raw_lines).decode("utf-8", "replace")
-        meta = {"kind": "include", "name": spec, "chain": BUNDLE_CHAIN}
-        out.append(_fragment(nonce, meta, f"{header}\n{text}"))
+def _with_task_headers(headers: list[str], files: list[str], role: str | None) -> list[str]:
+    out = [h for h in headers if not h.startswith(("Role: ", "Files: "))]
+    files_line = f"Files: {' '.join(files)}" if files else None
+    if files_line is not None:
+        workdir_idx = next((idx for idx, h in enumerate(out) if h.startswith("Workdir: ")), len(out))
+        out.insert(workdir_idx, files_line)
+    if role:
+        out.append(f"Role: {role}")
     return out
-
-
-def _with_role(headers: list[str], role: str | None) -> list[str]:
-    if not role:
-        return headers
-    new = f"Role: {role}"
-    if any(h.startswith("Role: ") for h in headers):
-        return [new if h.startswith("Role: ") else h for h in headers]
-    return [*headers, new]
 
 def _write_stream(
     opts: BundleOptions,
     headers: list[str],
-    base_dir: Path,
-    specs: list[str],
+    files: list[str],
     prompt_meta: dict[str, object],
     prompt_body: str,
 ) -> None:
     nonce = secrets.token_hex(16)
-    headers = _with_role(headers, opts.role)
+    headers = _with_task_headers(headers, files, opts.role)
     preamble = [
         f"Bundle-Protocol: {BUNDLE_PROTOCOL_VERSION}",
+        f"Bundle-Name: {BUNDLE_NAME}",
         f"Bundle-Command: {shlex.join([prog_name(), *opts.argv])}",
         f"Bundle-Boundary: {nonce}",
-        "Bundle-Expose: Role, Task, Title",
         *headers,
     ]
-    role = next((h.split(": ", 1)[1].strip() for h in headers if h.startswith("Role: ")), None)
     rule_meta = {"kind": "rule", "id": BUNDLE_RULE_ID, "chain": BUNDLE_CHAIN}
     parts = [
-        _fragment(nonce, rule_meta, get_embedded_todo_rule(role=role)),
-        *_include_fragments(nonce, base_dir, specs),
+        _fragment(nonce, rule_meta, get_embedded_todo_rule()),
         _fragment(nonce, prompt_meta, "===== Prompt =====\n" + prompt_body),
     ]
     sys.stdout.write("\n".join(preamble) + "\n\n===== Rules =====\n" + "\n".join(parts))
-
 
 def emit_context_bundle(opts: BundleOptions, base_dir: Path, render) -> int:
     rc, out = _capture(render)
@@ -6329,9 +6095,8 @@ def emit_context_bundle(opts: BundleOptions, base_dir: Path, render) -> int:
         sys.stdout.write(out)
         return rc
     meta = {"kind": "context", "name": "todo_md", "chain": BUNDLE_CHAIN}
-    _write_stream(opts, [f"Workdir: {base_dir.resolve()}"], base_dir, [], meta, out)
+    _write_stream(opts, [f"Workdir: {base_dir.resolve()}"], [], meta, out)
     return 0
-
 
 def emit_task_bundle(opts: BundleOptions, task_dir: Path, task_id: str | None, render) -> int:
     rc, out = _capture(render)
@@ -6353,7 +6118,7 @@ def emit_task_bundle(opts: BundleOptions, task_dir: Path, task_id: str | None, r
         "name": f"{src.group(1) if src else 'TODO.md'}:{tid}",
         "chain": BUNDLE_CHAIN,
     }
-    _write_stream(opts, headers, task_dir, specs, meta, body)
+    _write_stream(opts, headers, specs, meta, body)
     return 0
 
 
@@ -6456,8 +6221,16 @@ KNOWN_SUBCOMMANDS = (
 )
 
 
-def _validate_role_filter(prog: str, raw_val: str) -> str:
-    return _normalize_role_arg(raw_val)
+def _validate_prefix_filter(raw_val: str) -> str:
+    return _normalize_prefix_arg(raw_val)
+
+def _validate_status_filter(prog: str, raw_val: str) -> str:
+    kw = raw_val.strip().upper()
+    if kw not in STATUS_FILTER_KEYWORDS:
+        raise SystemExit(
+            f"{prog}: invalid status {raw_val!r}; expected one of {', '.join(STATUS_FILTER_KEYWORDS)}"
+        )
+    return kw
 
 STATUS_FILTER_KEYWORDS = (
     "WIP",
@@ -6472,8 +6245,8 @@ STATUS_FILTER_KEYWORDS = (
     "ALL",
 )
 QUEST_LOG_USAGE = (
-    "[--tree] [--numbered[=left|right]] [--status STATUS] [--all] [-r|--ready] [--by-role] "
-    "[--role ROLE] [-l N|--limit N] [--include-hold] [-f|--filter <ID>...] [-H|--highlight [<ID>...]] "
+    "[--tree] [--numbered[=left|right]] [--prefix PREFIX] [--status STATUS] [--all] [-r|--ready] "
+    "[-l N|--limit N] [--include-hold] [-f|--filter <ID>...] [-H|--highlight [<ID>...]] "
     "[-s|--search QUERY]"
 )
 
@@ -6517,10 +6290,9 @@ def _parse_quest_log_args(prog: str, argv: list[str], cmd: str, positional_focus
         "include_hold": False,
         "include_done": False,
         "ready": False,
-        "by_role": False,
         "tree": False,
         "numbered": None,
-        "role": None,
+        "prefix": None,
         "status": None,
         "archive": None,
         "filter": [],
@@ -6556,13 +6328,13 @@ def _parse_quest_log_args(prog: str, argv: list[str], cmd: str, positional_focus
         elif a.startswith("--limit="):
             o["limit"] = _parse_limit(prog, a.split("=", 1)[1])
             i += 1
-        elif a == "--role":
+        elif a == "--prefix":
             if i + 1 >= len(argv):
-                raise SystemExit(f"{prog}: {a} requires a role argument")
-            o["role"] = _validate_role_filter(prog, argv[i + 1])
+                raise SystemExit(f"{prog}: {a} requires a prefix argument")
+            o["prefix"] = _validate_prefix_filter(argv[i + 1])
             i += 2
-        elif a.startswith("--role="):
-            o["role"] = _validate_role_filter(prog, a.split("=", 1)[1])
+        elif a.startswith("--prefix="):
+            o["prefix"] = _validate_prefix_filter(a.split("=", 1)[1])
             i += 1
         elif a == "--status":
             if i + 1 >= len(argv):
@@ -6623,9 +6395,6 @@ def _parse_quest_log_args(prog: str, argv: list[str], cmd: str, positional_focus
             i += 1
         elif a in ("--ready", "-r"):
             o["ready"] = True
-            i += 1
-        elif a == "--by-role":
-            o["by_role"] = True
             i += 1
         elif a.startswith("-"):
             raise SystemExit(f"{prog}: unknown option for {cmd}: {a}")
@@ -6702,7 +6471,7 @@ def _quest_log(
                 filt,
                 limit=o["limit"],
                 full=full,
-                role=o["role"],
+                prefix=o["prefix"],
                 ready=False,
                 targets=matched_refs,
                 focus=focus_refs,
@@ -6712,7 +6481,7 @@ def _quest_log(
             filt,
             limit=o["limit"],
             full=full,
-            role=o["role"],
+            prefix=o["prefix"],
             ready=False,
             targets=matched_refs,
             focus=focus_refs,
@@ -6723,8 +6492,7 @@ def _quest_log(
         include_hold=o["include_hold"],
         include_done=o["include_done"],
         ready=o["ready"],
-        role=o["role"],
-        by_role=o["by_role"],
+        prefix=o["prefix"],
         workspace=use_ws,
         explicit_dir=explicit_dir,
         targets=matched_refs,
@@ -6781,43 +6549,22 @@ CONTEXT_COMMANDS = ("show", "--show", "last", "--last", "overview", "--overview"
 
 def _extract_session_role(prog: str, args: list[str]) -> tuple[str | None, list[str]]:
     plain = [a for a in args if not a.startswith("role=")]
-    stripped: list[str] = []
-    i = 0
-    while i < len(plain):
-        a = plain[i]
-        if a == "--role" and i + 1 < len(plain):
-            i += 2
-        elif a.startswith("--role="):
-            i += 1
-        else:
-            stripped.append(a)
-            i += 1
-    has_prefix_role = len(plain) != len(args)
-    if stripped:
-        is_context = stripped[0] in CONTEXT_COMMANDS or _collect_task_refs(stripped) is not None
+    if len(plain) == len(args):
+        return None, args
+    if plain:
+        is_context = plain[0] in CONTEXT_COMMANDS or _collect_task_refs(plain) is not None
     else:
-        is_context = has_prefix_role and len(plain) == 0
+        is_context = True
     if not is_context:
         return None, args
     role: str | None = None
-    flag_role: str | None = None
     rest: list[str] = []
-    i = 0
-    while i < len(args):
-        a = args[i]
+    for a in args:
         if a.startswith("role="):
-            role = _validate_role_filter(prog, a.split("=", 1)[1])
-            i += 1
-        elif stripped and a == "--role" and i + 1 < len(args):
-            flag_role = _validate_role_filter(prog, args[i + 1])
-            i += 2
-        elif stripped and a.startswith("--role="):
-            flag_role = _validate_role_filter(prog, a.split("=", 1)[1])
-            i += 1
+            role = _normalize_role_override(a.split("=", 1)[1])
         else:
             rest.append(a)
-            i += 1
-    return (role if role is not None else flag_role), rest
+    return role, rest
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -6997,18 +6744,38 @@ def main(argv: list[str] | None = None) -> int:
             prog, base_dir, explicit_dir, workspace, full, args[1:], cmd="chain", positional_focus=True
         )
     if args[0] in ("next-id", "--next-id"):
-        role_filter: str | None = None
+        prefix_filter: str | None = None
+        status_filter: str | None = None
         pos: list[str] = []
         i = 1
         while i < len(args):
             a = args[i]
-            if a == "--role":
+            if a == "--prefix":
                 if i + 1 >= len(args):
-                    raise SystemExit(f"{prog}: {a} requires a role argument")
-                role_filter = _validate_role_filter(prog, args[i + 1])
+                    raise SystemExit(f"{prog}: {a} requires a prefix argument")
+                prefix_filter = _validate_prefix_filter(args[i + 1])
                 i += 2
-            elif a.startswith("--role="):
-                role_filter = _validate_role_filter(prog, a.split("=", 1)[1])
+            elif a.startswith("--prefix="):
+                prefix_filter = _validate_prefix_filter(a.split("=", 1)[1])
+                i += 1
+            elif a == "--status":
+                if i + 1 >= len(args):
+                    raise SystemExit(f"{prog}: {a} requires a status argument")
+                st_val = _validate_status_filter(prog, args[i + 1])
+                if st_val not in ACTIVE_STATUS_ORDER and st_val not in ("ACTIVE", "ALL"):
+                    raise SystemExit(
+                        f"{prog}: next-id --status must be an active status ({', '.join(ACTIVE_STATUS_ORDER)}), got {args[i + 1]!r}"
+                    )
+                status_filter = st_val
+                i += 2
+            elif a.startswith("--status="):
+                raw_st = a.split("=", 1)[1]
+                st_val = _validate_status_filter(prog, raw_st)
+                if st_val not in ACTIVE_STATUS_ORDER and st_val not in ("ACTIVE", "ALL"):
+                    raise SystemExit(
+                        f"{prog}: next-id --status must be an active status ({', '.join(ACTIVE_STATUS_ORDER)}), got {raw_st!r}"
+                    )
+                status_filter = st_val
                 i += 1
             elif a.startswith("-"):
                 raise SystemExit(f"{prog}: unknown option for next-id: {a}")
@@ -7016,7 +6783,7 @@ def main(argv: list[str] | None = None) -> int:
                 pos.append(a)
                 i += 1
         if len(pos) > 1:
-            raise SystemExit(f"{prog}: usage: {prog} next-id [<ID>] [--role ROLE]")
+            raise SystemExit(f"{prog}: usage: {prog} next-id [<ID>] [--prefix PREFIX] [--status STATUS]")
         if len(pos) == 1:
             tdir, tid = resolve_project_task_ref(base_dir, pos[0], explicit_dir=explicit_dir)
             return cmd_next_id(
@@ -7024,9 +6791,10 @@ def main(argv: list[str] | None = None) -> int:
                 target_dir=tdir,
                 task_id=tid,
                 explicit_dir=explicit_dir,
-                role=role_filter,
+                prefix=prefix_filter,
+                status=status_filter,
             )
-        return cmd_next_id(base_dir, explicit_dir=explicit_dir, role=role_filter)
+        return cmd_next_id(base_dir, explicit_dir=explicit_dir, prefix=prefix_filter, status=status_filter)
     if args[0] in ("last-id", "--last-id"):
         if len(args) > 2:
             raise SystemExit(f"{prog}: usage: {prog} last-id [<STATUS|archive>]")
@@ -7114,7 +6882,8 @@ def main(argv: list[str] | None = None) -> int:
     if args[0] in ("list", "--list") or (args[0] == "-l" and not (len(args) > 1 and args[1].isdigit())):
         filt: str | None = None
         limit: int | None = None
-        role_filter: str | None = None
+        prefix_filter: str | None = None
+        status_filter: str | None = None
         ready = False
         raw_target_refs: list[str] = []
         i = 1
@@ -7134,13 +6903,21 @@ def main(argv: list[str] | None = None) -> int:
                     raise SystemExit(f"{prog}: invalid limit {raw_lim!r}; expected a positive integer")
                 limit = int(raw_lim)
                 i += 1
-            elif a == "--role":
+            elif a == "--prefix":
                 if i + 1 >= len(args):
-                    raise SystemExit(f"{prog}: {a} requires a role argument")
-                role_filter = _validate_role_filter(prog, args[i + 1])
+                    raise SystemExit(f"{prog}: {a} requires a prefix argument")
+                prefix_filter = _validate_prefix_filter(args[i + 1])
                 i += 2
-            elif a.startswith("--role="):
-                role_filter = _validate_role_filter(prog, a.split("=", 1)[1])
+            elif a.startswith("--prefix="):
+                prefix_filter = _validate_prefix_filter(a.split("=", 1)[1])
+                i += 1
+            elif a == "--status":
+                if i + 1 >= len(args):
+                    raise SystemExit(f"{prog}: {a} requires a status argument")
+                status_filter = _validate_status_filter(prog, args[i + 1])
+                i += 2
+            elif a.startswith("--status="):
+                status_filter = _validate_status_filter(prog, a.split("=", 1)[1])
                 i += 1
             elif a in ("--ready", "-r"):
                 ready = True
@@ -7160,7 +6937,7 @@ def main(argv: list[str] | None = None) -> int:
                     i += 1
                 else:
                     raise SystemExit(
-                        f"{prog}: usage: {prog} list [filter] [<ID>...] [--role ROLE] [-r|--ready] [--limit N] [--full]"
+                        f"{prog}: usage: {prog} list [filter] [<ID>...] [--prefix PREFIX] [--status STATUS] [-r|--ready] [--limit N] [--full]"
                     )
         target_refs: list[tuple[Path, str]] = [
             resolve_filter_task_ref(base_dir, ref, explicit_dir=explicit_dir)
@@ -7174,7 +6951,8 @@ def main(argv: list[str] | None = None) -> int:
                     filt,
                     limit=limit,
                     full=full,
-                    role=role_filter,
+                    prefix=prefix_filter,
+                    status=status_filter,
                     ready=ready,
                     targets=target_refs,
                 )
@@ -7183,7 +6961,8 @@ def main(argv: list[str] | None = None) -> int:
             filt,
             limit=limit,
             full=full,
-            role=role_filter,
+            prefix=prefix_filter,
+            status=status_filter,
             ready=ready,
             targets=target_refs,
         )

@@ -56,14 +56,14 @@ rules are loaded via `.agents_bundle`.
   `cmd_workspace_*`, `_order_active_tasks`); route new discovery calls through
   the cached wrappers and never mutate task files inside an active session.
 - `src/parser.py` — pure `TODO.md` / `TODO_ARCHIVE.md` parsing: task sections,
-  dependency clause syntax, role resolution, `- Target files:` extraction
+  dependency clause syntax, prefix matching, `- Target files:` extraction
   (`extract_task_files()`, `select_task_files()`), ID tracking, search, and the
   structural validator `validate_all()` (`todo_md check`); no terminal output.
 - `src/dag.py` — unified dependency DAG (`build_dependency_dag()`,
   `build_execution_chain_dag()`), blocked-state info, and unblock detection.
 - `src/chains.py` — execution chain planning and ranking
-  (`plan_execution_chains()`, `plan_execution_chains_by_role()`,
-  `build_chain_milestone_tree()`, `_order_active_tasks()`).
+  (`plan_execution_chains()`, `build_chain_milestone_tree()`,
+  `_order_active_tasks()`).
 - `src/render.py` — terminal width, ANSI styling, table wrapping, and the
   read-only view renderers (`cmd_list`, `cmd_show`, `cmd_summary`, `cmd_ids`,
   `cmd_last`, `cmd_projects`, `cmd_workspace_*`); `src/render_chain.py` holds
@@ -75,19 +75,19 @@ rules are loaded via `.agents_bundle`.
   commit whenever commands or flags change.
 - `agents/todo_md.md` — agent rule embedded into the compiled `todo_md` by
   `build.py` (`EMBEDDED_RULE_TODO_MD`, `get_embedded_todo_rule()`) and emitted
-  as `todo_md:todo_md` in bundle mode for every role except `work`; it is pure
-  Markdown (no conditional directives) and holds the full backlog reference.
-- `agents/todo_md_work.md` — compact `role=work` rule embedded as
-  `EMBEDDED_RULE_TODO_MD_WORK`; `get_embedded_todo_rule(role)` picks it only for
-  `work`. It tells the agent to run `todo_md status <ID> WIP` in its first step.
+  as `todo_md:todo_md` in bundle mode; it is pure Markdown and holds the
+  `todo_md` CLI and data-format contract without hardcoded role workflow
+  instructions.
 - `src/bundle.py` — `context-bundle-protocol` v1 producer (`BundleOptions`,
   `bundle_mode_enabled()`, `emit_task_bundle()`, `emit_context_bundle()`):
-  FIFO auto-detection, `role=<role>` override (`Role:` header and rule
-  selection), and rule/include/task/context fragments; it never mutates
-  `TODO.md`. Target files come only from `select_task_files()` and
-  `extract_task_files()` in `src/parser.py`
-  (`- Target files:` bullets); keep the stream shape aligned with `todo_flow`
-  `docs/adr/0002-context-bundle-protocol-and-self-contained-producers.md`.
+  FIFO auto-detection, `Bundle-Name: todo_md`, native task preamble headers
+  (`Task`, `Prefix`, `Status`, `Title`, `Files`, `Workdir`, plus `Role` only on
+  explicit `role=<role>` CLI override), and rule/task/context fragments without
+  streaming `include` file contents; it never mutates `TODO.md`. Target file
+  specs come only from `select_task_files()` and `extract_task_files()` in
+  `src/parser.py` (`- Target files:` bullets); keep the stream shape aligned
+  with `todo_flow`
+  `docs/adr/0003-task-targeted-bundle-architecture-and-atomic-rule-taxonomy.md`.
 - `src/cli.py` — CLI argument routing and self-update (`update`,
   `check-update`).
 - `tests/helpers.py` & `tests/test_*.py` — shared in-process/subprocess test
@@ -95,15 +95,16 @@ rules are loaded via `.agents_bundle`.
   `test_parser.py`, `test_commands.py`, `test_deps.py`, `test_chain.py`,
   `test_bundle.py`).
 
-## Task Roles & Prefixes
+## Task Prefixes & Role Decoupling
 
-- Task roles are derived only from the ID prefix and status in
-  `resolve_task_role()`; never reintroduce in-body `- Role:` overrides or a
-  `--role` option on mutating commands (`--role` stays a read-only filter).
-- Prefix metadata (`PREFIX_INFO`, `DEFAULT_TASK_PREFIX`) and status roles
-  (`STATUS_ROLES`) live in `src/header.py`; `todo_md ids` renders the legend
-  from them via `prefix_legend_lines()`, so keep `--help`, `README.md`, and
-  `agents/todo_md.md` aligned with those tables.
+- `todo_md` is decoupled from `agents-rules` role names: do not reintroduce
+  hardcoded role tables, `resolve_task_role()`, `--role`, `--by-role`, or
+  in-body `- Role:` lines; filter views natively with `--prefix` and
+  `--status`.
+- Prefix metadata (`PREFIX_INFO`, `DEFAULT_TASK_PREFIX`) lives in
+  `src/header.py`; `todo_md ids` renders the legend from it via
+  `prefix_legend_lines()`, so keep `--help`, `README.md`, and
+  `agents/todo_md.md` aligned with that table.
 
 ## Dependency Graph & Sequencing Contract
 

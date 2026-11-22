@@ -84,23 +84,6 @@ def parse_task_dependencies(section_text: str) -> list[str]:
                     refs.append(val)
     return refs
 
-def resolve_task_role(
-    task_id: str,
-    section_text: str,
-    status: str | None = None,
-) -> str:
-    prefix = task_id.strip().upper().split(":")[-1][:1]
-    if prefix in PREFIX_DEFAULT_ROLES:
-        return PREFIX_DEFAULT_ROLES[prefix]
-    norm_status = (status or "").strip().upper()
-    if not norm_status and section_text:
-        first_line = section_text.splitlines()[0].strip()
-        m = HEADING_RE.match(first_line)
-        if m:
-            norm_status = m.group(2).upper()
-    if norm_status in STATUS_ROLES:
-        return STATUS_ROLES[norm_status]
-    return "work" if norm_status in ("DONE", "CANCELED") else "plan"
 
 def read_if_exists(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="replace") if path.is_file() else ""
@@ -248,13 +231,12 @@ def _strip_heading_note(title: str) -> tuple[str, str | None]:
         return m.group(1).strip(), m.group(2).strip()
     return title.strip(), None
 
-def _task_matches_role(task: dict[str, object], wanted_role: str) -> bool:
-    role = resolve_task_role(
-        str(task["id"]),
-        str(task["section"]),
-        status=str(task.get("status", "")),
-    )
-    return bool(role) and role.lower() == wanted_role.strip().lower()
+def _task_prefix(task_id: str) -> str:
+    return task_id.strip().upper().split(":")[-1][:1]
+
+def _task_matches_prefix(task: dict[str, object], wanted_prefix: str) -> bool:
+    raw_id = str(task.get("id") or task.get("ref") or "")
+    return bool(raw_id) and _task_prefix(raw_id) == wanted_prefix.strip().upper()
 
 def validate_all(base_dir: Path) -> tuple[list[str], int]:
     errors: list[str] = []
@@ -321,8 +303,7 @@ def validate_all(base_dir: Path) -> tuple[list[str], int]:
                 if ROLE_LINE_RE.match(sline):
                     errors.append(
                         f"TODO.md:{lineno + offset}: task {tid} has an in-body 'Role:' line "
-                        "(roles are derived from the ID prefix and status; remove it, "
-                        "use a D* prefix for design tasks or 'todo_md next <ID>' to promote to work)"
+                        "(remove it; task prefixes and statuses are managed via headings)"
                     )
             clauses, syntax_errs = parse_dependency_clauses(sec)
             for serr in syntax_errs:
