@@ -85,9 +85,10 @@ def _write_stream(
         "Bundle-Expose: Role, Task, Title",
         *headers,
     ]
+    role = next((h.split(": ", 1)[1].strip() for h in headers if h.startswith("Role: ")), None)
     rule_meta = {"kind": "rule", "id": BUNDLE_RULE_ID, "chain": BUNDLE_CHAIN}
     parts = [
-        _fragment(nonce, rule_meta, get_embedded_todo_rule()),
+        _fragment(nonce, rule_meta, get_embedded_todo_rule(role=role)),
         *_include_fragments(nonce, base_dir, specs),
         _fragment(nonce, prompt_meta, "===== Prompt =====\n" + prompt_body),
     ]

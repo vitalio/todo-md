@@ -131,10 +131,26 @@ WORKSPACE_SKIP_DIRS = frozenset({
 WORKSPACE_MAX_DEPTH = 3
 
 
-def get_embedded_todo_rule() -> str:
+RULE_IF_BLOCK_RE = re.compile(
+    r"^\[if role(?P<op>=|!=)(?P<val>[a-z0-9_-]+)\]\n(?P<body>.*?)^\[endif\]\n?",
+    re.MULTILINE | re.DOTALL,
+)
+
+def get_embedded_todo_rule(role: str | None = None) -> str:
     if EMBEDDED_RULE_TODO_MD != "__EMBEDDED_RULE_" + "TODO_MD__":
-        return EMBEDDED_RULE_TODO_MD
-    return RULE_SOURCE_PATH.read_text(encoding="utf-8")
+        raw = EMBEDDED_RULE_TODO_MD
+    else:
+        raw = RULE_SOURCE_PATH.read_text(encoding="utf-8")
+    lines = [line for line in raw.splitlines() if not line.startswith("# Description:")]
+    text = "\n".join(lines) + "\n"
+    eff_role = (role or "").strip().lower()
+
+    def _replace_if(m: re.Match[str]) -> str:
+        op, val, body = m.group("op"), m.group("val"), m.group("body")
+        keep = (eff_role == val) if op == "=" else (eff_role != val)
+        return body if keep else ""
+
+    return RULE_IF_BLOCK_RE.sub(_replace_if, text).strip("\n") + "\n"
 
 
 def prog_name() -> str:
