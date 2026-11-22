@@ -1,3 +1,10 @@
+# 🎯 [NEXT] F69: Keep todo_md --help lines within 100 display columns and 100 UTF-8 bytes
+
+- In `src/header.py`, update `_help_wrap()` so wrapped `--help` lines stay within `width` both by terminal display columns (`help_display_width(cand) <= width`) and by UTF-8 byte length (`len(cand.encode("utf-8")) <= width`), preventing false positives when checking `todo_md -h` with byte-oriented tools such as `mawk 'length($0) > 100'` on lines containing multi-byte status emoji (`next` and `TODO.md`).
+- In `tests/test_cli.py` (`_assert_help_aligned()`), assert both `width(ln) <= 100` and `len(ln.encode("utf-8")) <= 100` for every line of `--help` output.
+- Regenerate standalone `./todo_md` via `python3 build.py`, verify `python3 build.py --check`, reinstall locally, and bump `VERSION` (`PATCH`).
+- Target files: `src/header.py`, `tests/test_cli.py:TestCli._assert_help_aligned..TestCli.test_help_structured_sections_and_alignment`.
+
 # 🎯 [NEXT] B4: Preserve existing '- Depends on:' and '- Target files:' lines in 'todo_md edit -b'
 
 - In `_apply_depends_to_body_lines()` and `cmd_edit()` in `src/commands.py`, when `body is not None` (`-b` / `--body` or piped `stdin`) and `depends_clauses is None` (`--depends` was not passed), automatically preserve any existing `- Depends on:` lines from the previous task body (`old_sec[1:]`) whenever the new `body` does not already include its own `- Depends on:` lines; clear existing `- Depends on:` lines only when `--depends ""` is explicitly passed.
@@ -33,7 +40,7 @@
 
 # 🎯 [NEXT] F62: Decompose monolithic src/parser.py and src/commands.py into focused domain modules
 
-- Depends on: B2, B3, B4, B5, F57, F63, F67, F68 -> F64
+- Depends on: B2, B3, B4, B5, F57, F63, F67, F68, F69 -> F64
 - Refactor `src/parser.py` (3,600+ lines) and `src/commands.py` (1,800+ lines) into cohesive domain modules (~300-800 lines each) with clean layer boundaries:
   - `src/header.py` (`1-353`): imports, constants, regular expressions, `prog_name()`, and `usage_text()`.
   - `src/workspace.py` (from `src/parser.py:1-299` and `src/parser.py:1833-2139`): project and workspace root resolution (`is_todo_project()`, `resolve_target_dir()`, `resolve_workspace_root()`, `discover_projects()`, `project_label()`, `lookup_external_alias()`, `resolve_project_dir()`, `resolve_project_or_dir()`, `resolve_project_task_ref()`, `resolve_filter_task_ref()`, `.todo_projects` and nested orchestrator discovery `read_configured_todo_projects()`, `is_orchestrator_project()`, `discover_orchestrators_for_project()`, `resolve_workspace_chain_projects()`).
@@ -68,7 +75,3 @@
 
 - Depends on: F62
 Allow exporting parsed tasks as JSON for scripting.
-
-# ⚪ [NEW] F69: Wrap todo_md --help lines wider than 100 columns
-
-The next command row and the TODO.md legend row in todo_md -h render wider than 100 columns, which violates the structured help width rule. Observed via awk length check on todo_md -h output during B5; unrelated to symbol slices.
