@@ -35,6 +35,14 @@
   - Compute parallel critical-path steps for chains and orchestrator waves as `max(dag_depth, max_repo_open_count)` and surface parallelism metrics on chain headers and `todo_md -r` (`--ready`) in `src/chains.py` and `src/render_chain.py`.
   - Detect target-file overlaps via `extract_task_files()` (`src/parser.py`) across unlinked open tasks within the same repository in `src/chains.py` and `src/render.py` to assist planners in consolidating or sequencing tasks that touch the same files.
 
+# ⚪ [NEW] F72: Emit Bundle-Name and declarative Files preamble headers, decouple hardcoded roles from todo_md, and drop Windows support
+
+- Implement the Producer side of `todo_flow` `docs/adr/0003-task-targeted-bundle-architecture-and-atomic-rule-taxonomy.md`:
+  - In `src/bundle.py`, emit `Bundle-Name: todo_md` and native task preamble headers `Task: <ID>`, `Prefix: <P>`, `Status: <S>`, `Title: <title>`, and `Files: <space-separated path or path:start-end specs>` (plus `Role: <role>` only when an explicit `role=<role>` CLI override is passed). Stop reading and streaming target file contents as `kind: "include"` body fragments in `todo_md`, leaving file reading and span deduplication to `agents_bundle` (`file {todo_md.files:}`).
+  - Decouple `todo_md` from `agents-rules` role names: remove hardcoded `resolve_task_role()`, `PREFIX_DEFAULT_ROLES`, `STATUS_ROLES`, `ROLE_EASE_ORDER`, `ROLE_EFFORT_WEIGHTS`, and `RETIRED_ROLES` from `src/header.py`, `src/parser.py`, `src/render.py`, and `src/chains.py`; support native `--prefix <P>` and `--status <S>` filtering in `list`, `chain`, and `next-id`, and keep `agents/todo_md.md` focused strictly on `todo_md` CLI commands, statuses, `--depends`, and `- Target files:` without role workflow instructions (which now live in `agents-rules` `agents/adapters/todo_md.bundle`).
+  - Drop Windows support: remove `install.ps1`, Windows/PowerShell branches, and `windows-latest` from `.github/workflows/ci.yml`.
+- Target files: `src/header.py`, `src/parser.py`, `src/render.py`, `src/chains.py`, `src/bundle.py`, `src/cli.py`, `agents/todo_md.md`, `AGENTS.md`, `README.md`.
+
 # ⏸️ [HOLD] P1: JSON output mode (`--json`) — *Defer machine-readable JSON output until an external client or dashboard is needed*
 
 - Depends on: F62 -> F71
