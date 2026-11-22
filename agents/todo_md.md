@@ -47,4 +47,5 @@
   - Target files contract: record touched files on one `- Target files:` bullet
     (backticked, excluding `TODO*.md` and `AGENTS.md`) when promoting a task to
     `NEXT`: plain paths for files <= 400 lines, and `path:symbol`,
-    `path:sym1..sym2`, or `path:start-end` slices for larger files.
+    `path:sym1..sym2`, or `path:start-end` slices for larger files (a symbol
+    that is not found falls back to the whole file).

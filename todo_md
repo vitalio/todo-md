@@ -23,11 +23,11 @@ import unicodedata
 from datetime import date
 from pathlib import Path
 
-VERSION = "0.42.0"
+VERSION = "0.42.1"
 REPO_MARKER = "todo_md-repo: vitalio/todo_md"
 DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/vitalio/todo_md/main/todo_md"
 FENCE = chr(96) * 3
-EMBEDDED_RULE_TODO_MD = '# Description: Structured Markdown task management (TODO.md and TODO_ARCHIVE.md) via todo_md\n- Task management (`todo_md`: `TODO.md`, `TODO_ARCHIVE.md`): Always inspect and\n  modify `TODO.md` and `TODO_ARCHIVE.md` via `todo_md` (never via `cat` or\n  manual file edits). Repository scope only: record each task in the `TODO.md`\n  of the repository it belongs to (run `todo_md -h` for full CLI option lists).\n  - Status lifecycle & role derivation: `TODO.md` orders active tasks as\n    `🔵 [WIP]` -> `🎯 [NEXT]` -> `❓ [QUESTION]` -> `⚪ [NEW]` -> `⏸️ [HOLD]`,\n    and `TODO_ARCHIVE.md` keeps `✅ [DONE]` and `❌ [CANCELED]` newest-first.\n    Task ID prefixes: `F` is a feature (default on `add`), `B` is a bugfix\n    (ranked ahead in `chain`), `D` is a design task (`D*` -> `design` in any\n    status), and other `A-Z` prefixes are custom domains; non-`D` tasks resolve\n    to `work` in `WIP`/`NEXT` and `plan` in `NEW`/`QUESTION`/`HOLD`.\n    `todo_md check` rejects `- Role:` lines in active `TODO.md` tasks,\n    `todo_md next <ID>` strips an existing `- Role: plan` line, and\n    `todo_md <ID> [role=<role>]` in bundle mode\n    (`todo_md <ID> | agents_bundle | run_block`) is read-only: it emits\n    `Role: <role>` (derived, or the `role=<role>` override that also selects\n    this rule) and preloads target files (`--no-files` opts out); start a task\n    with `todo_md status <ID> WIP` or `todo_md next <ID>`.\n  - Inspect & target selection: pass `-C <dir|project>` or `--project <name>`\n    before subcommands (or `<project>:<ID>` on task refs). Core views:\n    `todo_md [opts] [-w]`, `todo_md overview [--full] [-w]`, `todo_md projects`,\n    `todo_md [show] <ID>...`, `todo_md last[-id] [<STATUS|archive>]`,\n    `todo_md list [active|archive|all|<STATUS>] [<ID>...] [--role <role>] [-r|--ready] [--limit N] [--full]`,\n    `todo_md archive`, `todo_md ids`, `todo_md queue <ID> [--all]` (alias for `todo_md chain <ID> [--all]`),\n    `todo_md chain [<ID>...] [--all] [--by-role] [--role <role>] [--ready] [-l N|--limit N] [--include-hold] [--tree] [--numbered[=left|right]] [-f <ID>...] [-H] [-s <QUERY>]`,\n    `todo_md next-id [<ID>] [--role <role>]`,\n    `todo_md files [<ID>] [--max-lines N] [--max-total-lines N] [--max-bytes N] [--max-total-bytes N]`.\n  - Mutate & validate: `todo_md add [<PROJECT>] [<PREFIX>] "<title>" [-p <P>]\n    [--next] [--status <S>] [-m "<note>"] [-b "<body_md>"|-] [--depends <spec>]\n    [-c]`, `todo_md edit <ID> [-t "<title>"] [-m "<note>"] [-b "<body_md>"|-]\n    [--depends <spec>] [-c]`, `todo_md append <ID> [-b "<text>"|-] [-c]`,\n    `todo_md next <ID> [-m "<note>"] [--reopen] [-c]`,\n    `todo_md status <ID> <STATUS> [-m "<note>"] [--reopen] [-c]`,\n    `todo_md reopen <ID> [--status <S>] [-m "<note>"] [-c]`,\n    `todo_md done <ID> [-m "<note>"] [-c]`,\n    `todo_md cancel <ID> [-m "<reason>"] [-c]`, `todo_md check`. In\n    `role=plan`, `role=design`, and `role=review`, batch mutations without `-c`\n    and commit `TODO*.md` once backlog updates are complete; in `role=work`,\n    run `todo_md done <ID>` inside the final commit step without `-c`.\n  - Dependencies & Chain integration (both directions): in `--depends` and\n    `- Depends on:`, use `,` for parallel items (`A,B`) and `->` for sequential\n    stages (`"A -> B -> C"`, `,` binds tighter than `->`; repeat for AND\n    branches; do not introduce a separate `- Order:` field). Wire new or refined\n    tasks both upstream (`--depends`) and downstream (`todo_md edit <ID>\n    --depends ...` on existing open tasks or waves).\n  - Target files contract: record touched files on one `- Target files:` bullet\n    (backticked, excluding `TODO*.md` and `AGENTS.md`) when promoting a task to\n    `NEXT`: plain paths for files <= 400 lines, and `path:symbol`,\n    `path:sym1..sym2`, or `path:start-end` slices for larger files.\n'
+EMBEDDED_RULE_TODO_MD = '# Description: Structured Markdown task management (TODO.md and TODO_ARCHIVE.md) via todo_md\n- Task management (`todo_md`: `TODO.md`, `TODO_ARCHIVE.md`): Always inspect and\n  modify `TODO.md` and `TODO_ARCHIVE.md` via `todo_md` (never via `cat` or\n  manual file edits). Repository scope only: record each task in the `TODO.md`\n  of the repository it belongs to (run `todo_md -h` for full CLI option lists).\n  - Status lifecycle & role derivation: `TODO.md` orders active tasks as\n    `🔵 [WIP]` -> `🎯 [NEXT]` -> `❓ [QUESTION]` -> `⚪ [NEW]` -> `⏸️ [HOLD]`,\n    and `TODO_ARCHIVE.md` keeps `✅ [DONE]` and `❌ [CANCELED]` newest-first.\n    Task ID prefixes: `F` is a feature (default on `add`), `B` is a bugfix\n    (ranked ahead in `chain`), `D` is a design task (`D*` -> `design` in any\n    status), and other `A-Z` prefixes are custom domains; non-`D` tasks resolve\n    to `work` in `WIP`/`NEXT` and `plan` in `NEW`/`QUESTION`/`HOLD`.\n    `todo_md check` rejects `- Role:` lines in active `TODO.md` tasks,\n    `todo_md next <ID>` strips an existing `- Role: plan` line, and\n    `todo_md <ID> [role=<role>]` in bundle mode\n    (`todo_md <ID> | agents_bundle | run_block`) is read-only: it emits\n    `Role: <role>` (derived, or the `role=<role>` override that also selects\n    this rule) and preloads target files (`--no-files` opts out); start a task\n    with `todo_md status <ID> WIP` or `todo_md next <ID>`.\n  - Inspect & target selection: pass `-C <dir|project>` or `--project <name>`\n    before subcommands (or `<project>:<ID>` on task refs). Core views:\n    `todo_md [opts] [-w]`, `todo_md overview [--full] [-w]`, `todo_md projects`,\n    `todo_md [show] <ID>...`, `todo_md last[-id] [<STATUS|archive>]`,\n    `todo_md list [active|archive|all|<STATUS>] [<ID>...] [--role <role>] [-r|--ready] [--limit N] [--full]`,\n    `todo_md archive`, `todo_md ids`, `todo_md queue <ID> [--all]` (alias for `todo_md chain <ID> [--all]`),\n    `todo_md chain [<ID>...] [--all] [--by-role] [--role <role>] [--ready] [-l N|--limit N] [--include-hold] [--tree] [--numbered[=left|right]] [-f <ID>...] [-H] [-s <QUERY>]`,\n    `todo_md next-id [<ID>] [--role <role>]`,\n    `todo_md files [<ID>] [--max-lines N] [--max-total-lines N] [--max-bytes N] [--max-total-bytes N]`.\n  - Mutate & validate: `todo_md add [<PROJECT>] [<PREFIX>] "<title>" [-p <P>]\n    [--next] [--status <S>] [-m "<note>"] [-b "<body_md>"|-] [--depends <spec>]\n    [-c]`, `todo_md edit <ID> [-t "<title>"] [-m "<note>"] [-b "<body_md>"|-]\n    [--depends <spec>] [-c]`, `todo_md append <ID> [-b "<text>"|-] [-c]`,\n    `todo_md next <ID> [-m "<note>"] [--reopen] [-c]`,\n    `todo_md status <ID> <STATUS> [-m "<note>"] [--reopen] [-c]`,\n    `todo_md reopen <ID> [--status <S>] [-m "<note>"] [-c]`,\n    `todo_md done <ID> [-m "<note>"] [-c]`,\n    `todo_md cancel <ID> [-m "<reason>"] [-c]`, `todo_md check`. In\n    `role=plan`, `role=design`, and `role=review`, batch mutations without `-c`\n    and commit `TODO*.md` once backlog updates are complete; in `role=work`,\n    run `todo_md done <ID>` inside the final commit step without `-c`.\n  - Dependencies & Chain integration (both directions): in `--depends` and\n    `- Depends on:`, use `,` for parallel items (`A,B`) and `->` for sequential\n    stages (`"A -> B -> C"`, `,` binds tighter than `->`; repeat for AND\n    branches; do not introduce a separate `- Order:` field). Wire new or refined\n    tasks both upstream (`--depends`) and downstream (`todo_md edit <ID>\n    --depends ...` on existing open tasks or waves).\n  - Target files contract: record touched files on one `- Target files:` bullet\n    (backticked, excluding `TODO*.md` and `AGENTS.md`) when promoting a task to\n    `NEXT`: plain paths for files <= 400 lines, and `path:symbol`,\n    `path:sym1..sym2`, or `path:start-end` slices for larger files (a symbol\n    that is not found falls back to the whole file).\n'
 EMBEDDED_RULE_TODO_MD_WORK = '# Description: Compact todo_md execution rule for role=work\n- Task management (`todo_md`: `TODO.md`, `TODO_ARCHIVE.md`, `role=work`):\n  - Always inspect and modify `TODO.md` and `TODO_ARCHIVE.md` via `todo_md`\n    (never via `cat` or manual file edits). Repository scope only: record each\n    task in the `TODO.md` of the repository it belongs to.\n  - Start the task in the first `run_block` step: `todo_md status <ID> WIP`\n    (without `-c` / `--commit`) unless it is already `WIP`; `todo_md <ID>`\n    never changes status.\n  - Close the active task via `todo_md done <ID>` inside the final guarded\n    commit step (after the edit-and-diff step is verified clean, immediately\n    before staging and `git commit`, never during the edit step). Do not pass\n    `-c` / `--commit`; stage `TODO.md` and `TODO_ARCHIVE.md` into the final\n    code commit so backlog updates are committed atomically with code changes.\n  - Record out-of-scope findings via\n    `todo_md add "<title>" -b "<problem_and_impact>"` in default `NEW` status\n    without `--depends`; stage them into the final code commit (or pass `-c` /\n    `--commit` when recorded after the code commit is already pushed or when no\n    code commit follows). Run `todo_md -h` for full CLI flags and options.\n'
 RULE_SOURCE_PATH = Path(__file__).resolve().parent.parent / "agents" / "todo_md.md"
 RULE_WORK_SOURCE_PATH = Path(__file__).resolve().parent.parent / "agents" / "todo_md_work.md"
@@ -217,7 +217,9 @@ HELP_COMMANDS: tuple[tuple[str, str], ...] = (
      "Print the top ready WIP/NEXT ID, or the first ready ID in <ID>'s queue"),
     ("{prog} files [<ID>] | --files [<ID>]",
      "List files named on the '- Target files:' bullet of task <ID>: paths, glob patterns, "
-     "symbol slices (path:SYMBOL, path:SYM1..SYM2) and line slices (path:START-END, path:LINE, "
+     "symbol slices (path:SYMBOL, path:SYM1..SYM2; Python, sh/Bash and brace languages; "
+     "a symbol not found falls back to the whole file with a warning) and line slices "
+     "(path:START-END, path:LINE, "
      "path#LSTART-LEND), merged per file and printed as path or path:START-END. Options: "
      "--max-lines N, --max-total-lines N, --max-bytes N, --max-total-bytes N (budgets count "
      "only the sliced lines)"),
@@ -5247,7 +5249,11 @@ def _symbol_span_end(lines: list[str], start: int, indent: int) -> int:
         line = lines[idx]
         if not line.strip():
             continue
-        if _line_indent(line) <= indent and not line.lstrip().startswith((")", "]", "}")):
+        line_indent = _line_indent(line)
+        if line_indent == indent and line.lstrip().startswith("}"):
+            end = idx
+            break
+        if line_indent <= indent and not line.lstrip().startswith((")", "]", "}")):
             break
         end = idx
     return end
@@ -5256,7 +5262,10 @@ def _symbol_span_end(lines: list[str], start: int, indent: int) -> int:
 def _find_symbol_span(lines: list[str], name: str, lo: int, hi: int) -> tuple[int, int] | None:
     esc = re.escape(name)
     patterns = (
-        re.compile(rf"^(\s*)(?:async\s+def|def|class)\s+{esc}\b"),
+        re.compile(
+            rf"^(\s*)(?:async\s+def|def|class|function|fn|func|struct|enum|interface|type)\s+{esc}\b"
+        ),
+        re.compile(rf"^(\s*)(?:function\s+)?{esc}\s*\(\s*\)\s*\{{?"),
         re.compile(rf"^(\s*){esc}\s*(?::[^=\n]+)?=(?!=)"),
     )
     for pat in patterns:
@@ -5349,6 +5358,8 @@ def extract_task_files(base_dir: Path, section_text: str) -> list[str]:
         if cand.startswith("-") or any(ch in cand for ch in "<>{}"):
             continue
         path_part, span = split_line_slice(cand)
+        if PROJECT_TASK_RE.match(cand):
+            continue
         sym = SYMBOL_SPEC_RE.match(cand) if span is None else None
         if sym is not None:
             rel_sym = _resolve_repo_file(repo_root, sym.group("path"))
@@ -5356,7 +5367,10 @@ def extract_task_files(base_dir: Path, section_text: str) -> list[str]:
                 continue
             sym_span = _resolve_symbol_range(file_lines(rel_sym), sym.group("first"), sym.group("last"))
             if sym_span is None:
-                sys.stderr.write(f"{prog_name()}: warning: symbol slice {cand!r} not found in {rel_sym}\n")
+                sys.stderr.write(
+                    f"{prog_name()}: warning: symbol slice {cand!r} not found in {rel_sym}; using whole file\n"
+                )
+                entries.append((rel_sym, None))
                 continue
             entries.append((rel_sym, sym_span))
             continue

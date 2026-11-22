@@ -1,3 +1,11 @@
+# ✅ [DONE] B5: Support POSIX sh/Bash and multi-language symbol slices with whole-file fallback in todo_md files — *2026-11-22*
+
+- In `_find_symbol_span()` in `src/commands.py`, extend symbol declaration patterns beyond Python (`async def`, `def`, `class`, and assignment) to also match common multi-language declarations (`function`, `fn`, `func`, `struct`, `enum`, `interface`, `type`) and POSIX sh / Bash function headers (`^(\s*)(?:function\s+)?{esc}\s*\(\s*\)\s*\{?`).
+- In `_symbol_span_end()` in `src/commands.py`, when a line at `_line_indent(line) == indent` starts with a closing brace `}`, include that closing line (`end = idx`) and `break` immediately so brace-delimited functions terminate cleanly at their closing brace without spilling into subsequent top-level constructs.
+- In `extract_task_files()` in `src/commands.py`, when a `path:symbol` or `path:sym1..sym2` reference resolves to an existing repository file (`rel_sym`) but `_resolve_symbol_range()` returns `None`, emit the warning to `stderr` and fall back to including the whole file (`entries.append((rel_sym, None))`) instead of dropping the file entry with `continue`.
+- Extend `test_files_symbol_slices_and_range_normalization` in `tests/test_commands.py` to cover POSIX sh / Bash functions (`name() { ... }` and `function name() { ... }`), multi-language keyword declarations, and whole-file fallback when a symbol name is not found in an existing target file.
+- Target files: `src/commands.py:_line_indent..extract_task_files`, `tests/test_commands.py:test_files_symbol_slices_and_range_normalization`.
+
 # ✅ [DONE] F68: Support role=<role> in todo_md, split agents/todo_md.md into pure Markdown rules, and move WIP transition to agent step 1 — *2026-11-22*
 
 - Support `role=<role>` (alongside `--role <role>` and `--role=<role>`) across context-producing `todo_md` entry points (`todo_md <ID>`, `todo_md show <ID>`, `todo_md last`, `todo_md overview`, and the default Quest-Log `todo_md [-w]`) so session role overrides are declared at the start of the pipeline (`todo_md <ID> role=plan | agents_bundle | run_block` or `todo_md -w role=plan | agents_bundle | run_block`), emitting `Role: <role>` in the preamble and selecting the matching embedded rule while preserving row filtering for `--role <role>` in `list`, `chain`, and `next-id`.

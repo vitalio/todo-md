@@ -1,11 +1,3 @@
-# 🎯 [NEXT] B5: Support POSIX sh/Bash and multi-language symbol slices with whole-file fallback in todo_md files
-
-- In `_find_symbol_span()` in `src/commands.py`, extend symbol declaration patterns beyond Python (`async def`, `def`, `class`, and assignment) to also match common multi-language declarations (`function`, `fn`, `func`, `struct`, `enum`, `interface`, `type`) and POSIX sh / Bash function headers (`^(\s*)(?:function\s+)?{esc}\s*\(\s*\)\s*\{?`).
-- In `_symbol_span_end()` in `src/commands.py`, when a line at `_line_indent(line) == indent` starts with a closing brace `}`, include that closing line (`end = idx`) and `break` immediately so brace-delimited functions terminate cleanly at their closing brace without spilling into subsequent top-level constructs.
-- In `extract_task_files()` in `src/commands.py`, when a `path:symbol` or `path:sym1..sym2` reference resolves to an existing repository file (`rel_sym`) but `_resolve_symbol_range()` returns `None`, emit the warning to `stderr` and fall back to including the whole file (`entries.append((rel_sym, None))`) instead of dropping the file entry with `continue`.
-- Extend `test_files_symbol_slices_and_range_normalization` in `tests/test_commands.py` to cover POSIX sh / Bash functions (`name() { ... }` and `function name() { ... }`), multi-language keyword declarations, and whole-file fallback when a symbol name is not found in an existing target file.
-- Target files: `src/commands.py:_line_indent..extract_task_files`, `tests/test_commands.py:test_files_symbol_slices_and_range_normalization`.
-
 # 🎯 [NEXT] B4: Preserve existing '- Depends on:' and '- Target files:' lines in 'todo_md edit -b'
 
 - In `_apply_depends_to_body_lines()` and `cmd_edit()` in `src/commands.py`, when `body is not None` (`-b` / `--body` or piped `stdin`) and `depends_clauses is None` (`--depends` was not passed), automatically preserve any existing `- Depends on:` lines from the previous task body (`old_sec[1:]`) whenever the new `body` does not already include its own `- Depends on:` lines; clear existing `- Depends on:` lines only when `--depends ""` is explicitly passed.
@@ -76,3 +68,7 @@
 
 - Depends on: F62
 Allow exporting parsed tasks as JSON for scripting.
+
+# ⚪ [NEW] F69: Wrap todo_md --help lines wider than 100 columns
+
+The next command row and the TODO.md legend row in todo_md -h render wider than 100 columns, which violates the structured help width rule. Observed via awk length check on todo_md -h output during B5; unrelated to symbol slices.

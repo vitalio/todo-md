@@ -129,8 +129,12 @@ per file or slice, 1200 lines and 32768 bytes in total), and the task section
 - `--no-files` skips the target-file preload.
 - `- Target files:` accepts backticked paths, globs, line slices
   (`path:start-end`) and drift-proof symbol slices (`path:symbol`,
-  `path:sym1..sym2`) resolved to current line ranges at run time. Specs for
-  the same file are merged (a whole-file spec absorbs its slices).
+  `path:sym1..sym2`) resolved to current line ranges at run time for Python,
+  POSIX sh / Bash functions, and brace-delimited declarations (`function`,
+  `fn`, `func`, `struct`, `enum`, `interface`, `type`). A symbol that is not
+  found in an existing file prints a warning on `stderr` and falls back to the
+  whole file. Specs for the same file are merged (a whole-file spec absorbs
+  its slices).
 
 ## License
 

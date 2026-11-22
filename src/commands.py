@@ -1087,7 +1087,11 @@ def _symbol_span_end(lines: list[str], start: int, indent: int) -> int:
         line = lines[idx]
         if not line.strip():
             continue
-        if _line_indent(line) <= indent and not line.lstrip().startswith((")", "]", "}")):
+        line_indent = _line_indent(line)
+        if line_indent == indent and line.lstrip().startswith("}"):
+            end = idx
+            break
+        if line_indent <= indent and not line.lstrip().startswith((")", "]", "}")):
             break
         end = idx
     return end
@@ -1096,7 +1100,10 @@ def _symbol_span_end(lines: list[str], start: int, indent: int) -> int:
 def _find_symbol_span(lines: list[str], name: str, lo: int, hi: int) -> tuple[int, int] | None:
     esc = re.escape(name)
     patterns = (
-        re.compile(rf"^(\s*)(?:async\s+def|def|class)\s+{esc}\b"),
+        re.compile(
+            rf"^(\s*)(?:async\s+def|def|class|function|fn|func|struct|enum|interface|type)\s+{esc}\b"
+        ),
+        re.compile(rf"^(\s*)(?:function\s+)?{esc}\s*\(\s*\)\s*\{{?"),
         re.compile(rf"^(\s*){esc}\s*(?::[^=\n]+)?=(?!=)"),
     )
     for pat in patterns:
@@ -1189,6 +1196,8 @@ def extract_task_files(base_dir: Path, section_text: str) -> list[str]:
         if cand.startswith("-") or any(ch in cand for ch in "<>{}"):
             continue
         path_part, span = split_line_slice(cand)
+        if PROJECT_TASK_RE.match(cand):
+            continue
         sym = SYMBOL_SPEC_RE.match(cand) if span is None else None
         if sym is not None:
             rel_sym = _resolve_repo_file(repo_root, sym.group("path"))
@@ -1196,7 +1205,10 @@ def extract_task_files(base_dir: Path, section_text: str) -> list[str]:
                 continue
             sym_span = _resolve_symbol_range(file_lines(rel_sym), sym.group("first"), sym.group("last"))
             if sym_span is None:
-                sys.stderr.write(f"{prog_name()}: warning: symbol slice {cand!r} not found in {rel_sym}\n")
+                sys.stderr.write(
+                    f"{prog_name()}: warning: symbol slice {cand!r} not found in {rel_sym}; using whole file\n"
+                )
+                entries.append((rel_sym, None))
                 continue
             entries.append((rel_sym, sym_span))
             continue

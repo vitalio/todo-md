@@ -723,6 +723,17 @@ class TestCommands(TodoMdTestCase):
             "    def baz(self):", "        return 2", "", "", "def last():", "    pass",
         ]
         (self.tmp / "a.py").write_text("\n".join(src_lines) + "\n", encoding="utf-8")
+        sh_lines = [
+            "#!/bin/sh", "greet() {", "    echo hi", "}", "",
+            "function other() {", "    echo o", "}", "", "main",
+        ]
+        (self.tmp / "b.sh").write_text("\n".join(sh_lines) + "\n", encoding="utf-8")
+        rs_lines = [
+            "struct Point {", "    x: i32,", "}", "",
+            "fn area(p: Point) -> i32 {", "    p.x", "}", "",
+            "enum Color {", "    Red,", "}",
+        ]
+        (self.tmp / "c.rs").write_text("\n".join(rs_lines) + "\n", encoding="utf-8")
         cases = (
             ("- Target files: `a.py:foo`.", ["a.py:3-5"]),
             ("- Target files: `a.py:Foo.bar`, `a.py:last`, `a.py:X`.", ["a.py:1-1", "a.py:9-10", "a.py:16-17"]),
@@ -730,7 +741,10 @@ class TestCommands(TodoMdTestCase):
             ("- Target files: `a.py:Foo`, `a.py`.", ["a.py"]),
             ("- Target files: `a.py:2-4`, `a.py:3-6`, `a.py:6-8`, `a.py:20-30`.", ["a.py:2-8"]),
             ("Mentions `a.py:1-2` in prose only.", []),
-            ("- Target files: `a.py:missing`.", []),
+            ("- Target files: `a.py:missing`.", ["a.py"]),
+            ("- Target files: `b.sh:greet`, `b.sh:other`.", ["b.sh:2-4", "b.sh:6-8"]),
+            ("- Target files: `c.rs:Point`, `c.rs:area`, `c.rs:Color`.", ["c.rs:1-3", "c.rs:5-7", "c.rs:9-11"]),
+            ("- Target files: `b.sh:nope`, `c.rs:area`.", ["b.sh", "c.rs:5-7"]),
         )
         for n, (body, expected) in enumerate(cases, start=1):
             self._run([str(SCRIPT), "add", f"Sym {n}", "--next", "-b", body], check=True)

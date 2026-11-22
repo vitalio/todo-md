@@ -217,7 +217,9 @@ HELP_COMMANDS: tuple[tuple[str, str], ...] = (
      "Print the top ready WIP/NEXT ID, or the first ready ID in <ID>'s queue"),
     ("{prog} files [<ID>] | --files [<ID>]",
      "List files named on the '- Target files:' bullet of task <ID>: paths, glob patterns, "
-     "symbol slices (path:SYMBOL, path:SYM1..SYM2) and line slices (path:START-END, path:LINE, "
+     "symbol slices (path:SYMBOL, path:SYM1..SYM2; Python, sh/Bash and brace languages; "
+     "a symbol not found falls back to the whole file with a warning) and line slices "
+     "(path:START-END, path:LINE, "
      "path#LSTART-LEND), merged per file and printed as path or path:START-END. Options: "
      "--max-lines N, --max-total-lines N, --max-bytes N, --max-total-bytes N (budgets count "
      "only the sliced lines)"),
