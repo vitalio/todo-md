@@ -1,14 +1,3 @@
-# 🎯 [NEXT] P1: JSON output mode (`--json`)
-
-- Depends on: F62 -> F71
-- Add a global `--json` output flag (`HELP_GLOBAL_OPTIONS` in `src/header.py`, extracted in `src/cli.py:main()` and `_parse_quest_log_args()`) to export machine-readable JSON (`json.dumps(..., ensure_ascii=False, indent=2) + "\n"`) across read-only inspection and query commands:
-  - Add `serialize_task_dict()` in `src/render.py` producing a stable task object schema: `id`, `project` (when in workspace or cross-project view), `workdir`, `status`, `emoji`, `role` (`resolve_task_role()`), `title` (stripped of heading note), `note` (heading note or `None`), `file`, `line`, `ready` (`bool`), `blocked` (`bool`), `depends_on` (`parse_task_dependencies()`), `target_files` (`extract_task_files()`), and `section`.
-  - Support `--json` in `cmd_list()` and `cmd_workspace_list()` (`src/render.py`) returning a JSON array of matching task objects honoring `active|archive|all|<STATUS>`, `--role`, `-r`/`--ready`, `--limit`, and `-w`.
-  - Support `--json` in `_show_tasks()`, `cmd_show()`, and `cmd_last()` (`src/cli.py`, `src/render.py`) returning a single task JSON object for one `<ID>` / `show last` or a JSON array of task objects when multiple `<ID>...` are requested.
-  - Support `--json` in `cmd_ids()` (`{"highest_ids": ..., "next_free": ...}`), `cmd_projects()` (array of `{"project": ..., "path": ..., "open": ..., "archived": ...}`), and Quest-Log `cmd_chain()` (`src/render_chain.py`, returning structured `chains`, `standalone`, `next_actionable`, or role/ready task lists).
-- Keep `--help` (`src/header.py`), `agents/todo_md.md`, and `README.md` in sync, and add unit tests in `tests/test_cli.py` and `tests/test_commands.py`.
-- Target files: `src/header.py:HELP_GLOBAL_OPTIONS..usage_text`, `src/render.py:cmd_ids..cmd_workspace_list`, `src/render_chain.py:cmd_chain`, `src/cli.py:_parse_quest_log_args..main`, `agents/todo_md.md`, `README.md`, `tests/test_cli.py`, `tests/test_commands.py`.
-
 # 🎯 [NEXT] D3: Design explicit HOLD task review workflow and reverse dependency visibility
 
 - Specify how `HOLD` tasks expose downstream blocked dependents (`Blocks: ...` in `show` / `list HOLD`, including cross-project references under `-w`) so reviewers see what unblocks when a `HOLD` condition is met.
@@ -45,3 +34,14 @@
   - Compute parallel wavefront width (`threads: <K>`) across ready tasks by grouping ready tasks by repository and selecting the top-ranked actionable task per repository as a parallel execution lane (`Lane 1..K`).
   - Compute parallel critical-path steps for chains and orchestrator waves as `max(dag_depth, max_repo_open_count)` and surface parallelism metrics on chain headers and `todo_md -r` (`--ready`) in `src/chains.py` and `src/render_chain.py`.
   - Detect target-file overlaps via `extract_task_files()` (`src/parser.py`) across unlinked open tasks within the same repository in `src/chains.py` and `src/render.py` to assist planners in consolidating or sequencing tasks that touch the same files.
+
+# ⏸️ [HOLD] P1: JSON output mode (`--json`) — *Defer machine-readable JSON output until an external client or dashboard is needed*
+
+- Depends on: F62 -> F71
+- Add a global `--json` output flag (`HELP_GLOBAL_OPTIONS` in `src/header.py`, extracted in `src/cli.py:main()` and `_parse_quest_log_args()`) to export machine-readable JSON (`json.dumps(..., ensure_ascii=False, indent=2) + "\n"`) across read-only inspection and query commands:
+  - Add `serialize_task_dict()` in `src/render.py` producing a stable task object schema: `id`, `project` (when in workspace or cross-project view), `workdir`, `status`, `emoji`, `role` (`resolve_task_role()`), `title` (stripped of heading note), `note` (heading note or `None`), `file`, `line`, `ready` (`bool`), `blocked` (`bool`), `depends_on` (`parse_task_dependencies()`), `target_files` (`extract_task_files()`), and `section`.
+  - Support `--json` in `cmd_list()` and `cmd_workspace_list()` (`src/render.py`) returning a JSON array of matching task objects honoring `active|archive|all|<STATUS>`, `--role`, `-r`/`--ready`, `--limit`, and `-w`.
+  - Support `--json` in `_show_tasks()`, `cmd_show()`, and `cmd_last()` (`src/cli.py`, `src/render.py`) returning a single task JSON object for one `<ID>` / `show last` or a JSON array of task objects when multiple `<ID>...` are requested.
+  - Support `--json` in `cmd_ids()` (`{"highest_ids": ..., "next_free": ...}`), `cmd_projects()` (array of `{"project": ..., "path": ..., "open": ..., "archived": ...}`), and Quest-Log `cmd_chain()` (`src/render_chain.py`, returning structured `chains`, `standalone`, `next_actionable`, or role/ready task lists).
+- Keep `--help` (`src/header.py`), `agents/todo_md.md`, and `README.md` in sync, and add unit tests in `tests/test_cli.py` and `tests/test_commands.py`.
+- Target files: `src/header.py:HELP_GLOBAL_OPTIONS..usage_text`, `src/render.py:cmd_ids..cmd_workspace_list`, `src/render_chain.py:cmd_chain`, `src/cli.py:_parse_quest_log_args..main`, `agents/todo_md.md`, `README.md`, `tests/test_cli.py`, `tests/test_commands.py`.
