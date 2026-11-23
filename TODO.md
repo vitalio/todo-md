@@ -4,6 +4,12 @@
 - Allow cross-project `<project>:<ID>` dependencies in `validate_all()` only when the repository has a local `.todo_projects` or `.todo_projects.local` configuration.
 - Update `agents/todo_md.md`, `README.md`, and unit tests in `tests/test_deps.py` to cover the one-way dependency boundary enforcement in `todo_md check` (and post-mutation validation on `add` / `edit`), and rebuild `./todo_md` via `python3 build.py`.
 
+# 🎯 [NEXT] F42: Rename project to todo-md and CLI utility to todo
+
+- Depends on: F72, F75, F77, F78
+- Rename project/repository references from `todo_md` to `todo-md` and CLI entrypoint from `todo_md` to `todo` (preserving `TODO.md`/`TODO_ARCHIVE.md` task-file conventions and applying agreed env-var/alias decisions from `todo_flow:D8` and ADR 0003).
+- Acceptance criteria: `build.py` outputs `todo`, `install.sh` installs `todo` (plus any agreed compatibility alias), `--help`/rules/docs/tests reflect `todo-md` and `todo`, and `python3 -m unittest discover -s tests` passes.
+
 # 🎯 [NEXT] D3: Design explicit HOLD task review workflow and reverse dependency visibility
 
 - Specify how `HOLD` tasks expose downstream blocked dependents (`Blocks: ...` in `show` / `list HOLD`, including cross-project references under `-w`) so reviewers see what unblocks when a `HOLD` condition is met.
@@ -20,12 +26,6 @@
 - Define interaction and precedence with `-C <dir|project>` (`F20`), `TODO_MD_CWD`, positional `.md` paths, and cross-project `<project>:<ID>` dependency lookups via `TODO_MD_WORKSPACE` when inspecting a shortlist in `/tmp` or another directory.
 - Shortlist/chain export workflow: evaluate supporting an exported or agent-generated shortlist Markdown file (e.g. a custom prioritized sequence or `chain` snapshot) that users can inspect, filter, and step through with `todo_md -F <path>` while resolving `<project>:<ID>` references against `TODO_MD_WORKSPACE`.
 - Target files for downstream implementation: `src/cli.py`, `src/workspace.py`, `src/parser.py`, `src/render.py`, `src/commands.py`, `src/header.py`, `agents/todo_md.md`, `README.md`, `tests/test_cli.py`, `tests/test_parser.py`, `tests/test_commands.py`.
-
-# ⚪ [NEW] F42: Rename project to todo-md and CLI utility to todo
-
-- Depends on: F72, F75, F77, F78
-- Rename project/repository references from `todo_md` to `todo-md` and CLI entrypoint from `todo_md` to `todo` (preserving `TODO.md`/`TODO_ARCHIVE.md` task-file conventions and applying agreed env-var/alias decisions from `todo_flow:D8` and ADR 0003).
-- Acceptance criteria: `build.py` outputs `todo`, `install.sh` installs `todo` (plus any agreed compatibility alias), `--help`/rules/docs/tests reflect `todo-md` and `todo`, and `python3 -m unittest discover -s tests` passes.
 
 # ⚪ [NEW] D5: Design cohesive Quest-Log ANSI color palette and typography for RPG perks (FINAL, STAGE, COMBO), stats, prefixes, and statuses
 
