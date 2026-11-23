@@ -464,20 +464,36 @@ def main(argv: list[str] | None = None) -> int:
     no_commit = False
     workspace = False
     bundle_flags: set[str] = set()
+    dir_selector: str | None = None
     project_selector: str | None = None
     i = 0
     while i < len(args):
         a = args[i]
-        if a in ("-C", "--project"):
+        if a == "-C":
             if i + 1 >= len(args) or not args[i + 1].strip():
-                raise SystemExit(f"{prog}: {a} requires a directory or project argument")
+                raise SystemExit(f"{prog}: -C requires a directory argument")
+            dir_selector = args[i + 1]
+            project_selector = None
+            i += 2
+        elif a.startswith("-C") and len(a) > 2:
+            val = a[2:]
+            if not val.strip():
+                raise SystemExit(f"{prog}: -C requires a directory argument")
+            dir_selector = val
+            project_selector = None
+            i += 1
+        elif a in ("-p", "--project"):
+            if i + 1 >= len(args) or not args[i + 1].strip():
+                raise SystemExit(f"{prog}: {a} requires a project argument")
             project_selector = args[i + 1]
+            dir_selector = None
             i += 2
         elif a.startswith("--project="):
             val = a.split("=", 1)[1]
             if not val.strip():
-                raise SystemExit(f"{prog}: --project requires a non-empty directory or project argument")
+                raise SystemExit(f"{prog}: --project requires a non-empty project argument")
             project_selector = val
+            dir_selector = None
             i += 1
         elif a == "--full":
             full = True
@@ -517,7 +533,12 @@ def main(argv: list[str] | None = None) -> int:
         argv=orig_args,
     )
 
-    explicit_dir: str | None = resolve_project_or_dir(project_selector) if project_selector is not None else None
+    if dir_selector is not None:
+        explicit_dir: str | None = str(resolve_target_dir(dir_selector))
+    elif project_selector is not None:
+        explicit_dir = resolve_project_selector(project_selector)
+    else:
+        explicit_dir = None
     if explicit_dir is None and args and args[0] not in KNOWN_SUBCOMMANDS and not args[0].startswith("-"):
         if Path(args[0]).is_dir():
             explicit_dir = args.pop(0)

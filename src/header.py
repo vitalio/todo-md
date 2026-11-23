@@ -117,8 +117,8 @@ HELP_INDENT = 2
 HELP_GAP = 2
 
 HELP_USAGE = (
-    "{prog} [-C DIR|PROJ] [dir|project] [opts] [-w]",
-    "{prog} [-C DIR|PROJ] <command> [args] [opts]",
+    "{prog} [-C DIR] [-p PROJ] [dir|project] [opts] [-w]",
+    "{prog} [-C DIR] [-p PROJ] <command> [args] [opts]",
     "{prog} <ID>...",
 )
 
@@ -190,10 +190,13 @@ HELP_COMMANDS: tuple[tuple[str, str], ...] = (
 )
 
 HELP_GLOBAL_OPTIONS: tuple[tuple[str, str], ...] = (
-    ("-C DIR|PROJ, --project NAME",
-     "Target repository directory or workspace project (precedence: -C/--project > "
-     "TODO_MD_CWD > <project>:<ID> > cwd; keep -p in 'add' for ID prefix and "
-     "<project>:<ID> for task refs)"),
+    ("-C DIR",
+     "Run as if {prog} was started in filesystem directory DIR relative to current PWD "
+     "(matching git -C DIR)"),
+    ("-p PROJ, --project PROJ",
+     "Target workspace or .todo_projects project name/alias before subcommands "
+     "(precedence: -C/-p/--project > TODO_MD_CWD > <project>:<ID> > cwd; inside 'add', "
+     "-p PREFIX sets the task ID prefix)"),
     ("-w, --workspace", "Operate across all discovered workspace projects"),
     ("--full", "Show full task sections without compacting NEW/HOLD"),
     ("-c, --commit",

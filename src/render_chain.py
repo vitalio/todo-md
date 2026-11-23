@@ -402,20 +402,54 @@ def cmd_chain(
                     include_done=include_done,
                 )
 
-            def _flat_tree_nodes(t_node: dict[str, object]) -> list[tuple[Path, str]]:
-                flat: list[tuple[Path, str]] = []
+            def _is_done_subchain(ch_item: dict[str, object]) -> bool:
+                if ch_item.get("kind") != "subchain":
+                    return False
+                m_node = ch_item.get("milestone")
+                if not isinstance(m_node, tuple) or str(nodes.get(m_node, {}).get("status", "")) != "DONE":
+                    return False
+                if int(ch_item.get("open_count", 0)) != 0:
+                    return False
+                sub_nodes: set[tuple[Path, str]] = ch_item.get("subtree_nodes", {m_node})  # type: ignore[assignment]
+                return all(str(nodes.get(su, {}).get("status", "")) == "DONE" for su in sub_nodes)
+
+            def _should_collapse_done_subchain(
+                ch_item: dict[str, object],
+                seen_done_milestones: set[tuple[Path, str]],
+            ) -> bool:
+                if not _is_done_subchain(ch_item):
+                    return False
+                m_node: tuple[Path, str] = ch_item["milestone"]  # type: ignore[assignment]
+                sub_nodes: set[tuple[Path, str]] = ch_item.get("subtree_nodes", {m_node})  # type: ignore[assignment]
+                if any(_is_highlighted_node(su) for su in sub_nodes):
+                    return False
+                return m_node in seen_done_milestones
+
+            def _count_tree_rows(
+                t_node: dict[str, object],
+                seen_done: set[tuple[Path, str]],
+            ) -> int:
+                cnt = 0
                 for ch_item in t_node.get("children", []):  # type: ignore[attr-defined]
                     if ch_item.get("kind") == "subchain":
-                        flat.extend(_flat_tree_nodes(ch_item))
+                        m_node: tuple[Path, str] = ch_item["milestone"]  # type: ignore[assignment]
+                        if _should_collapse_done_subchain(ch_item, seen_done):
+                            seen_done.add(m_node)
+                            continue
+                        if _is_done_subchain(ch_item):
+                            seen_done.add(m_node)
+                        cnt += _count_tree_rows(ch_item, seen_done)
                     else:
-                        flat.append(ch_item["node"])
-                return flat
+                        cnt += 1
+                return cnt
 
             chain_trees = [_build_chain_tree(c_nodes, c_info) for c_nodes, c_info in chains_with_stats]
+            sim_seen_done_count: set[tuple[Path, str]] = set()
             total_rows = len(standalone) + sum(
-                len(_flat_tree_nodes(ct)) if tree else len(c_nodes)
+                _count_tree_rows(ct, sim_seen_done_count) if tree else len(c_nodes)
                 for (c_nodes, _), ct in zip(chains_with_stats, chain_trees)
             )
+            rendered_done_milestones: set[tuple[Path, str]] = set()
             num_w_box[0] = len(str(max(1, total_rows)))
             for chain_idx, (comp, st_info) in enumerate(chains_with_stats, start=1):
                 if wrote_section:
@@ -465,6 +499,8 @@ def cmd_chain(
                 )
                 chain_tree = chain_trees[chain_idx - 1]
 
+                sim_seen_lead = set(rendered_done_milestones)
+
                 def _max_lead_width(
                     t_node: dict[str, object],
                     active_bars: list[bool],
@@ -475,6 +511,12 @@ def cmd_chain(
                     for c_i, ch_item in enumerate(ch_list):
                         is_last_c = c_i == len(ch_list) - 1
                         if ch_item.get("kind") == "subchain":
+                            m_node: tuple[Path, str] = ch_item["milestone"]  # type: ignore[assignment]
+                            if _should_collapse_done_subchain(ch_item, sim_seen_lead):
+                                sim_seen_lead.add(m_node)
+                                continue
+                            if _is_done_subchain(ch_item):
+                                sim_seen_lead.add(m_node)
                             sub_w, sim_idx = _max_lead_width(
                                 ch_item,
                                 [*active_bars, not is_last_c],
@@ -514,6 +556,9 @@ def cmd_chain(
                             m_open = int(ch_item.get("open_count", 0))
                             sub_nodes: set[tuple[Path, str]] = ch_item.get("subtree_nodes", {m_node})  # type: ignore[assignment]
                             sub_hl = any(_is_highlighted_node(su) for su in sub_nodes)
+                            collapsed_done = _should_collapse_done_subchain(ch_item, rendered_done_milestones)
+                            if _is_done_subchain(ch_item):
+                                rendered_done_milestones.add(m_node)
                             sub_conn = "└── " if is_last_c else "├── "
                             sub_prefix = f"  {bars}{sub_conn}"
                             sub_cont_bars = "".join(
@@ -522,7 +567,10 @@ def cmd_chain(
                             sub_cont_prefix = f"  {sub_cont_bars}" if sub_cont_bars.strip() else "    "
                             m_total = m_done + m_open
                             sub_stat_tag = f"[{m_pct}% | {m_done}/{m_total}]"
-                            sub_desc = f"{sub_stat_tag} Sub-chain -> {m_ref}: {m_title}:"
+                            if collapsed_done:
+                                sub_desc = f"{sub_stat_tag} Sub-chain -> {m_ref}: {m_title} (✅ [DONE] — see above)"
+                            else:
+                                sub_desc = f"{sub_stat_tag} Sub-chain -> {m_ref}: {m_title}:"
                             sub_hdr = (
                                 _wrap_table_row(
                                     sub_prefix,
@@ -541,11 +589,12 @@ def cmd_chain(
                                     use_color=use_color,
                                 )
                             )
-                            cur_idx = _render_chain_tree_children(
-                                ch_item,
-                                [*active_bars, not is_last_c],
-                                cur_idx,
-                            )
+                            if not collapsed_done:
+                                cur_idx = _render_chain_tree_children(
+                                    ch_item,
+                                    [*active_bars, not is_last_c],
+                                    cur_idx,
+                                )
                         else:
                             u_node: tuple[Path, str] = ch_item["node"]  # type: ignore[assignment]
                             is_closing = bool(ch_item.get("is_closing")) and is_last_c

@@ -1,3 +1,9 @@
+# ✅ [DONE] B8: Align -C <dir> with git -C, add global -p/--project <project>, and collapse repeated DONE subtrees in chain --all --tree — *2026-11-23*
+
+- Separate directory and project targeting in `src/cli.py`: make `-C <dir>` resolve filesystem directory paths relative to current `PWD` (matching `git -C <dir>`), and support `-p <project>` / `--project <project>` as the global project-name/alias selector from `.todo_projects` before subcommands (while preserving `-p <P>` for `--prefix` inside `todo_md add`).
+- In `src/render_chain.py`, avoid re-expanding 100%-completed (`DONE`) archived sub-chains multiple times across `todo_md chain --all --tree` (collapse or reference already-rendered `[100% | N/N]` archived subtrees unless explicitly targeted by `<ID>`).
+- Update `agents/todo_md.md`, `--help`, and unit tests (and rebuild `./todo_md` via `python3 build.py`) to document `-C <dir>` vs `-p` / `--project <name>` and add the inspection guardrail: do not re-run broad workspace views (`todo_md`, `overview`, `chain`) when the Quest-Log is already present in `===== Prompt =====`, and do not run `todo_md chain --all --tree` across the entire backlog without a target `<ID>` or `-l N`.
+
 # ✅ [DONE] F79: Support --next and --status in todo_md edit — *2026-11-23*
 
 - Support `--next` (`-n`, `--top`) and `--status <STATUS>` (`-s <STATUS>`) in `cmd_edit()` / `_edit_single_task()` (`src/commands.py`), matching `todo_md add`:

@@ -16,15 +16,21 @@
     `Title: <title>`, and `Workdir: <dir>` (`Role: <role>` is emitted only when
     `role=<role>` is passed); start a task with `todo_md status <ID> WIP` or
     `todo_md next <ID>`.
-  - Inspect & target selection: pass `-C <dir|project>` or `--project <name>`
-    before subcommands (or `<project>:<ID>` on task refs). Core views:
+  - Inspect & target selection: pass `-C <dir>` (filesystem directory relative
+    to current `PWD`, matching `git -C <dir>`) or `-p <project>` / `--project
+    <name>` (workspace / `.todo_projects` project name or alias) before
+    subcommands (keeping `-p <P>` inside `todo_md add` for ID prefix, or
+    `<project>:<ID>` on task refs). Core views:
     `todo_md [opts] [-w]`, `todo_md overview [--full] [-w]`, `todo_md projects`,
     `todo_md [show] <ID>...`, `todo_md last[-id] [<STATUS|archive>]`,
     `todo_md list [active|archive|all|<STATUS>] [<ID>...] [--prefix <P>] [--status <S>] [-r|--ready] [-s <QUERY>] [-H] [-l N|--limit N] [--full]`,
     `todo_md archive [<ID>...] [-m "<note>"] [--canceled] [-c]`, `todo_md ids`,
     `todo_md queue <ID>... [--all]` (alias for `todo_md chain <ID>... [--all]`),
     `todo_md chain [<ID>...] [--all] [--prefix <P>] [--status <S>] [--ready] [-l N|--limit N] [--include-hold] [--tree] [--numbered[=left|right]] [-f <ID>...] [-H] [-s <QUERY>]`,
-    `todo_md next-id [<ID>] [--prefix <P>] [--status <S>]`.
+    `todo_md next-id [<ID>] [--prefix <P>] [--status <S>]`. Do not re-run broad
+    workspace views (`todo_md`, `overview`, `chain`) when the Quest-Log is
+    already present in `===== Prompt =====`, and do not run `todo_md chain --all
+    --tree` across the entire backlog without a target `<ID>` or `-l N`.
   - Mutate & validate: `todo_md add [<PROJECT>] [<PREFIX>] "<title>" [-p <P>]
     [--next] [--status <S>] [-m "<note>"] [-b "<body_md>"|-] [--depends <spec>]
     [-c]`, `todo_md edit <ID>... [--next] [--status <S>] [-t "<title>"]

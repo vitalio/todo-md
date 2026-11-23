@@ -1,9 +1,3 @@
-# 🎯 [NEXT] B8: Align -C <dir> with git -C, add global -p/--project <project>, and collapse repeated DONE subtrees in chain --all --tree
-
-- Separate directory and project targeting in `src/cli.py`: make `-C <dir>` resolve filesystem directory paths relative to current `PWD` (matching `git -C <dir>`), and support `-p <project>` / `--project <project>` as the global project-name/alias selector from `.todo_projects` before subcommands (while preserving `-p <P>` for `--prefix` inside `todo_md add`).
-- In `src/render_chain.py`, avoid re-expanding 100%-completed (`DONE`) archived sub-chains multiple times across `todo_md chain --all --tree` (collapse or reference already-rendered `[100% | N/N]` archived subtrees unless explicitly targeted by `<ID>`).
-- Update `agents/todo_md.md`, `--help`, and unit tests (and rebuild `./todo_md` via `python3 build.py`) to document `-C <dir>` vs `-p` / `--project <name>` and add the inspection guardrail: do not re-run broad workspace views (`todo_md`, `overview`, `chain`) when the Quest-Log is already present in `===== Prompt =====`, and do not run `todo_md chain --all --tree` across the entire backlog without a target `<ID>` or `-l N`.
-
 # 🎯 [NEXT] F73: Forbid cross-project Depends on references in non-orchestrator repositories in todo_md check
 
 - In `validate_all()` (`src/parser.py`), reject cross-project `<project>:<ID>` references (`PROJECT_TASK_RE`) in `- Depends on:` when the current repository is not an orchestrator (`not has_local_todo_projects_config(base_dir)`), reporting a clear error message instructing to keep cross-project dependencies in the workspace orchestrator repository (`.todo_projects`).

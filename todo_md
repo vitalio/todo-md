@@ -23,11 +23,11 @@ import unicodedata
 from datetime import date
 from pathlib import Path
 
-VERSION = "0.47.0"
+VERSION = "0.48.0"
 REPO_MARKER = "todo_md-repo: vitalio/todo_md"
 DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/vitalio/todo_md/main/todo_md"
 FENCE = chr(96) * 3
-EMBEDDED_RULE_TODO_MD = '# Description: Structured Markdown task management (TODO.md and TODO_ARCHIVE.md) via todo_md\n- Task management (`todo_md`: `TODO.md`, `TODO_ARCHIVE.md`): Always inspect and\n  modify `TODO.md` and `TODO_ARCHIVE.md` via `todo_md` (never via `cat` or\n  manual file edits). Repository scope only: record each task in the `TODO.md`\n  of the repository it belongs to (run `todo_md -h` for full CLI option lists).\n  - Status lifecycle & task ID prefixes: `TODO.md` orders active tasks as\n    `🔵 [WIP]` -> `🎯 [NEXT]` -> `❓ [QUESTION]` -> `⚪ [NEW]` -> `⏸️ [HOLD]`,\n    and `TODO_ARCHIVE.md` keeps `✅ [DONE]` and `❌ [CANCELED]` newest-first.\n    Task ID prefixes (`A-Z`): `F` is a feature (default on `add`), `B` is a\n    bugfix (ranked ahead in `chain`), `D` is a design task, `L` is a\n    legislative rule task (`agents/`, `AGENTS.md`), and other `A-Z` prefixes\n    are custom domains. `todo_md check` rejects `- Role:` and `- Target files:`\n    lines across `TODO*.md`, and `todo_md <ID> [role=<role>]` in bundle mode\n    (`todo_md <ID> | agents_bundle | run_block`) is read-only: it emits\n    `Bundle-Name: todo_md`, `Task: <ID>`, `Prefix: <P>`, `Status: <S>`,\n    `Title: <title>`, and `Workdir: <dir>` (`Role: <role>` is emitted only when\n    `role=<role>` is passed); start a task with `todo_md status <ID> WIP` or\n    `todo_md next <ID>`.\n  - Inspect & target selection: pass `-C <dir|project>` or `--project <name>`\n    before subcommands (or `<project>:<ID>` on task refs). Core views:\n    `todo_md [opts] [-w]`, `todo_md overview [--full] [-w]`, `todo_md projects`,\n    `todo_md [show] <ID>...`, `todo_md last[-id] [<STATUS|archive>]`,\n    `todo_md list [active|archive|all|<STATUS>] [<ID>...] [--prefix <P>] [--status <S>] [-r|--ready] [-s <QUERY>] [-H] [-l N|--limit N] [--full]`,\n    `todo_md archive [<ID>...] [-m "<note>"] [--canceled] [-c]`, `todo_md ids`,\n    `todo_md queue <ID>... [--all]` (alias for `todo_md chain <ID>... [--all]`),\n    `todo_md chain [<ID>...] [--all] [--prefix <P>] [--status <S>] [--ready] [-l N|--limit N] [--include-hold] [--tree] [--numbered[=left|right]] [-f <ID>...] [-H] [-s <QUERY>]`,\n    `todo_md next-id [<ID>] [--prefix <P>] [--status <S>]`.\n  - Mutate & validate: `todo_md add [<PROJECT>] [<PREFIX>] "<title>" [-p <P>]\n    [--next] [--status <S>] [-m "<note>"] [-b "<body_md>"|-] [--depends <spec>]\n    [-c]`, `todo_md edit <ID>... [--next] [--status <S>] [-t "<title>"]\n    [-m "<note>"] [-b "<body_md>"|-] [--depends <spec>] [-c]`, `todo_md append <ID>... [-b "<text>"|-] [-c]`,\n    `todo_md rename <OLD> <NEW|PREFIX> | <OLD>=<NEW|PREFIX>... [-c]`,\n    `todo_md next <ID>... [-m "<note>"] [--reopen] [-c]`,\n    `todo_md status <ID>... <STATUS> [-m "<note>"] [--reopen] [-c]`,\n    `todo_md reopen <ID>... [--status <S>] [-m "<note>"] [-c]`,\n    `todo_md done <ID>... [-m "<note>"] [-c]`,\n    `todo_md cancel <ID>... [-m "<reason>"] [-c]`, `todo_md check`.\n  - Dependencies & Chain integration (both directions): in `--depends` and\n    `- Depends on:`, use `,` for parallel items (`A,B`), `->` for sequential\n    stages (`"A -> B -> C"`, `,` binds tighter than `->`), and `;` (or repeated\n    `--depends` / `- Depends on:` lines) for independent AND branches (`"A -> B;\n    C -> D"`; do not introduce a separate `- Order:` field). Wire new or refined\n    tasks both upstream (`--depends`) and downstream (`todo_md edit <ID>\n    --depends ...` on existing open tasks or waves).\n'
+EMBEDDED_RULE_TODO_MD = '# Description: Structured Markdown task management (TODO.md and TODO_ARCHIVE.md) via todo_md\n- Task management (`todo_md`: `TODO.md`, `TODO_ARCHIVE.md`): Always inspect and\n  modify `TODO.md` and `TODO_ARCHIVE.md` via `todo_md` (never via `cat` or\n  manual file edits). Repository scope only: record each task in the `TODO.md`\n  of the repository it belongs to (run `todo_md -h` for full CLI option lists).\n  - Status lifecycle & task ID prefixes: `TODO.md` orders active tasks as\n    `🔵 [WIP]` -> `🎯 [NEXT]` -> `❓ [QUESTION]` -> `⚪ [NEW]` -> `⏸️ [HOLD]`,\n    and `TODO_ARCHIVE.md` keeps `✅ [DONE]` and `❌ [CANCELED]` newest-first.\n    Task ID prefixes (`A-Z`): `F` is a feature (default on `add`), `B` is a\n    bugfix (ranked ahead in `chain`), `D` is a design task, `L` is a\n    legislative rule task (`agents/`, `AGENTS.md`), and other `A-Z` prefixes\n    are custom domains. `todo_md check` rejects `- Role:` and `- Target files:`\n    lines across `TODO*.md`, and `todo_md <ID> [role=<role>]` in bundle mode\n    (`todo_md <ID> | agents_bundle | run_block`) is read-only: it emits\n    `Bundle-Name: todo_md`, `Task: <ID>`, `Prefix: <P>`, `Status: <S>`,\n    `Title: <title>`, and `Workdir: <dir>` (`Role: <role>` is emitted only when\n    `role=<role>` is passed); start a task with `todo_md status <ID> WIP` or\n    `todo_md next <ID>`.\n  - Inspect & target selection: pass `-C <dir>` (filesystem directory relative\n    to current `PWD`, matching `git -C <dir>`) or `-p <project>` / `--project\n    <name>` (workspace / `.todo_projects` project name or alias) before\n    subcommands (keeping `-p <P>` inside `todo_md add` for ID prefix, or\n    `<project>:<ID>` on task refs). Core views:\n    `todo_md [opts] [-w]`, `todo_md overview [--full] [-w]`, `todo_md projects`,\n    `todo_md [show] <ID>...`, `todo_md last[-id] [<STATUS|archive>]`,\n    `todo_md list [active|archive|all|<STATUS>] [<ID>...] [--prefix <P>] [--status <S>] [-r|--ready] [-s <QUERY>] [-H] [-l N|--limit N] [--full]`,\n    `todo_md archive [<ID>...] [-m "<note>"] [--canceled] [-c]`, `todo_md ids`,\n    `todo_md queue <ID>... [--all]` (alias for `todo_md chain <ID>... [--all]`),\n    `todo_md chain [<ID>...] [--all] [--prefix <P>] [--status <S>] [--ready] [-l N|--limit N] [--include-hold] [--tree] [--numbered[=left|right]] [-f <ID>...] [-H] [-s <QUERY>]`,\n    `todo_md next-id [<ID>] [--prefix <P>] [--status <S>]`. Do not re-run broad\n    workspace views (`todo_md`, `overview`, `chain`) when the Quest-Log is\n    already present in `===== Prompt =====`, and do not run `todo_md chain --all\n    --tree` across the entire backlog without a target `<ID>` or `-l N`.\n  - Mutate & validate: `todo_md add [<PROJECT>] [<PREFIX>] "<title>" [-p <P>]\n    [--next] [--status <S>] [-m "<note>"] [-b "<body_md>"|-] [--depends <spec>]\n    [-c]`, `todo_md edit <ID>... [--next] [--status <S>] [-t "<title>"]\n    [-m "<note>"] [-b "<body_md>"|-] [--depends <spec>] [-c]`, `todo_md append <ID>... [-b "<text>"|-] [-c]`,\n    `todo_md rename <OLD> <NEW|PREFIX> | <OLD>=<NEW|PREFIX>... [-c]`,\n    `todo_md next <ID>... [-m "<note>"] [--reopen] [-c]`,\n    `todo_md status <ID>... <STATUS> [-m "<note>"] [--reopen] [-c]`,\n    `todo_md reopen <ID>... [--status <S>] [-m "<note>"] [-c]`,\n    `todo_md done <ID>... [-m "<note>"] [-c]`,\n    `todo_md cancel <ID>... [-m "<reason>"] [-c]`, `todo_md check`.\n  - Dependencies & Chain integration (both directions): in `--depends` and\n    `- Depends on:`, use `,` for parallel items (`A,B`), `->` for sequential\n    stages (`"A -> B -> C"`, `,` binds tighter than `->`), and `;` (or repeated\n    `--depends` / `- Depends on:` lines) for independent AND branches (`"A -> B;\n    C -> D"`; do not introduce a separate `- Order:` field). Wire new or refined\n    tasks both upstream (`--depends`) and downstream (`todo_md edit <ID>\n    --depends ...` on existing open tasks or waves).\n'
 RULE_SOURCE_PATH = Path(__file__).resolve().parent.parent / "agents" / "todo_md.md"
 
 VALID_STATUSES: dict[str, str] = {
@@ -117,8 +117,8 @@ HELP_INDENT = 2
 HELP_GAP = 2
 
 HELP_USAGE = (
-    "{prog} [-C DIR|PROJ] [dir|project] [opts] [-w]",
-    "{prog} [-C DIR|PROJ] <command> [args] [opts]",
+    "{prog} [-C DIR] [-p PROJ] [dir|project] [opts] [-w]",
+    "{prog} [-C DIR] [-p PROJ] <command> [args] [opts]",
     "{prog} <ID>...",
 )
 
@@ -190,10 +190,13 @@ HELP_COMMANDS: tuple[tuple[str, str], ...] = (
 )
 
 HELP_GLOBAL_OPTIONS: tuple[tuple[str, str], ...] = (
-    ("-C DIR|PROJ, --project NAME",
-     "Target repository directory or workspace project (precedence: -C/--project > "
-     "TODO_MD_CWD > <project>:<ID> > cwd; keep -p in 'add' for ID prefix and "
-     "<project>:<ID> for task refs)"),
+    ("-C DIR",
+     "Run as if {prog} was started in filesystem directory DIR relative to current PWD "
+     "(matching git -C DIR)"),
+    ("-p PROJ, --project PROJ",
+     "Target workspace or .todo_projects project name/alias before subcommands "
+     "(precedence: -C/-p/--project > TODO_MD_CWD > <project>:<ID> > cwd; inside 'add', "
+     "-p PREFIX sets the task ID prefix)"),
     ("-w, --workspace", "Operate across all discovered workspace projects"),
     ("--full", "Show full task sections without compacting NEW/HOLD"),
     ("-c, --commit",
@@ -547,23 +550,18 @@ def resolve_project_dir(
         raise SystemExit(f"{prog_name()}: project {project_name!r} escapes workspace {ws_root}")
     raise SystemExit(f"{prog_name()}: project {norm!r} not found under workspace {ws_root}")
 
-def resolve_project_or_dir(selector: str) -> str:
+def resolve_project_selector(selector: str) -> str:
     raw = selector.strip()
     if not raw:
-        raise SystemExit(f"{prog_name()}: empty project or directory selector")
-    p_cand = Path(raw).expanduser()
-    if p_cand.is_dir():
-        return str(p_cand.resolve())
-    looks_like_path = (
-        raw.startswith(("/", "~", "./", "../", ".\\", "..\\"))
-        or p_cand.is_absolute()
-    )
-    if looks_like_path:
-        raise SystemExit(f"{prog_name()}: directory not found: {selector}")
-
+        raise SystemExit(f"{prog_name()}: empty project selector")
     norm = raw.replace("\\", "/").strip("/")
-    if not norm or ".." in norm.split("/"):
-        raise SystemExit(f"{prog_name()}: target directory or project not found: {selector}")
+    if (
+        not norm
+        or ".." in norm.split("/")
+        or raw.startswith(("/", "~", "./", "../", ".\\", "..\\"))
+        or Path(raw).expanduser().is_absolute()
+    ):
+        raise SystemExit(f"{prog_name()}: project not found: {selector}")
 
     cwd_res = Path.cwd().resolve()
     probe_bases: list[Path] = [cwd_res]
@@ -608,7 +606,13 @@ def resolve_project_or_dir(selector: str) -> str:
         if ext is not None:
             return str(ext)
 
-    raise SystemExit(f"{prog_name()}: target directory or project not found: {selector}")
+    raise SystemExit(f"{prog_name()}: project not found: {selector}")
+
+def resolve_project_or_dir(selector: str) -> str:
+    p_cand = Path(selector.strip()).expanduser()
+    if p_cand.is_dir():
+        return str(p_cand.resolve())
+    return resolve_project_selector(selector)
 
 def resolve_project_task_ref(
     base_dir: Path,
@@ -4569,20 +4573,54 @@ def cmd_chain(
                     include_done=include_done,
                 )
 
-            def _flat_tree_nodes(t_node: dict[str, object]) -> list[tuple[Path, str]]:
-                flat: list[tuple[Path, str]] = []
+            def _is_done_subchain(ch_item: dict[str, object]) -> bool:
+                if ch_item.get("kind") != "subchain":
+                    return False
+                m_node = ch_item.get("milestone")
+                if not isinstance(m_node, tuple) or str(nodes.get(m_node, {}).get("status", "")) != "DONE":
+                    return False
+                if int(ch_item.get("open_count", 0)) != 0:
+                    return False
+                sub_nodes: set[tuple[Path, str]] = ch_item.get("subtree_nodes", {m_node})  # type: ignore[assignment]
+                return all(str(nodes.get(su, {}).get("status", "")) == "DONE" for su in sub_nodes)
+
+            def _should_collapse_done_subchain(
+                ch_item: dict[str, object],
+                seen_done_milestones: set[tuple[Path, str]],
+            ) -> bool:
+                if not _is_done_subchain(ch_item):
+                    return False
+                m_node: tuple[Path, str] = ch_item["milestone"]  # type: ignore[assignment]
+                sub_nodes: set[tuple[Path, str]] = ch_item.get("subtree_nodes", {m_node})  # type: ignore[assignment]
+                if any(_is_highlighted_node(su) for su in sub_nodes):
+                    return False
+                return m_node in seen_done_milestones
+
+            def _count_tree_rows(
+                t_node: dict[str, object],
+                seen_done: set[tuple[Path, str]],
+            ) -> int:
+                cnt = 0
                 for ch_item in t_node.get("children", []):  # type: ignore[attr-defined]
                     if ch_item.get("kind") == "subchain":
-                        flat.extend(_flat_tree_nodes(ch_item))
+                        m_node: tuple[Path, str] = ch_item["milestone"]  # type: ignore[assignment]
+                        if _should_collapse_done_subchain(ch_item, seen_done):
+                            seen_done.add(m_node)
+                            continue
+                        if _is_done_subchain(ch_item):
+                            seen_done.add(m_node)
+                        cnt += _count_tree_rows(ch_item, seen_done)
                     else:
-                        flat.append(ch_item["node"])
-                return flat
+                        cnt += 1
+                return cnt
 
             chain_trees = [_build_chain_tree(c_nodes, c_info) for c_nodes, c_info in chains_with_stats]
+            sim_seen_done_count: set[tuple[Path, str]] = set()
             total_rows = len(standalone) + sum(
-                len(_flat_tree_nodes(ct)) if tree else len(c_nodes)
+                _count_tree_rows(ct, sim_seen_done_count) if tree else len(c_nodes)
                 for (c_nodes, _), ct in zip(chains_with_stats, chain_trees)
             )
+            rendered_done_milestones: set[tuple[Path, str]] = set()
             num_w_box[0] = len(str(max(1, total_rows)))
             for chain_idx, (comp, st_info) in enumerate(chains_with_stats, start=1):
                 if wrote_section:
@@ -4632,6 +4670,8 @@ def cmd_chain(
                 )
                 chain_tree = chain_trees[chain_idx - 1]
 
+                sim_seen_lead = set(rendered_done_milestones)
+
                 def _max_lead_width(
                     t_node: dict[str, object],
                     active_bars: list[bool],
@@ -4642,6 +4682,12 @@ def cmd_chain(
                     for c_i, ch_item in enumerate(ch_list):
                         is_last_c = c_i == len(ch_list) - 1
                         if ch_item.get("kind") == "subchain":
+                            m_node: tuple[Path, str] = ch_item["milestone"]  # type: ignore[assignment]
+                            if _should_collapse_done_subchain(ch_item, sim_seen_lead):
+                                sim_seen_lead.add(m_node)
+                                continue
+                            if _is_done_subchain(ch_item):
+                                sim_seen_lead.add(m_node)
                             sub_w, sim_idx = _max_lead_width(
                                 ch_item,
                                 [*active_bars, not is_last_c],
@@ -4681,6 +4727,9 @@ def cmd_chain(
                             m_open = int(ch_item.get("open_count", 0))
                             sub_nodes: set[tuple[Path, str]] = ch_item.get("subtree_nodes", {m_node})  # type: ignore[assignment]
                             sub_hl = any(_is_highlighted_node(su) for su in sub_nodes)
+                            collapsed_done = _should_collapse_done_subchain(ch_item, rendered_done_milestones)
+                            if _is_done_subchain(ch_item):
+                                rendered_done_milestones.add(m_node)
                             sub_conn = "└── " if is_last_c else "├── "
                             sub_prefix = f"  {bars}{sub_conn}"
                             sub_cont_bars = "".join(
@@ -4689,7 +4738,10 @@ def cmd_chain(
                             sub_cont_prefix = f"  {sub_cont_bars}" if sub_cont_bars.strip() else "    "
                             m_total = m_done + m_open
                             sub_stat_tag = f"[{m_pct}% | {m_done}/{m_total}]"
-                            sub_desc = f"{sub_stat_tag} Sub-chain -> {m_ref}: {m_title}:"
+                            if collapsed_done:
+                                sub_desc = f"{sub_stat_tag} Sub-chain -> {m_ref}: {m_title} (✅ [DONE] — see above)"
+                            else:
+                                sub_desc = f"{sub_stat_tag} Sub-chain -> {m_ref}: {m_title}:"
                             sub_hdr = (
                                 _wrap_table_row(
                                     sub_prefix,
@@ -4708,11 +4760,12 @@ def cmd_chain(
                                     use_color=use_color,
                                 )
                             )
-                            cur_idx = _render_chain_tree_children(
-                                ch_item,
-                                [*active_bars, not is_last_c],
-                                cur_idx,
-                            )
+                            if not collapsed_done:
+                                cur_idx = _render_chain_tree_children(
+                                    ch_item,
+                                    [*active_bars, not is_last_c],
+                                    cur_idx,
+                                )
                         else:
                             u_node: tuple[Path, str] = ch_item["node"]  # type: ignore[assignment]
                             is_closing = bool(ch_item.get("is_closing")) and is_last_c
@@ -6654,20 +6707,36 @@ def main(argv: list[str] | None = None) -> int:
     no_commit = False
     workspace = False
     bundle_flags: set[str] = set()
+    dir_selector: str | None = None
     project_selector: str | None = None
     i = 0
     while i < len(args):
         a = args[i]
-        if a in ("-C", "--project"):
+        if a == "-C":
             if i + 1 >= len(args) or not args[i + 1].strip():
-                raise SystemExit(f"{prog}: {a} requires a directory or project argument")
+                raise SystemExit(f"{prog}: -C requires a directory argument")
+            dir_selector = args[i + 1]
+            project_selector = None
+            i += 2
+        elif a.startswith("-C") and len(a) > 2:
+            val = a[2:]
+            if not val.strip():
+                raise SystemExit(f"{prog}: -C requires a directory argument")
+            dir_selector = val
+            project_selector = None
+            i += 1
+        elif a in ("-p", "--project"):
+            if i + 1 >= len(args) or not args[i + 1].strip():
+                raise SystemExit(f"{prog}: {a} requires a project argument")
             project_selector = args[i + 1]
+            dir_selector = None
             i += 2
         elif a.startswith("--project="):
             val = a.split("=", 1)[1]
             if not val.strip():
-                raise SystemExit(f"{prog}: --project requires a non-empty directory or project argument")
+                raise SystemExit(f"{prog}: --project requires a non-empty project argument")
             project_selector = val
+            dir_selector = None
             i += 1
         elif a == "--full":
             full = True
@@ -6707,7 +6776,12 @@ def main(argv: list[str] | None = None) -> int:
         argv=orig_args,
     )
 
-    explicit_dir: str | None = resolve_project_or_dir(project_selector) if project_selector is not None else None
+    if dir_selector is not None:
+        explicit_dir: str | None = str(resolve_target_dir(dir_selector))
+    elif project_selector is not None:
+        explicit_dir = resolve_project_selector(project_selector)
+    else:
+        explicit_dir = None
     if explicit_dir is None and args and args[0] not in KNOWN_SUBCOMMANDS and not args[0].startswith("-"):
         if Path(args[0]).is_dir():
             explicit_dir = args.pop(0)

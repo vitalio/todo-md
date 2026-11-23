@@ -45,7 +45,8 @@ the command aborts with an error before touching `TODO*.md`.
 
 Global options accepted before subcommands:
 
-- `-C <dir|project>`, `--project <name>` — target a repository directory or discovered workspace project from any working directory (keeping `-p` in `add` for ID prefix, and `<project>:<ID>` strictly for task-level references like `show`, `edit`, `done`, and `Depends on:`). Target precedence: `-C`/`--project` > `TODO_MD_CWD` > `<project>:<ID>` > current directory.
+- `-C <dir>` — target a filesystem directory path relative to current `PWD` (matching `git -C <dir>`).
+- `-p <project>`, `--project <name>` — target a discovered workspace or `.todo_projects` project name/alias before subcommands (keeping `-p <P>` inside `todo_md add` for task ID prefix, and `<project>:<ID>` for task-level references like `show`, `edit`, `done`, and `Depends on:`). Target precedence: `-C`/`-p`/`--project` > `TODO_MD_CWD` > `<project>:<ID>` > current directory.
 - `-w`, `--workspace` — operate across all discovered workspace projects.
 - `--full` — show full task sections without compacting `NEW` / `HOLD` (bare `todo_md --full` prints the expanded Markdown overview; with `--search` it prints full matching sections).
 - `-c`, `--commit` — git-commit `TODO*.md` after mutating commands.

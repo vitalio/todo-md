@@ -1009,12 +1009,12 @@ class TestChain(TodoMdTestCase):
         self.assertIn("D2 (HOLD) -> F4 (NEXT)", out_direct)
         self.assertNotIn("todo_md:D2", out_direct)
 
-        # 4. Running `todo_md -C run_block chain` (and `--project run_block`) from outside `run_block`
+        # 4. Running `todo_md -p run_block chain` (and `-C ../run_block` or `-C run_block`) from outside `run_block`
         # keeps the `run_block:` prefix on run_block tasks so IDs are ready for copy-paste in cwd
-        for from_cwd in (ws, todo_flow):
-            with self.subTest(from_cwd=from_cwd.name):
+        for from_cwd, target_flag in ((ws, ["-C", "run_block"]), (todo_flow, ["-p", "run_block"]), (todo_flow, ["-C", "../run_block"])):
+            with self.subTest(from_cwd=from_cwd.name, target_flag=target_flag):
                 r_ext = self._run(
-                    [str(SCRIPT), "-C", "run_block", "chain"],
+                    [str(SCRIPT), *target_flag, "chain"],
                     cwd=str(from_cwd),
                     env=base_env,
                     check=True,
@@ -1901,7 +1901,7 @@ class TestChain(TodoMdTestCase):
                 self.assertIn("chrome/canary:F1", flat, msg=r.stdout)
                 self.assertIn("Canary base", flat, msg=r.stdout)
         r_c = self._run(
-            [str(SCRIPT), "-C", "chrome/canary", "show", "F1"],
+            [str(SCRIPT), "-p", "chrome/canary", "show", "F1"],
             cwd=str(todo_md_p), env=env, check=True,
         )
         self.assertIn("Canary base", r_c.stdout)
@@ -1935,6 +1935,73 @@ class TestChain(TodoMdTestCase):
         self.assertIn("Chain A head", out_ready)
         self.assertIn("Chain B head", out_ready)
         self.assertLess(out_ready.index("Chain A head"), out_ready.index("Chain B head"), msg=out_ready)
+
+    def test_chain_all_tree_collapses_repeated_done_subtrees_unless_targeted(self):
+        proj = self.tmp / "collapse_done_tree"
+        proj.mkdir()
+        self._run([str(SCRIPT), "-C", str(proj), "init"], check=True)
+        # Build a completed DONE sub-chain: F1 -> F2 (both DONE)
+        self._run([str(SCRIPT), "add", "F", "Foundation step alpha", "--next"], cwd=str(proj), check=True)
+        self._run(
+            [str(SCRIPT), "add", "F", "Foundation milestone beta", "--next", "--depends", "F1"],
+            cwd=str(proj),
+            check=True,
+        )
+        self._run([str(SCRIPT), "done", "F1", "F2", "-m", "completed foundation"], cwd=str(proj), check=True)
+        # Two independent open chains (F3 -> F4 and F5 -> F6) that both depend on DONE milestone F2
+        self._run(
+            [str(SCRIPT), "add", "F", "Chain one stage", "--next", "--depends", "F2"],
+            cwd=str(proj),
+            check=True,
+        )
+        self._run(
+            [str(SCRIPT), "add", "F", "Chain one root", "--next", "--depends", "F3"],
+            cwd=str(proj),
+            check=True,
+        )
+        self._run(
+            [str(SCRIPT), "add", "F", "Chain two stage", "--depends", "F2"],
+            cwd=str(proj),
+            check=True,
+        )
+        self._run(
+            [str(SCRIPT), "add", "F", "Chain two root", "--depends", "F5"],
+            cwd=str(proj),
+            check=True,
+        )
+
+        # Without target <ID>, Chain 1 expands the [100% | 2/2] F2 sub-chain once,
+        # and Chain 2 collapses the repeated F2 sub-chain header without re-emitting F1/F2 rows.
+        r_all_tree = self._run(
+            [str(SCRIPT), "chain", "--all", "--tree", "--numbered"],
+            cwd=str(proj),
+            check=True,
+        )
+        out = r_all_tree.stdout
+        c1_pos = out.index("Chain 1 -> F4:")
+        c2_pos = out.index("Chain 2 -> F6:")
+        c1_part = out[c1_pos:c2_pos]
+        c2_part = out[c2_pos:]
+        self.assertIn("[100% | 2/2] Sub-chain -> F2: Foundation milestone beta", c1_part)
+        self.assertIn("Foundation step alpha", c1_part)
+        self.assertIn("[100% | 2/2] Sub-chain -> F2: Foundation milestone beta", c2_part)
+        self.assertIn("see above", c2_part)
+        self.assertNotIn("Foundation step alpha", c2_part)
+        # Row numbers stay contiguous (4 rows in Chain 1: F1, F2, F3, F4; 2 rows in Chain 2: F5, F6)
+        rows = self._table_rows(out)
+        self.assertEqual([k for k in rows if k.endswith(".")], ["1.", "2.", "3.", "4.", "5.", "6."], msg=out)
+
+        # When a task inside the DONE sub-chain is explicitly targeted (e.g. chain F1 F6 --all --tree),
+        # the sub-chain is expanded in both chains.
+        r_targeted = self._run(
+            [str(SCRIPT), "chain", "F1", "F6", "--all", "--tree"],
+            cwd=str(proj),
+            check=True,
+        )
+        t_out = r_targeted.stdout
+        tc2_part = t_out[t_out.index("Chain 2 -> F6:"):]
+        self.assertIn("Foundation step alpha", tc2_part)
+        self.assertNotIn("see above", tc2_part)
 
 
 if __name__ == "__main__":

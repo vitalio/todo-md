@@ -24,7 +24,8 @@ class TestCli(TodoMdTestCase):
         self.assertIn("done <ID>...", rh.stdout)
         self.assertIn("cancel <ID>...", rh.stdout)
         self.assertIn("--reopen", rh.stdout)
-        self.assertIn("-C DIR|PROJ, --project NAME", rh.stdout)
+        self.assertIn("-C DIR", rh.stdout)
+        self.assertIn("-p PROJ, --project PROJ", rh.stdout)
         self.assertIn("add", rh.stdout)
         self.assertIn("--prefix PREFIX", rh.stdout)
         self.assertIn(
@@ -46,7 +47,9 @@ class TestCli(TodoMdTestCase):
         self.assertIn("reopen <ID>", rule_txt)
         self.assertIn("--reopen", rule_txt)
         self.assertNotIn("Mode: ", rule_txt)
-        self.assertIn("-C <dir|project>` or `--project <name>`", rule_txt)
+        self.assertIn("-C <dir>", rule_txt)
+        self.assertIn("-p <project>` / `--project", rule_txt)
+        self.assertIn("do not run `todo_md chain --all", rule_txt)
         self.assertIn("list [active|archive|all|<STATUS>] [<ID>...] [--prefix <P>] [--status <S>] [-r|--ready] [-s <QUERY>] [-H] [-l N|--limit N] [--full]", rule_txt)
         self.assertIn("-r, --ready", rh.stdout)
         self.assertIn("Chain integration (both directions)", rule_txt)
@@ -212,90 +215,111 @@ class TestCli(TodoMdTestCase):
         (proj_a / "mod.py").write_text("x = 1\n", encoding="utf-8")
         env_ws = {**os.environ, "TODO_MD_WORKSPACE": str(ws)}
 
-        # -C <dir> and --project <name> across mutating and read-only subcommands from outside
+        # -C <dir> (relative to PWD like git -C) and -p/--project <name> across mutating and read-only subcommands
         self._run(
             [str(SCRIPT), "-C", str(proj_a), "add", "-p", "B", "Bug from -C", "-b", "Body for B1."],
             cwd=str(outside),
             check=True,
         )
+        # Relative -C <dir> from ws directory and global -p <project> combined with add -p <P>
+        self._run(
+            [str(SCRIPT), "-p", "proj_c", "add", "-p", "D", "Design via -p proj_c"],
+            cwd=str(outside),
+            env=env_ws,
+            check=True,
+        )
+        r_rel_c = self._run([str(SCRIPT), "-C", "proj_c", "ids"], cwd=str(ws), check=True)
+        self.assertIn("D:1", r_rel_c.stdout)
         self._run(
             [str(SCRIPT), "--project", "parent_proj/sub_proj", "add", "Sub task", "--depends", "proj_a:B1"],
             cwd=str(outside),
             env=env_ws,
             check=True,
         )
-        # Unique leaf project name resolves across workspace
+        # Unique leaf project name resolves across workspace with -p / --project
         self._run(
             [str(SCRIPT), "--project=sub_proj", "edit", "F1", "-t", "Sub task updated"],
             cwd=str(outside),
             env=env_ws,
             check=True,
         )
-        self._run([str(SCRIPT), "-C", "sub_proj", "append", "F1", "-b", "More notes."], cwd=str(outside), env=env_ws, check=True)
-        self._run([str(SCRIPT), "-C", "sub_proj", "status", "F1", "HOLD"], cwd=str(outside), env=env_ws, check=True)
-        self._run([str(SCRIPT), "-C", "sub_proj", "next", "F1"], cwd=str(outside), env=env_ws, check=True)
+        self._run([str(SCRIPT), "-p", "sub_proj", "append", "F1", "-b", "More notes."], cwd=str(outside), env=env_ws, check=True)
+        self._run([str(SCRIPT), "-p", "sub_proj", "status", "F1", "HOLD"], cwd=str(outside), env=env_ws, check=True)
+        self._run([str(SCRIPT), "-p", "sub_proj", "next", "F1"], cwd=str(outside), env=env_ws, check=True)
 
-        # Read-only commands with -C / --project from outside
-        r_ids = self._run([str(SCRIPT), "-C", "proj_a", "ids"], cwd=str(outside), env=env_ws, check=True)
+        # Read-only commands with -p / --project from outside and -C <dir> relative to cwd
+        r_ids = self._run([str(SCRIPT), "-p", "proj_a", "ids"], cwd=str(outside), env=env_ws, check=True)
         self.assertIn("B:1", r_ids.stdout)
-        r_list = self._run([str(SCRIPT), "-C", "proj_a", "list"], cwd=str(outside), env=env_ws, check=True)
+        r_list = self._run([str(SCRIPT), "-p", "proj_a", "list"], cwd=str(outside), env=env_ws, check=True)
         self.assertIn("B1", r_list.stdout)
-        r_show = self._run([str(SCRIPT), "-C", "proj_a", "show", "B1"], cwd=str(outside), env=env_ws, check=True)
+        r_show = self._run([str(SCRIPT), "-p", "proj_a", "show", "B1"], cwd=str(outside), env=env_ws, check=True)
         self.assertIn("Bug from -C", r_show.stdout)
-        r_last_id = self._run([str(SCRIPT), "-C", "proj_a", "last-id", "NEW"], cwd=str(outside), env=env_ws, check=True)
+        r_last_id = self._run([str(SCRIPT), "-p", "proj_a", "last-id", "NEW"], cwd=str(outside), env=env_ws, check=True)
         self.assertEqual(r_last_id.stdout.strip(), "B1")
-        r_last = self._run([str(SCRIPT), "-C", "proj_a", "last", "NEW"], cwd=str(outside), env=env_ws, check=True)
+        r_last = self._run([str(SCRIPT), "-p", "proj_a", "last", "NEW"], cwd=str(outside), env=env_ws, check=True)
         self.assertIn("Bug from -C", r_last.stdout)
-        self._run([str(SCRIPT), "-C", "proj_a", "check"], cwd=str(outside), env=env_ws, check=True)
-        r_nid_sub = self._run([str(SCRIPT), "-C", "sub_proj", "next-id", "F1"], cwd=str(outside), env=env_ws, check=True)
+        self._run([str(SCRIPT), "-p", "proj_a", "check"], cwd=str(outside), env=env_ws, check=True)
+        r_nid_sub = self._run([str(SCRIPT), "-p", "sub_proj", "next-id", "F1"], cwd=str(outside), env=env_ws, check=True)
         self.assertEqual(r_nid_sub.stdout.strip(), "proj_a:B1")
-        r_nid_blocked = self._run([str(SCRIPT), "-C", "sub_proj", "next-id"], cwd=str(outside), env=env_ws)
+        r_nid_blocked = self._run([str(SCRIPT), "-p", "sub_proj", "next-id"], cwd=str(outside), env=env_ws)
         self.assertEqual(r_nid_blocked.returncode, 1, msg=r_nid_blocked.stderr)
 
-        # Complete and archive via -C, then verify sub_proj next-id unblocks, inspect archive and reopen
-        self._run([str(SCRIPT), "-C", "proj_a", "done", "B1", "-m", "fixed"], cwd=str(outside), env=env_ws, check=True)
-        r_nid_top = self._run([str(SCRIPT), "-C", "sub_proj", "next-id"], cwd=str(outside), env=env_ws, check=True)
+        # Complete and archive via -p, then verify sub_proj next-id unblocks, inspect archive and reopen
+        self._run([str(SCRIPT), "-p", "proj_a", "done", "B1", "-m", "fixed"], cwd=str(outside), env=env_ws, check=True)
+        r_nid_top = self._run([str(SCRIPT), "-p", "sub_proj", "next-id"], cwd=str(outside), env=env_ws, check=True)
         self.assertEqual(r_nid_top.stdout.strip(), "F1")
-        r_arch = self._run([str(SCRIPT), "-C", "proj_a", "archive"], cwd=str(outside), env=env_ws, check=True)
+        r_arch = self._run([str(SCRIPT), "-p", "proj_a", "archive"], cwd=str(outside), env=env_ws, check=True)
         self.assertIn("B1: Bug from -C", r_arch.stdout)
-        self._run([str(SCRIPT), "-C", "sub_proj", "cancel", "F1", "-m", "dropped"], cwd=str(outside), env=env_ws, check=True)
-        r_sub_arch = self._run([str(SCRIPT), "-C", "sub_proj", "archive"], cwd=str(outside), env=env_ws, check=True)
+        self._run([str(SCRIPT), "-p", "sub_proj", "cancel", "F1", "-m", "dropped"], cwd=str(outside), env=env_ws, check=True)
+        r_sub_arch = self._run([str(SCRIPT), "-p", "sub_proj", "archive"], cwd=str(outside), env=env_ws, check=True)
         self.assertIn("F1: Sub task updated", r_sub_arch.stdout)
 
-        # Overview, queue, and reopen with -C from outside
-        r_sum = self._run([str(SCRIPT), "-C", "proj_a", "overview"], cwd=str(outside), env=env_ws, check=True)
+        # Overview, queue, and reopen with -p from outside
+        r_sum = self._run([str(SCRIPT), "-p", "proj_a", "overview"], cwd=str(outside), env=env_ws, check=True)
         self.assertIn("Archived in TODO_ARCHIVE.md: 1 task(s)", r_sum.stdout)
-        self._run([str(SCRIPT), "-C", "proj_a", "reopen", "B1"], cwd=str(outside), env=env_ws, check=True)
-        self._run([str(SCRIPT), "-C", "sub_proj", "reopen", "F1"], cwd=str(outside), env=env_ws, check=True)
-        r_q = self._run([str(SCRIPT), "-C", "sub_proj", "queue", "F1", "--all"], cwd=str(outside), env=env_ws, check=True)
+        self._run([str(SCRIPT), "-p", "proj_a", "reopen", "B1"], cwd=str(outside), env=env_ws, check=True)
+        self._run([str(SCRIPT), "-p", "sub_proj", "reopen", "F1"], cwd=str(outside), env=env_ws, check=True)
+        r_q = self._run([str(SCRIPT), "-p", "sub_proj", "queue", "F1", "--all"], cwd=str(outside), env=env_ws, check=True)
         self.assertIn("proj_a:B1", r_q.stdout)
 
-        # Workspace discovery from sibling project without TODO_MD_WORKSPACE env var
-        r_sib = self._run([str(SCRIPT), "-C", "proj_a", "ids"], cwd=str(proj_c), check=True)
+        # Workspace discovery from sibling project without TODO_MD_WORKSPACE env var (-p project and -C ../proj_a)
+        r_sib = self._run([str(SCRIPT), "-p", "proj_a", "ids"], cwd=str(proj_c), check=True)
         self.assertIn("B:1", r_sib.stdout)
+        r_sib_c = self._run([str(SCRIPT), "-C", "../proj_a", "ids"], cwd=str(proj_c), check=True)
+        self.assertIn("B:1", r_sib_c.stdout)
 
-        # Precedence: -C/--project > TODO_MD_CWD > <project>:<ID> > cwd
+        # Precedence: -C/-p/--project > TODO_MD_CWD > <project>:<ID> > cwd
         env_cwd_a = {**os.environ, "TODO_MD_WORKSPACE": str(ws), "TODO_MD_CWD": str(proj_a)}
         r_prec_env = self._run([str(SCRIPT), "ids"], cwd=str(proj_b), env=env_cwd_a, check=True)
         self.assertIn("B:1", r_prec_env.stdout)
         self.assertNotIn("F:1", r_prec_env.stdout)
 
-        r_prec_cli = self._run([str(SCRIPT), "-C", "sub_proj", "ids"], cwd=str(outside), env=env_cwd_a, check=True)
+        r_prec_cli = self._run([str(SCRIPT), "-p", "sub_proj", "ids"], cwd=str(outside), env=env_cwd_a, check=True)
         self.assertIn("F:1", r_prec_cli.stdout)
         self.assertNotIn("B:1", r_prec_cli.stdout)
+
+        r_prec_c = self._run([str(SCRIPT), "-C", str(proj_b), "ids"], cwd=str(outside), env=env_cwd_a, check=True)
+        self.assertIn("F:1", r_prec_c.stdout)
+        self.assertNotIn("B:1", r_prec_c.stdout)
 
         r_prec_ref = self._run([str(SCRIPT), "show", "proj_a:B1"], cwd=str(proj_c), check=True)
         self.assertIn("Bug from -C", r_prec_ref.stdout)
 
-        # Explicit error on missing/empty/ambiguous targets and invalid <project>: on non-task commands
+        # Explicit error on missing/empty/ambiguous targets and non-directory -C argument
         for bad_args in (
             ["-C"],
+            ["-p"],
             ["--project"],
             ["--project="],
             ["-C", ""],
+            ["-p", ""],
             ["-C", "/nonexistent_todo_md_dir"],
+            ["-C", "sub_proj", "list"],
             ["-C", "does_not_exist", "list"],
+            ["-p", "does_not_exist", "list"],
+            ["-p", str(proj_a), "list"],
             ["--project", "shared", "list"],
+            ["-p", "shared", "list"],
             ["list", "proj_a:"],
         ):
             with self.subTest(bad_args=bad_args):

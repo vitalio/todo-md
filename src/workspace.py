@@ -204,23 +204,18 @@ def resolve_project_dir(
         raise SystemExit(f"{prog_name()}: project {project_name!r} escapes workspace {ws_root}")
     raise SystemExit(f"{prog_name()}: project {norm!r} not found under workspace {ws_root}")
 
-def resolve_project_or_dir(selector: str) -> str:
+def resolve_project_selector(selector: str) -> str:
     raw = selector.strip()
     if not raw:
-        raise SystemExit(f"{prog_name()}: empty project or directory selector")
-    p_cand = Path(raw).expanduser()
-    if p_cand.is_dir():
-        return str(p_cand.resolve())
-    looks_like_path = (
-        raw.startswith(("/", "~", "./", "../", ".\\", "..\\"))
-        or p_cand.is_absolute()
-    )
-    if looks_like_path:
-        raise SystemExit(f"{prog_name()}: directory not found: {selector}")
-
+        raise SystemExit(f"{prog_name()}: empty project selector")
     norm = raw.replace("\\", "/").strip("/")
-    if not norm or ".." in norm.split("/"):
-        raise SystemExit(f"{prog_name()}: target directory or project not found: {selector}")
+    if (
+        not norm
+        or ".." in norm.split("/")
+        or raw.startswith(("/", "~", "./", "../", ".\\", "..\\"))
+        or Path(raw).expanduser().is_absolute()
+    ):
+        raise SystemExit(f"{prog_name()}: project not found: {selector}")
 
     cwd_res = Path.cwd().resolve()
     probe_bases: list[Path] = [cwd_res]
@@ -265,7 +260,13 @@ def resolve_project_or_dir(selector: str) -> str:
         if ext is not None:
             return str(ext)
 
-    raise SystemExit(f"{prog_name()}: target directory or project not found: {selector}")
+    raise SystemExit(f"{prog_name()}: project not found: {selector}")
+
+def resolve_project_or_dir(selector: str) -> str:
+    p_cand = Path(selector.strip()).expanduser()
+    if p_cand.is_dir():
+        return str(p_cand.resolve())
+    return resolve_project_selector(selector)
 
 def resolve_project_task_ref(
     base_dir: Path,
