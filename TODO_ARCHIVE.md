@@ -1,3 +1,7 @@
+# ✅ [DONE] F81: Update stale todo_md CLI and path references in open TODO.md backlog tasks — *2026-11-23, Updated stale todo_md CLI and path references across open TODO.md tasks (F73, D3, D2, D6, P1)*
+
+Several open tasks in TODO.md (such as F73) still reference the legacy 'todo_md' binary name, 'agents/todo_md.md', and './todo_md' instead of 'todo' and 'agents/todo.md'.
+
 # ✅ [DONE] L1: Simplify embedded agents/todo.md rule and remove [-c] auto-commit signatures — *2026-11-23*
 
 - Remove `[-c]` (`--commit`) from all mutating command signatures in `agents/todo.md` so agents do not trigger unintended per-command Git auto-commits.
