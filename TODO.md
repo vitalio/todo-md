@@ -1,12 +1,12 @@
-# 🎯 [NEXT] F80: Support <alias>=<path> project mapping in .todo_projects and .todo_projects.local
-
-- Allow entries in `.todo_projects` and `.todo_projects.local` to map a canonical project identifier to a local relative or external directory path (`<project_id>=<path>`), so `Depends on: <project_id>:<ID>` in an orchestrator's `TODO.md` resolves cleanly even when a local checkout directory has a different name or location.
-
 # 🎯 [NEXT] F73: Forbid cross-project Depends on references in non-orchestrator repositories in todo check
 
 - In `validate_all()` (`src/parser.py`), reject cross-project `<project>:<ID>` references (`PROJECT_TASK_RE`) in `- Depends on:` when the current repository is not an orchestrator (`not has_local_todo_projects_config(base_dir)`), reporting a clear error message instructing to keep cross-project dependencies in the workspace orchestrator repository (`.todo_projects`).
 - Allow cross-project `<project>:<ID>` dependencies in `validate_all()` only when the repository has a local `.todo_projects` or `.todo_projects.local` configuration.
 - Update `agents/todo.md`, `README.md`, and unit tests in `tests/test_deps.py` to cover the one-way dependency boundary enforcement in `todo check` (and post-mutation validation on `add` / `edit`), and rebuild `./todo` via `python3 build.py`.
+
+# 🎯 [NEXT] F80: Support <alias>=<path> project mapping in .todo_projects and .todo_projects.local
+
+- Allow entries in `.todo_projects` and `.todo_projects.local` to map a canonical project identifier to a local relative or external directory path (`<project_id>=<path>`), so `Depends on: <project_id>:<ID>` in an orchestrator's `TODO.md` resolves cleanly even when a local checkout directory has a different name or location.
 
 # 🎯 [NEXT] D3: Design explicit HOLD task review workflow and reverse dependency visibility
 
@@ -38,6 +38,12 @@
 - Model parallel task execution under the repo-exclusivity invariant (at most one active task per repository at a time):
   - Compute parallel wavefront width (`threads: <K>`) across ready tasks by grouping ready tasks by repository and selecting the top-ranked actionable task per repository as a parallel execution lane (`Lane 1..K`).
   - Compute parallel critical-path steps for chains and orchestrator waves as `max(dag_depth, max_repo_open_count)` and surface parallelism metrics on chain headers and `todo -r` (`--ready`) in `src/chains.py` and `src/render_chain.py`.
+
+# ⚪ [NEW] F82: Restructure README.md to follow CLI progressive disclosure and split Quest-Log, Options, and Environment tables
+
+- Add a short Quest-Log and dependency (`--depends`, `todo -r`, `todo -t`, `todo -f`) scenario to `Quick Start`.
+- Replace the 3,160-character single-row `todo chain` table cell and leading `git pull --ff-only` edge-case paragraph in `CLI Reference` with a dedicated `Quest-Log Views` overview plus separate `Commands`, `Global & Quest-Log Options` (including `--no-commit`), and `Environment` (`TODO_MD_*`) tables matching `todo --help` and `agents/stack/cli/docs.md`.
+- Replace stale `todo <ID> | agents_bundle | run_block` pipeline example in the `todo show` row with `todo <ID> | context | run`, and format the `License` section link consistently with sibling repositories.
 
 # ⏸️ [HOLD] P1: JSON output mode (`--json`) — *Defer machine-readable JSON output until an external client or dashboard is needed*
 
