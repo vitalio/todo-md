@@ -1,3 +1,9 @@
+# ✅ [DONE] L1: Simplify embedded agents/todo.md rule and remove [-c] auto-commit signatures — *2026-11-23*
+
+- Remove `[-c]` (`--commit`) from all mutating command signatures in `agents/todo.md` so agents do not trigger unintended per-command Git auto-commits.
+- Move `archive [<ID>...] [-m "<note>"] [--canceled]` from `Core views` to `Mutate & validate`, drop the removed `queue` alias, interactive `-H` highlight toggle, duplicate short/long flags (`-r|--ready`, `-l N|--limit N`), plumbing commands (`last[-id]`, `next-id`), and duplicate `[--reopen]` on `next`/`status` in favor of `reopen`.
+- Sync `rule_txt` assertions in `tests/test_cli.py` and rebuild `todo` via `build.py`.
+
 # ✅ [DONE] F42: Rename project to todo-md and CLI utility to todo — *2026-11-23*
 
 - Depends on: F72, F75, F77, F78, F79

@@ -18,25 +18,25 @@
     subcommands (keeping `-p <P>` inside `{cmd:todo} add` for ID prefix, or
     `<project>:<ID>` on task refs). Core views:
     `{cmd:todo} [opts] [-w]`, `{cmd:todo} overview [--full] [-w]`, `{cmd:todo} projects`,
-    `{cmd:todo} [show] <ID>...`, `{cmd:todo} last[-id] [<STATUS|archive>]`,
-    `{cmd:todo} list [active|archive|all|<STATUS>] [<ID>...] [--prefix <P>] [--status <S>] [-r|--ready] [-s <QUERY>] [-H] [-l N|--limit N] [--full]`,
-    `{cmd:todo} archive [<ID>...] [-m "<note>"] [--canceled] [-c]`, `{cmd:todo} ids`,
-    `{cmd:todo} queue <ID>... [--all]` (alias for `{cmd:todo} chain <ID>... [--all]`),
-    `{cmd:todo} chain [<ID>...] [--all] [--prefix <P>] [--status <S>] [--ready] [-l N|--limit N] [--tree] [-f <ID>...] [-H] [-s <QUERY>]`,
-    `{cmd:todo} next-id [<ID>] [--prefix <P>] [--status <S>]`. Do not re-run broad
-    workspace views (`{cmd:todo}`, `overview`, `chain`) when the Quest-Log is
-    already present in `===== Prompt =====`, and do not run `{cmd:todo} chain --all
-    --tree` across the entire backlog without a target `<ID>` or `-l N`.
+    `{cmd:todo} [show] <ID>...`,
+    `{cmd:todo} list [active|archive|all|<STATUS>] [<ID>...] [--prefix <P>] [--status <S>] [--ready] [-s <QUERY>] [-l N] [--full]`,
+    `{cmd:todo} chain [<ID>...] [--all] [--prefix <P>] [--status <S>] [--ready] [-l N] [--tree] [-f <ID>...] [-s <QUERY>]`,
+    `{cmd:todo} ids`. Do not re-run broad workspace views (`{cmd:todo}`,
+    `overview`, `chain`) when the Quest-Log is already present in
+    `===== Prompt =====`, and do not run `{cmd:todo} chain --all --tree` across
+    the entire backlog without a target `<ID>` or `-l N`.
   - Mutate & validate: `{cmd:todo} add [<PROJECT>] [<PREFIX>] "<title>" [-p <P>]
-    [--next] [--status <S>] [-m "<note>"] [-b "<body_md>"|-] [--depends <spec>]
-    [-c]`, `{cmd:todo} edit <ID>... [--next] [--status <S>] [-t "<title>"]
-    [-m "<note>"] [-b "<body_md>"|-] [--depends <spec>] [-c]`, `{cmd:todo} append <ID>... [-b "<text>"|-] [-c]`,
-    `{cmd:todo} rename <OLD> <NEW|PREFIX> | <OLD>=<NEW|PREFIX>... [-c]`,
-    `{cmd:todo} next <ID>... [-m "<note>"] [--reopen] [-c]`,
-    `{cmd:todo} status <ID>... <STATUS> [-m "<note>"] [--reopen] [-c]`,
-    `{cmd:todo} reopen <ID>... [--status <S>] [-m "<note>"] [-c]`,
-    `{cmd:todo} done <ID>... [-m "<note>"] [-c]`,
-    `{cmd:todo} cancel <ID>... [-m "<reason>"] [-c]`, `{cmd:todo} check`.
+    [--next] [--status <S>] [-m "<note>"] [-b "<body_md>"|-] [--depends <spec>]`,
+    `{cmd:todo} edit <ID>... [--next] [--status <S>] [-t "<title>"]
+    [-m "<note>"] [-b "<body_md>"|-] [--depends <spec>]`,
+    `{cmd:todo} append <ID>... [-b "<text>"|-]`,
+    `{cmd:todo} rename <OLD> <NEW|PREFIX> | <OLD>=<NEW|PREFIX>...`,
+    `{cmd:todo} next <ID>... [-m "<note>"]`,
+    `{cmd:todo} status <ID>... <STATUS> [-m "<note>"]`,
+    `{cmd:todo} reopen <ID>... [--status <S>] [-m "<note>"]`,
+    `{cmd:todo} done <ID>... [-m "<note>"]`,
+    `{cmd:todo} cancel <ID>... [-m "<reason>"]`,
+    `{cmd:todo} archive [<ID>...] [-m "<note>"] [--canceled]`, `{cmd:todo} check`.
   - Dependencies & Chain integration (both directions): in `--depends` and
     `- Depends on:`, use `,` for parallel items (`A,B`), `->` for sequential
     stages (`"A -> B -> C"`, `,` binds tighter than `->`), and `;` (or repeated
