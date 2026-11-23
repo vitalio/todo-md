@@ -1,3 +1,10 @@
+# ✅ [DONE] F82: Restructure README.md to follow CLI progressive disclosure and split Quest-Log, Options, and Environment tables — *2026-11-24, Restructured README.md with progressive disclosure, Quest-Log Views, and split reference tables*
+
+- Depends on: F83 -> D5 -> F84
+- Add a short Quest-Log and dependency (`--depends`, `todo -r`, `todo -t`, `todo -f`) scenario to `Quick Start`.
+- Replace the 3,160-character single-row `todo chain` table cell and leading `git pull --ff-only` edge-case paragraph in `CLI Reference` with a dedicated `Quest-Log Views` overview plus separate `Commands`, `Global & Quest-Log Options` (including `--no-commit`), and `Environment` (`TODO_MD_*`) tables matching `todo --help` and `agents/stack/cli/docs.md`.
+- Replace stale `todo <ID> | agents_bundle | run_block` pipeline example in the `todo show` row with `todo <ID> | context | run`, and format the `License` section link consistently with sibling repositories.
+
 # ✅ [DONE] B11: Skip spawning git subprocess in _sync_upstream when no .git directory exists in ancestor path — *2026-11-24, Skip spawning git subprocesses when no .git entry exists in ancestor path*
 
 - Add a fast pure-Python helper in src/commands.py that checks whether base_dir or any of its parent directories contains a .git entry (directory or file for worktrees/submodules) before spawning git subprocesses in _sync_upstream() and _git_commit_todo(), while still honoring GIT_DIR / GIT_WORK_TREE when set in os.environ.

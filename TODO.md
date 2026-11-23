@@ -1,10 +1,3 @@
-# 🎯 [NEXT] F82: Restructure README.md to follow CLI progressive disclosure and split Quest-Log, Options, and Environment tables
-
-- Depends on: F83 -> D5 -> F84
-- Add a short Quest-Log and dependency (`--depends`, `todo -r`, `todo -t`, `todo -f`) scenario to `Quick Start`.
-- Replace the 3,160-character single-row `todo chain` table cell and leading `git pull --ff-only` edge-case paragraph in `CLI Reference` with a dedicated `Quest-Log Views` overview plus separate `Commands`, `Global & Quest-Log Options` (including `--no-commit`), and `Environment` (`TODO_MD_*`) tables matching `todo --help` and `agents/stack/cli/docs.md`.
-- Replace stale `todo <ID> | agents_bundle | run_block` pipeline example in the `todo show` row with `todo <ID> | context | run`, and format the `License` section link consistently with sibling repositories.
-
 # 🎯 [NEXT] D3: Design explicit HOLD task review workflow and reverse dependency visibility
 
 - Specify how `HOLD` tasks expose downstream blocked dependents (`Blocks: ...` in `show` / `list HOLD`, including cross-project references under `-w`) so reviewers see what unblocks when a `HOLD` condition is met.

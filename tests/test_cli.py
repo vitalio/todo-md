@@ -154,6 +154,57 @@ class TestCli(TodoMdTestCase):
                     if ln.startswith("   "):
                         self.assertEqual(len(ln) - len(ln.lstrip(" ")), col, msg=ln)
 
+    def test_readme_progressive_disclosure_and_reference_tables(self):
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        headings = [line for line in readme.splitlines() if line.startswith("## ")]
+        self.assertEqual(
+            headings,
+            [
+                "## Quick Installation",
+                "## Quick Start",
+                "## Quest-Log Views",
+                "## CLI Reference",
+                "## Task ID Prefixes",
+                "## Context Bundle Protocol",
+                "## License",
+            ],
+        )
+        for subheading in (
+            "### Commands",
+            "### Global & Quest-Log Options",
+            "### Environment",
+        ):
+            self.assertIn(subheading, readme)
+        self.assertNotIn("agents_bundle | run_block", readme)
+        self.assertNotIn("agents_bundle \\| run_block", readme)
+        self.assertIn("todo <ID> \\| context \\| run", readme)
+        self.assertIn("[MIT](LICENSE)", readme)
+        for line in readme.splitlines():
+            self.assertLess(len(line), 600, f"README line too long ({len(line)} chars): {line[:80]}...")
+        for token in (
+            "--no-commit",
+            "--numbered",
+            "--include-hold",
+            "--highlight",
+            "--depends",
+            "todo -r",
+            "todo -t",
+            "todo -f",
+        ):
+            self.assertIn(token, readme)
+        for env_var in (
+            "TODO_MD_CWD",
+            "TODO_MD_WORKSPACE",
+            "TODO_MD_PROJECTS",
+            "TODO_MD_COMMIT",
+            "TODO_MD_NO_COMMIT",
+            "TODO_MD_NO_GIT_PULL",
+            "TODO_MD_BUNDLE",
+            "TODO_MD_PLAIN",
+            "TODO_MD_UPDATE_URL",
+        ):
+            self.assertIn(f"`{env_var}`", readme)
+
     def test_help_structured_sections_and_alignment(self):
         rh = self._run_subprocess([str(SCRIPT), "--help"], check=True)
         self.assertEqual(rh.stderr, "")
