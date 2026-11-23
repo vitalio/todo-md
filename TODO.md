@@ -1,9 +1,3 @@
-# 🎯 [NEXT] F73: Forbid cross-project Depends on references in non-orchestrator repositories in todo check
-
-- In `validate_all()` (`src/parser.py`), reject cross-project `<project>:<ID>` references (`PROJECT_TASK_RE`) in `- Depends on:` when the current repository is not an orchestrator (`not has_local_todo_projects_config(base_dir)`), reporting a clear error message instructing to keep cross-project dependencies in the workspace orchestrator repository (`.todo_projects`).
-- Allow cross-project `<project>:<ID>` dependencies in `validate_all()` only when the repository has a local `.todo_projects` or `.todo_projects.local` configuration.
-- Update `agents/todo.md`, `README.md`, and unit tests in `tests/test_deps.py` to cover the one-way dependency boundary enforcement in `todo check` (and post-mutation validation on `add` / `edit`), and rebuild `./todo` via `python3 build.py`.
-
 # 🎯 [NEXT] F80: Support <alias>=<path> project mapping in .todo_projects and .todo_projects.local
 
 - Allow entries in `.todo_projects` and `.todo_projects.local` to map a canonical project identifier to a local relative or external directory path (`<project_id>=<path>`), so `Depends on: <project_id>:<ID>` in an orchestrator's `TODO.md` resolves cleanly even when a local checkout directory has a different name or location.

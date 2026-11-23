@@ -54,15 +54,10 @@ class TestChain(TodoMdTestCase):
         self.assertNotIn("Held branches:", r_inc.stdout)
 
         # Cross-project dependency in proj_b resolved locally and across workspace (-w / auto-workspace)
-        self._run(
-            [str(SCRIPT), "add", "Cross child", "--depends", "proj_a:F3"],
-            cwd=str(proj_b),
-            check=True,
-        )
-        self._run(
-            [str(SCRIPT), "add", "Cross leaf", "--depends", "F1"],
-            cwd=str(proj_b),
-            check=True,
+        (proj_b / "TODO.md").write_text(
+            "# ⚪ [NEW] F1: Cross child\n\n- Depends on: proj_a:F3\n\n"
+            "# ⚪ [NEW] F2: Cross leaf\n\n- Depends on: F1\n",
+            encoding="utf-8",
         )
         r_b_local = self._run([str(SCRIPT), "chain", "--numbered=right"], cwd=str(proj_b), check=True)
         self.assertIn("[20% | 1/5] Chain 1 -> F2: Cross leaf:", r_b_local.stdout)
@@ -303,10 +298,9 @@ class TestChain(TodoMdTestCase):
         self._run([str(SCRIPT), "add", "F", "Waiting work", "--next", "--depends", "D2"], cwd=str(proj_a), check=True)
 
         # Cross-project task in proj_b: F1 (NEXT, depends on proj_a:F1)
-        self._run(
-            [str(SCRIPT), "add", "F", "Cross repo work", "--next", "--depends", "proj_a:F1"],
-            cwd=str(proj_b),
-            check=True,
+        (proj_b / "TODO.md").write_text(
+            "# 🎯 [NEXT] F1: Cross repo work\n\n- Depends on: proj_a:F1\n",
+            encoding="utf-8",
         )
 
         # 1. Default chain omits [role] column and ranks bugfix B1 ahead of non-bugfix tasks
@@ -423,7 +417,10 @@ class TestChain(TodoMdTestCase):
         self._run([str(SCRIPT), "add", "F", "Held child", "--status", "HOLD", "--depends", "B1"], cwd=str(proj_a), check=True)
 
         # Cross-project dependent in proj_b
-        self._run([str(SCRIPT), "add", "F", "Cross repo child", "--depends", "proj_a:B1"], cwd=str(proj_b), check=True)
+        (proj_b / "TODO.md").write_text(
+            "# ⚪ [NEW] F1: Cross repo child\n\n- Depends on: proj_a:B1\n",
+            encoding="utf-8",
+        )
 
         r_local = self._run(
             [str(SCRIPT), "chain", "--numbered=right", "--ready"],
@@ -534,10 +531,9 @@ class TestChain(TodoMdTestCase):
         )
 
         # Cross-project finale in proj_b depending on proj_a:F3
-        self._run(
-            [str(SCRIPT), "add", "F", "Cross finale", "--next", "--depends", "proj_a:F3"],
-            cwd=str(proj_b),
-            check=True,
+        (proj_b / "TODO.md").write_text(
+            "# 🎯 [NEXT] F1: Cross finale\n\n- Depends on: proj_a:F3\n",
+            encoding="utf-8",
         )
 
         # 1. Default chain: work chain finales render as top-ranked Chain 1..3 entries before open multi-task chains and plan chains
@@ -679,18 +675,13 @@ class TestChain(TodoMdTestCase):
         # In proj_a, create local DONE task F1 depending on proj_b:F1, CANCELED proj_b:F2, and missing F99
         # Only DONE tasks (proj_a:F1, proj_b:F1, proj_b:D1 = 3 DONE tasks) should count in done_nodes!
         self._run(
-            [str(SCRIPT), "add", "F", "Local done step", "--depends", "proj_b:F1"],
+            [str(SCRIPT), "add", "F", "Local done step"],
             cwd=str(proj_a),
             check=True,
         )
         self._run([str(SCRIPT), "done", "F1", "-m", "done"], cwd=str(proj_a), check=True)
         arch_path = proj_a / "TODO_ARCHIVE.md"
-        arch_txt = arch_path.read_text(encoding="utf-8")
-        arch_txt = arch_txt.replace(
-            "- Depends on: proj_b:F1",
-            "- Depends on: proj_b:F1, proj_b:F2, F99",
-            1,
-        )
+        arch_txt = arch_path.read_text(encoding="utf-8").rstrip() + "\n\n- Depends on: proj_b:F1, proj_b:F2, F99\n"
         arch_path.write_text(arch_txt, encoding="utf-8")
 
         # Chain A (non-bug work chain linked to 3 transitive DONE tasks: F2 -> F3)
@@ -828,6 +819,7 @@ class TestChain(TodoMdTestCase):
         # - Fast 2-open work chain (F13 -> F14, remaining_effort = 2, velocity = 1/3)
         # - Long 3-open work chain (F15 -> F16 -> F17, remaining_effort = 3, velocity = 1/4)
         # Fast 2-open work chain has higher weighted velocity (1/3 > 1/4) and lower effort (2 < 3), so it ranks before the 3-open chain!
+        (proj_a / ".todo_projects.local").write_text("proj_a\nproj_b\n", encoding="utf-8")
         self._run(
             [str(SCRIPT), "add", "F", "Fast vel 1", "--next", "--depends", "proj_b:D1"],
             cwd=str(proj_a),
@@ -853,6 +845,7 @@ class TestChain(TodoMdTestCase):
             cwd=str(proj_a),
             check=True,
         )
+        (proj_a / ".todo_projects.local").unlink()
         r_vel = self._run(
             [str(SCRIPT), "chain", "--numbered=right"],
             cwd=str(proj_a),
@@ -1140,6 +1133,7 @@ class TestChain(TodoMdTestCase):
         self._run([str(SCRIPT), "add", "D", "Shared architecture spec"], cwd=str(todo_flow), check=True)
         self._run([str(SCRIPT), "done", "D1", "-m", "done"], cwd=str(todo_flow), check=True)
 
+        (run_block / ".todo_projects.local").write_text("todo_flow\nrun_block\n", encoding="utf-8")
         self._run(
             [str(SCRIPT), "add", "F", "Shared core parser", "--next", "--depends", "todo_flow:D1"],
             cwd=str(run_block),
@@ -1174,6 +1168,7 @@ class TestChain(TodoMdTestCase):
             cwd=str(run_block),
             check=True,
         )
+        (run_block / ".todo_projects.local").unlink()
 
         # Inspect plan_execution_chains() entries directly
         old_cwd = Path.cwd()
@@ -1253,7 +1248,9 @@ class TestChain(TodoMdTestCase):
 
         # 2. Verify monotonic Quest Momentum across `todo_md status ... WIP` and `todo_md done ...`:
         # Switch F2 in Goal A (F3 chain) to WIP -> F3 chain becomes active quest (tier 0) and ranks #1!
+        (run_block / ".todo_projects.local").write_text("todo_flow\nrun_block\n", encoding="utf-8")
         self._run([str(SCRIPT), "status", "F2", "WIP"], cwd=str(run_block), check=True)
+        (run_block / ".todo_projects.local").unlink()
         old_cwd = Path.cwd()
         try:
             os.chdir(run_block)
@@ -1270,7 +1267,9 @@ class TestChain(TodoMdTestCase):
         # Because F2 is now the most recently completed DONE task at the top of TODO_ARCHIVE.md,
         # Goal A retains `is_active_quest=True` (tier 0), its rank_key is monotonically non-increasing,
         # and it stays at Chain 1 above F7 (all NEXT)!
+        (run_block / ".todo_projects.local").write_text("todo_flow\nrun_block\n", encoding="utf-8")
         self._run([str(SCRIPT), "done", "F1", "-m", "done"], cwd=str(run_block), check=True)
+        (run_block / ".todo_projects.local").unlink()
         # Add another step F8 after F3 so Goal A (now rooted at F8) remains a 2-open-task chain after F2 is done
         self._run(
             [str(SCRIPT), "add", "F", "Goal A post-root step", "--next", "--depends", "F3"],
@@ -1412,6 +1411,7 @@ class TestChain(TodoMdTestCase):
             cwd=str(run_block),
             check=True,
         )
+        (run_block / ".todo_projects.local").write_text("todo_flow\nrun_block\n", encoding="utf-8")
         self._run(
             [
                 str(SCRIPT),
@@ -1449,6 +1449,7 @@ class TestChain(TodoMdTestCase):
             cwd=str(run_block),
             check=True,
         )
+        (run_block / ".todo_projects.local").unlink()
 
         # 3. Default `todo_md chain` (without --all) renders nested Sub-chain headers, ├── / │   / └─► connectors
         r_wide = self._run([str(SCRIPT), "chain", "--tree", "--numbered=right"], cwd=str(run_block), env=wide_env, check=True)
@@ -1890,9 +1891,9 @@ class TestChain(TodoMdTestCase):
             [str(SCRIPT), "add", "F", "Canary base", "--next"],
             cwd=str(canary), env=env, check=True,
         )
-        self._run(
-            [str(SCRIPT), "add", "F", "Leaf consumer", "--next", "--depends", "chrome/canary:F1"],
-            cwd=str(todo_md_p), env=env, check=True,
+        (todo_md_p / "TODO.md").write_text(
+            "# 🎯 [NEXT] F1: Leaf consumer\n\n- Depends on: chrome/canary:F1\n",
+            encoding="utf-8",
         )
         for cwd in (todo_md_p, todo_flow, meta_orch):
             with self.subTest(cwd=cwd.name):

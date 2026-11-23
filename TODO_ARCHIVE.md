@@ -1,3 +1,9 @@
+# ✅ [DONE] F73: Forbid cross-project Depends on references in non-orchestrator repositories in todo check — *2026-11-23, Reject cross-project Depends on references in non-orchestrator repositories in todo check*
+
+- In `validate_all()` (`src/parser.py`), reject cross-project `<project>:<ID>` references (`PROJECT_TASK_RE`) in `- Depends on:` when the current repository is not an orchestrator (`not has_local_todo_projects_config(base_dir)`), reporting a clear error message instructing to keep cross-project dependencies in the workspace orchestrator repository (`.todo_projects`).
+- Allow cross-project `<project>:<ID>` dependencies in `validate_all()` only when the repository has a local `.todo_projects` or `.todo_projects.local` configuration.
+- Update `agents/todo.md`, `README.md`, and unit tests in `tests/test_deps.py` to cover the one-way dependency boundary enforcement in `todo check` (and post-mutation validation on `add` / `edit`), and rebuild `./todo` via `python3 build.py`.
+
 # ✅ [DONE] F81: Update stale todo_md CLI and path references in open TODO.md backlog tasks — *2026-11-23, Updated stale todo_md CLI and path references across open TODO.md tasks (F73, D3, D2, D6, P1)*
 
 Several open tasks in TODO.md (such as F73) still reference the legacy 'todo_md' binary name, 'agents/todo_md.md', and './todo_md' instead of 'todo' and 'agents/todo.md'.

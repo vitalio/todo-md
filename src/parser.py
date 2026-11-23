@@ -329,6 +329,7 @@ def validate_all(base_dir: Path) -> tuple[list[str], int]:
                     )
 
     ws_root = resolve_workspace_root(base_dir)
+    is_orchestrator = has_local_todo_projects_config(base_dir)
     local_ids = set(seen_ids.keys())
     proj_task_cache: dict[Path, set[str]] = {}
     todo_path = base_dir / "TODO.md"
@@ -353,6 +354,13 @@ def validate_all(base_dir: Path) -> tuple[list[str], int]:
                             target_tid = pm.group(2).upper()
                             if not proj_name or ".." in proj_name.split("/"):
                                 errors.append(f"TODO.md:{lineno}: task {tid} has invalid dependency reference {ref!r}")
+                                continue
+                            if not is_orchestrator:
+                                errors.append(
+                                    f"TODO.md:{lineno}: task {tid} has cross-project dependency {ref!r} in a "
+                                    "non-orchestrator repository (keep cross-project dependencies in the "
+                                    "workspace orchestrator repository with .todo_projects)"
+                                )
                                 continue
                             target_dir = (ws_root / proj_name).resolve()
                             if not is_todo_project(target_dir):

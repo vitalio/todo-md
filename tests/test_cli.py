@@ -233,6 +233,7 @@ class TestCli(TodoMdTestCase):
         )
         r_rel_c = self._run([str(SCRIPT), "-C", "proj_c", "ids"], cwd=str(ws), check=True)
         self.assertIn("D:1", r_rel_c.stdout)
+        (proj_b / ".todo_projects").write_text("proj_a\nparent_proj/sub_proj\n", encoding="utf-8")
         self._run(
             [str(SCRIPT), "--project", "parent_proj/sub_proj", "add", "Sub task", "--depends", "proj_a:B1"],
             cwd=str(outside),

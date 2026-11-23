@@ -475,6 +475,8 @@ def read_configured_todo_projects(
 
 def has_local_todo_projects_config(directory: Path) -> bool:
     d_res = directory.resolve()
+    if d_res.name == ".todo_projects" and is_todo_project(d_res):
+        return True
     for fname in TODO_PROJECTS_FILES:
         p = d_res / fname
         if p.is_file() or (fname == ".todo_projects" and p.is_dir()):

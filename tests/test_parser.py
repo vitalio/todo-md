@@ -343,6 +343,7 @@ class TestParser(TodoMdTestCase):
         self._run([str(SCRIPT), "add", "Canceled item for alignment check"], cwd=str(proj_a), check=True)
         self._run([str(SCRIPT), "cancel", "F7", "-m", "canceled"], cwd=str(proj_a), check=True)
 
+        (proj_b / ".todo_projects").write_text("proj_a\nproj_b\n", encoding="utf-8")
         self._run(
             [str(SCRIPT), "add", "Cross-project dependent task with a lengthy title for workspace views", "--next", "--depends", "proj_a:F2"],
             cwd=str(proj_b),

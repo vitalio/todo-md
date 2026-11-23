@@ -32,15 +32,41 @@ class TestDeps(TodoMdTestCase):
         self._run([str(SCRIPT), "add", "proj_a", "Base rule", "--next"], cwd=str(ws), check=True)
         self._run([str(SCRIPT), "add", "Base parent task"], cwd=str(proj_b), check=True)
 
-        # Missing dependency fails validation immediately on add
+        # Cross-project dependency in a non-orchestrator repository is rejected on add, edit, and check
+        r_non_orch_add = self._run(
+            [str(SCRIPT), "add", "Sub feature", "--depends", "proj_a:F1"],
+            cwd=str(proj_c),
+        )
+        self.assertNotEqual(r_non_orch_add.returncode, 0, msg=r_non_orch_add.stderr)
+        self.assertIn("non-orchestrator repository", r_non_orch_add.stderr)
+        self.assertIn(".todo_projects", r_non_orch_add.stderr)
+
+        r_non_orch_chk = self._run([str(SCRIPT), "check"], cwd=str(proj_c))
+        self.assertNotEqual(r_non_orch_chk.returncode, 0, msg=r_non_orch_chk.stderr)
+        self.assertIn("non-orchestrator repository", r_non_orch_chk.stderr)
+
+        r_non_orch_edit = self._run(
+            [str(SCRIPT), "edit", "parent_proj/sub_proj:F1", "--depends", "proj_a:F1"],
+            cwd=str(ws),
+        )
+        self.assertNotEqual(r_non_orch_edit.returncode, 0, msg=r_non_orch_edit.stderr)
+        self.assertIn("non-orchestrator repository", r_non_orch_edit.stderr)
+
+        # Clear cross-project dep on non-orchestrator proj_c -> check passes;
+        # then configure .todo_projects.local on proj_c to allow cross-project dependencies
+        self._run([str(SCRIPT), "edit", "F1", "--depends", ""], cwd=str(proj_c), check=True)
+        self._run([str(SCRIPT), "check"], cwd=str(proj_c), check=True)
+        (proj_c / ".todo_projects.local").write_text("proj_a\nparent_proj\nparent_proj/sub_proj\n", encoding="utf-8")
+
+        # Missing dependency fails validation immediately on edit in orchestrator
         r_bad_dep = self._run(
-            [str(SCRIPT), "add", "Sub feature", "--depends", "proj_a:F1,F99"],
+            [str(SCRIPT), "edit", "F1", "--depends", "proj_a:F1,F99"],
             cwd=str(proj_c),
         )
         self.assertNotEqual(r_bad_dep.returncode, 0, msg=r_bad_dep.stderr)
         self.assertIn("missing task 'F99'", r_bad_dep.stderr)
 
-        # Edit F1 in proj_c to depend only on proj_a:F1 (cross-project)
+        # Edit F1 in orchestrator proj_c to depend only on proj_a:F1 (cross-project)
         self._run(
             [str(SCRIPT), "edit", "parent_proj/sub_proj:F1", "--depends", "proj_a:F1"],
             cwd=str(ws),
@@ -150,6 +176,7 @@ class TestDeps(TodoMdTestCase):
         self.assertEqual(self._run([str(SCRIPT), "next-id", "F5"], cwd=str(proj_a), check=True).stdout.strip(), "F5")
 
         # Cross-project orchestrator preserving one-way boundaries + transitive intra-project deps
+        (orch / ".todo_projects").write_text("proj_a\nproj_b\n", encoding="utf-8")
         self._run([str(SCRIPT), "add", "Repo A base"], cwd=str(proj_a), check=True)
         self._run([str(SCRIPT), "add", "Repo B prereq"], cwd=str(proj_b), check=True)
         self._run([str(SCRIPT), "add", "Repo B child", "--depends", "F1"], cwd=str(proj_b), check=True)
@@ -342,6 +369,7 @@ class TestDeps(TodoMdTestCase):
         self.assertNotIn("F5", r_ready.stdout)
 
         # Cross-project dependency in proj_b + workspace list -w and -w --ready
+        (proj_b / ".todo_projects").write_text("proj_a\nproj_b\n", encoding="utf-8")
         self._run([str(SCRIPT), "add", "Cross ready", "--next"], cwd=str(proj_b), check=True)
         self._run(
             [str(SCRIPT), "add", "Cross blocked", "--next", "--depends", "proj_a:F3"],

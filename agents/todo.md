@@ -41,6 +41,9 @@
     `- Depends on:`, use `,` for parallel items (`A,B`), `->` for sequential
     stages (`"A -> B -> C"`, `,` binds tighter than `->`), and `;` (or repeated
     `--depends` / `- Depends on:` lines) for independent AND branches (`"A -> B;
-    C -> D"`; do not introduce a separate `- Order:` field). Wire new or refined
-    tasks both upstream (`--depends`) and downstream (`{cmd:todo} edit <ID>
-    --depends ...` on existing open tasks or waves).
+    C -> D"`; do not introduce a separate `- Order:` field). Cross-project
+    `<project>:<ID>` dependencies are allowed only in orchestrator repositories
+    with `.todo_projects` (or `.todo_projects.local`); `{cmd:todo} check` rejects
+    them in non-orchestrator repositories. Wire new or refined tasks both
+    upstream (`--depends`) and downstream (`{cmd:todo} edit <ID> --depends ...`
+    on existing open tasks or waves).
