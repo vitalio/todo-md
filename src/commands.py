@@ -22,6 +22,21 @@ def _commit_enabled(commit: bool, no_commit: bool) -> bool:
     env_no_commit = os.environ.get("TODO_MD_NO_COMMIT", "").strip().lower() in ("1", "true", "yes")
     return (commit or env_commit) and not no_commit and not env_no_commit
 
+def _has_git_dir_in_ancestors(base_dir: Path) -> bool:
+    if os.environ.get("GIT_DIR") or os.environ.get("GIT_WORK_TREE"):
+        return True
+    try:
+        cur = base_dir.resolve()
+    except OSError:
+        cur = base_dir.absolute()
+    for d in (cur, *cur.parents):
+        try:
+            if (d / ".git").exists():
+                return True
+        except OSError:
+            continue
+    return False
+
 def _git_run(base_dir: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["git", "-C", str(base_dir), *args],
@@ -33,6 +48,8 @@ def _git_run(base_dir: Path, *args: str) -> subprocess.CompletedProcess[str]:
 
 def _sync_upstream(base_dir: Path, commit: bool = False, no_commit: bool = False) -> None:
     if os.environ.get("TODO_MD_NO_GIT_PULL", "").strip().lower() in ("1", "true", "yes"):
+        return
+    if not _has_git_dir_in_ancestors(base_dir):
         return
     try:
         r_wt = _git_run(base_dir, "rev-parse", "--is-inside-work-tree")
@@ -57,6 +74,8 @@ def _sync_upstream(base_dir: Path, commit: bool = False, no_commit: bool = False
         raise SystemExit(msg)
 
 def _git_commit_todo(base_dir: Path, commit_msg: str, quiet: bool = False) -> None:
+    if not _has_git_dir_in_ancestors(base_dir):
+        return
     try:
         r_wt = subprocess.run(
             ["git", "-C", str(base_dir), "rev-parse", "--is-inside-work-tree"],

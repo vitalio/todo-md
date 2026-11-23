@@ -170,6 +170,51 @@ class TestCommands(TodoMdTestCase):
         r_log = self._run_subprocess(["git", "log", "--oneline"], check=True)
         self.assertEqual(len(r_log.stdout.strip().splitlines()), 2)
 
+    def test_non_git_directory_skips_git_subprocess(self):
+        from unittest import mock
+
+        with mock.patch.object(self.todo_md_mod.subprocess, "run") as mock_run:
+            self._run([str(SCRIPT), "init", "Initial idea"], check=True)
+            self._run([str(SCRIPT), "add", "Task A", "-c"], check=True)
+            self._run([str(SCRIPT), "status", "F2", "WIP", "-c"], check=True)
+            self._run([str(SCRIPT), "done", "F2", "-c"], check=True)
+            self.assertEqual(mock_run.call_count, 0)
+
+        # Subdirectory inside a git worktree / submodule (.git file or ancestor .git dir) still runs git
+        git_root = self.tmp / "repo"
+        sub_dir = git_root / "nested" / "sub"
+        sub_dir.mkdir(parents=True)
+        self._run_subprocess(["git", "init"], cwd=str(git_root), check=True)
+        self._run_subprocess(["git", "config", "user.name", "Test User"], cwd=str(git_root), check=True)
+        self._run_subprocess(["git", "config", "user.email", "test@example.com"], cwd=str(git_root), check=True)
+        r_sub = self._run([str(SCRIPT), "init", "Subproject", "-c"], cwd=str(sub_dir), check=True)
+        self.assertIn("committed TODO.md, TODO_ARCHIVE.md", r_sub.stdout)
+
+        # GIT_DIR / GIT_WORK_TREE override without .git in ancestor path still invokes git
+        ext_git = self.tmp / "detached_git_dir"
+        work_tree = self.tmp / "detached_work_tree"
+        work_tree.mkdir()
+        self._run_subprocess(
+            ["git", f"--git-dir={ext_git}", f"--work-tree={work_tree}", "init"],
+            check=True,
+        )
+        self._run_subprocess(
+            ["git", f"--git-dir={ext_git}", "config", "user.name", "Test User"],
+            check=True,
+        )
+        self._run_subprocess(
+            ["git", f"--git-dir={ext_git}", "config", "user.email", "test@example.com"],
+            check=True,
+        )
+        git_env = dict(os.environ, GIT_DIR=str(ext_git), GIT_WORK_TREE=str(work_tree))
+        r_env = self._run(
+            [str(SCRIPT), "init", "Detached repo", "-c"],
+            cwd=str(work_tree),
+            env=git_env,
+            check=True,
+        )
+        self.assertIn("committed TODO.md, TODO_ARCHIVE.md", r_env.stdout)
+
     def test_upstream_sync_before_mutation(self):
         def git(cwd, *args):
             return self._run_subprocess(["git", *args], cwd=str(cwd), check=True)

@@ -1,10 +1,3 @@
-# 🎯 [NEXT] B11: Skip spawning git subprocess in _sync_upstream when no .git directory exists in ancestor path
-
-- Add a fast pure-Python helper in src/commands.py that checks whether base_dir or any of its parent directories contains a .git entry (directory or file for worktrees/submodules) before spawning git subprocesses in _sync_upstream() and _git_commit_todo(), while still honoring GIT_DIR / GIT_WORK_TREE when set in os.environ.
-- Add unit tests in tests/test_commands.py verifying that mutating commands in non-Git directories do not spawn git subprocesses while Git repositories and GIT_DIR overrides continue to sync and commit normally.
-- Rebuild ./todo and run full verification.
-- Version bump: PATCH.
-
 # 🎯 [NEXT] D3: Design explicit HOLD task review workflow and reverse dependency visibility
 
 - Specify how `HOLD` tasks expose downstream blocked dependents (`Blocks: ...` in `show` / `list HOLD`, including cross-project references under `-w`) so reviewers see what unblocks when a `HOLD` condition is met.

@@ -1,3 +1,10 @@
+# ✅ [DONE] B11: Skip spawning git subprocess in _sync_upstream when no .git directory exists in ancestor path — *2026-11-24, Skip spawning git subprocesses when no .git entry exists in ancestor path*
+
+- Add a fast pure-Python helper in src/commands.py that checks whether base_dir or any of its parent directories contains a .git entry (directory or file for worktrees/submodules) before spawning git subprocesses in _sync_upstream() and _git_commit_todo(), while still honoring GIT_DIR / GIT_WORK_TREE when set in os.environ.
+- Add unit tests in tests/test_commands.py verifying that mutating commands in non-Git directories do not spawn git subprocesses while Git repositories and GIT_DIR overrides continue to sync and commit normally.
+- Rebuild ./todo and run full verification.
+- Version bump: PATCH.
+
 # ✅ [DONE] B10: Add -q/--quiet ID-only output to todo add and avoid auto-bundle mode when piped to standard shell filters — *2026-11-23*
 
 - Add `-q` / `--quiet` (or `--id-only`) to `cmd_add` (`todo add -q ...`) so it prints only the newly assigned `<ID>\n` to `stdout`, enabling clean command-substitution capture (`new_id=$(todo add -q ...)`) in single-step batch scripts while preserving `"todo: added <ID> ([<STATUS>]) to TODO.md"` as the default human-readable output.
