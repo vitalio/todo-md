@@ -10,18 +10,21 @@ rules are loaded via `.context.bundle`.
   (`overview`, `list`, `show`, `queue`, `chain`, `done`) should immediately
   answer what is actionable now, what is locked, why it is locked, and what
   completing it unlocks next.
-- At-a-glance state & unlock visibility: distinguish ready quests (`🎯 [NEXT]`,
-  `[ready]`), locked quests (`⏳ [NEXT]`, `[blocked: ...]`), waiting conditions
-  (`⏸️ [HOLD]`), and completed quests (`✅ [DONE]`) using compact visual
-  badges, dependency chains (`->`, `├─`, `└─`), and downstream impact
-  indicators (`[unblocks N]`, `Blocks: ...`).
+- At-a-glance state & unlock visibility: distinguish ready quests (`🎯 NEXT`,
+  `🟢 ready`), locked quests (`⏳ NEXT`, `🔒 blocked by: ...`), waiting conditions
+  (`⏸️ HOLD`), and completed quests (`✅ DONE`) using compact bracket-free visual
+  badges, dependency chains (`->`, `├─`, `└─`), RPG perks (`🏁 FINAL`, `⚡ STAGE`,
+  `🔥 COMBO`), and downstream impact indicators (`🔓 unblocks: N`, `⛓️ chain: N`,
+  `🟢 ready: +M`).
 - Progressive disclosure: keep default views compact and scannable while
   letting users drill into full quest details, dependency chains (`chain`),
   and execution paths (`queue`, `--full`) on demand.
 - Default view is the Quest-Log: `todo` (also `todo -w` and `todo <project>`)
-  renders `cmd_chain()` (`<pct>% | <done>/<total> | Chain <N> -> <root_ref>: <root_title>:`) as flat
+  renders `cmd_chain()` starting with a single-line overall game progress header
+  (`<pct>% · ✅ <done>/<total> · <open> open: 🟢 <ready> ready (...) · ⏳ <blocked> blocked · ⏸️ <held> held`)
+  followed by `<pct>% · <done>/<total> · Chain <N> -> <root_ref>: <root_title>:` flat
   topological chains in execution order without row numbers; `--tree` / `-t` adds nested
-  `<pct>% | <done>/<total> | Sub-chain -> <m_ref>: <m_title>:` milestone trees with 4-char
+  `<pct>% · <done>/<total> · Sub-chain -> <m_ref>: <m_title>:` milestone trees with 4-char
   connectors (`├── `, `└── `, `└─► `, `│   `) and `--numbered[=left|right]` adds
   period-free row numbers padded to the widest number. The Markdown overview lives
   in `todo overview` (and bare `todo --full`).

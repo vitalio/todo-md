@@ -144,8 +144,8 @@ class TestDeps(TodoMdTestCase):
         self.assertLess(q1_refs.index("F1"), q1_refs.index("F3"))
         self.assertLess(q1_refs.index("F2"), q1_refs.index("F3"))
         self.assertLess(q1_refs.index("F3"), q1_refs.index("F5"))
-        self.assertIn("[ready | unblocks: 2]", q1_flat)
-        self.assertIn("[blocked by: F1, F2 | unblocks: 1]", q1_flat)
+        self.assertIn("🟢 ready · 🔓 unblocks: 2", q1_flat)
+        self.assertIn("🔒 blocked by: F1, F2 · 🔓 unblocks: 1", q1_flat)
         self.assertIn("Next actionable: F1", r_q1.stdout)
 
         r_nid1 = self._run([str(SCRIPT), "next-id", "F5"], cwd=str(proj_a), check=True)
@@ -161,7 +161,7 @@ class TestDeps(TodoMdTestCase):
 
         r_q2_all = self._run([str(SCRIPT), "queue", "F5", "--all"], cwd=str(proj_a), check=True)
         self.assertIn("F1", r_q2_all.stdout)
-        self.assertIn("✅ [DONE]", r_q2_all.stdout)
+        self.assertIn("✅ DONE", r_q2_all.stdout)
         self.assertIn("Next actionable: F3", r_q2_all.stdout)
         self.assertEqual(self._run([str(SCRIPT), "next-id", "F5"], cwd=str(proj_a), check=True).stdout.strip(), "F3")
 
@@ -191,7 +191,7 @@ class TestDeps(TodoMdTestCase):
         orch_refs = self._row_refs(r_orch_q.stdout)
         self.assertLess(orch_refs.index("proj_a:F6"), orch_refs.index("proj_b:F2"))
         self.assertLess(orch_refs.index("proj_b:F1"), orch_refs.index("proj_b:F2"))
-        self.assertIn("[blocked by: proj_a:F6, proj_b:F1 | unblocks: 1]", self._flat_text(r_orch_q.stdout))
+        self.assertIn("🔒 blocked by: proj_a:F6, proj_b:F1 · 🔓 unblocks: 1", self._flat_text(r_orch_q.stdout))
         self.assertEqual(self._run([str(SCRIPT), "next-id", "F1"], cwd=str(orch), check=True).stdout.strip(), "proj_a:F6")
         self.assertEqual(
             self._run([str(SCRIPT), "next-id", "orch:F1"], cwd=str(ws), check=True).stdout.strip(),
@@ -210,8 +210,8 @@ class TestDeps(TodoMdTestCase):
         r_q_can = self._run([str(SCRIPT), "queue", "F1"], cwd=str(orch))
         self.assertEqual(r_q_can.returncode, 1, msg=r_q_can.stderr)
         self.assertIn("unresolved blocker", r_q_can.stderr)
-        self.assertIn("[CANCELED]", r_q_can.stdout)
-        self.assertIn("[blocked by: proj_b:F2]", self._flat_text(r_q_can.stdout))
+        self.assertIn("❌ CANCELED", r_q_can.stdout)
+        self.assertIn("🔒 blocked by: proj_b:F2", self._flat_text(r_q_can.stdout))
         self.assertIn("Next actionable: none", r_q_can.stdout)
         r_nid_can = self._run([str(SCRIPT), "next-id", "F1"], cwd=str(orch))
         self.assertNotEqual(r_nid_can.returncode, 0, msg=r_nid_can.stderr)
@@ -342,12 +342,12 @@ class TestDeps(TodoMdTestCase):
             for line in r_list.stdout.splitlines()
             if line.startswith("  ")
         }
-        self.assertIn("🎯 [NEXT]", rows["F4"])
-        self.assertIn("🎯 [NEXT]", rows["F1"])
-        self.assertIn("⏳ [NEXT]", rows["F2"])
+        self.assertIn("🎯 NEXT", rows["F4"])
+        self.assertIn("🎯 NEXT", rows["F1"])
+        self.assertIn("⏳ NEXT", rows["F2"])
         self.assertIn("[blocked: F1 (NEXT)]", rows["F2"])
         self.assertNotIn("->", rows["F2"])
-        self.assertIn("⏳ [NEXT]", rows["F3"])
+        self.assertIn("⏳ NEXT", rows["F3"])
         self.assertIn("[blocked: F1 (NEXT) -> F2 (NEXT)]", rows["F3"])
         self.assertLess(r_list.stdout.index("F4"), r_list.stdout.index("F2"))
         self.assertLess(r_list.stdout.index("F1"), r_list.stdout.index("F2"))
@@ -357,7 +357,7 @@ class TestDeps(TodoMdTestCase):
         self._run([str(SCRIPT), "add", "Stage task", "--next", "--depends", "F1 -> F2"], cwd=str(proj_a), check=True)
         r_list_stage = self._run([str(SCRIPT), "list", "NEXT"], cwd=str(proj_a), check=True)
         stage_line = next(l for l in r_list_stage.stdout.splitlines() if l.strip().startswith("F5"))
-        self.assertIn("⏳ [NEXT]", stage_line)
+        self.assertIn("⏳ NEXT", stage_line)
         self.assertIn("[blocked: F1 (NEXT) -> F2 (NEXT)]", stage_line)
 
         # --ready filters local list to active tasks without unresolved deps
@@ -378,11 +378,11 @@ class TestDeps(TodoMdTestCase):
         )
         r_ws = self._run([str(SCRIPT), "list", "-w"], cwd=str(proj_a), check=True)
         ws_rows = self._table_rows(r_ws.stdout)
-        self.assertIn("⏳ [NEXT]", ws_rows["proj_a:F3"])
+        self.assertIn("⏳ NEXT", ws_rows["proj_a:F3"])
         self.assertIn("[blocked: F1 (NEXT) -> F2 (NEXT)]", ws_rows["proj_a:F3"])
-        self.assertIn("⏳ [NEXT]", ws_rows["proj_b:F2"])
+        self.assertIn("⏳ NEXT", ws_rows["proj_b:F2"])
         self.assertIn("[blocked: proj_a:F1 (NEXT) -> proj_a:F2 (NEXT) -> proj_a:F3 (NEXT)]", ws_rows["proj_b:F2"])
-        self.assertIn("🎯 [NEXT]", ws_rows["proj_b:F1"])
+        self.assertIn("🎯 NEXT", ws_rows["proj_b:F1"])
 
         r_ws_ready = self._run([str(SCRIPT), "-w", "list", "NEXT", "--ready"], cwd=str(proj_a), check=True)
         self.assertIn("proj_a:F1", r_ws_ready.stdout)
@@ -395,9 +395,9 @@ class TestDeps(TodoMdTestCase):
         self._run([str(SCRIPT), "done", "F1", "-m", "d1"], cwd=str(proj_a), check=True)
         r_after_done = self._run([str(SCRIPT), "list", "-w"], cwd=str(proj_a), check=True)
         ws_after = self._table_rows(r_after_done.stdout)
-        self.assertIn("🎯 [NEXT]", ws_after["proj_a:F2"])
+        self.assertIn("🎯 NEXT", ws_after["proj_a:F2"])
         self.assertIn("[deps: DONE]", ws_after["proj_a:F2"])
-        self.assertIn("⏳ [NEXT]", ws_after["proj_a:F3"])
+        self.assertIn("⏳ NEXT", ws_after["proj_a:F3"])
         self.assertIn("[blocked: F2 (NEXT)]", ws_after["proj_a:F3"])
         self.assertNotIn("<- start:", ws_after["proj_a:F3"])
 
@@ -417,7 +417,7 @@ class TestDeps(TodoMdTestCase):
         r_cyc_list = self._run([str(SCRIPT), "list"], cwd=str(cyc), check=True)
         self.assertLess(r_cyc_list.stdout.index("F3"), r_cyc_list.stdout.index("F1"))
         self.assertLess(r_cyc_list.stdout.index("F1"), r_cyc_list.stdout.index("F2"))
-        self.assertIn("⏳ [NEXT]", r_cyc_list.stdout)
+        self.assertIn("⏳ NEXT", r_cyc_list.stdout)
 
         # Blocked WIP badge (⏳ [WIP]) and full mixed-status unblock chain in local and workspace list
         wip_ws = ws / "wip_chain_ws"
@@ -431,20 +431,20 @@ class TestDeps(TodoMdTestCase):
 
         r_wip_local = self._run([str(SCRIPT), "list"], cwd=str(wip_proj), check=True)
         wip_rows = self._table_rows(r_wip_local.stdout)
-        self.assertIn("🔵 [WIP]", wip_rows["F1"])
-        self.assertIn("⏳ [WIP]", wip_rows["F3"])
+        self.assertIn("🔵 WIP", wip_rows["F1"])
+        self.assertIn("⏳ WIP", wip_rows["F3"])
         self.assertIn("[blocked: F1 (WIP) -> F2 (NEXT)]", wip_rows["F3"])
-        self.assertIn("⏳ [NEXT]", wip_rows["F2"])
+        self.assertIn("⏳ NEXT", wip_rows["F2"])
         self.assertIn("[blocked: F1 (WIP)]", wip_rows["F2"])
-        self.assertIn("⏳ [NEXT]", wip_rows["F4"])
+        self.assertIn("⏳ NEXT", wip_rows["F4"])
         self.assertIn("[blocked: F1 (WIP) -> F2 (NEXT) -> F3 (WIP)]", wip_rows["F4"])
 
         r_wip_ws = self._run([str(SCRIPT), "list", "-w"], cwd=str(wip_ws), check=True)
         wip_ws_rows = self._table_rows(r_wip_ws.stdout)
-        self.assertIn("🔵 [WIP]", wip_ws_rows["alpha:F1"])
-        self.assertIn("⏳ [WIP]", wip_ws_rows["alpha:F3"])
+        self.assertIn("🔵 WIP", wip_ws_rows["alpha:F1"])
+        self.assertIn("⏳ WIP", wip_ws_rows["alpha:F3"])
         self.assertIn("[blocked: F1 (WIP) -> F2 (NEXT)]", wip_ws_rows["alpha:F3"])
-        self.assertIn("⏳ [NEXT]", wip_ws_rows["alpha:F4"])
+        self.assertIn("⏳ NEXT", wip_ws_rows["alpha:F4"])
         self.assertIn("[blocked: F1 (WIP) -> F2 (NEXT) -> F3 (WIP)]", wip_ws_rows["alpha:F4"])
 
     def test_done_prints_newly_unblocked_local_and_orchestrator_tasks(self):

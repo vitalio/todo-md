@@ -174,65 +174,63 @@ def cmd_chain(
         blockers = [str(nodes[p]["ref"]) for p in prereqs.get(u, []) if str(nodes[p]["status"]) != "DONE"]
         impact = active_unblocks.get(u, 0)
         done_c = done_counts.get(u, len(done_nodes.get(u, set())))
+        tag_parts: list[str] = []
         if st == "MISSING":
-            badge = "[MISSING]"
-            status_tag = f"[blocked | unblocks: {impact}]" if impact > 0 else "[blocked]"
+            badge = "⚠️ MISSING"
+            tag_parts.append("🔒 blocked")
+            if impact > 0:
+                tag_parts.append(f"🔓 unblocks: {impact}")
         elif st == "CANCELED":
-            badge = f"{nd['emoji']} [CANCELED]"
+            badge = f"{nd['emoji']} CANCELED"
             if u in active_set:
-                status_tag = f"[blocked | unblocks: {impact}]" if impact > 0 else "[blocked]"
-            else:
-                status_tag = ""
+                tag_parts.append("🔒 blocked")
+                if impact > 0:
+                    tag_parts.append(f"🔓 unblocks: {impact}")
         elif st == "DONE":
-            badge = f"{nd['emoji']} [DONE]"
-            status_tag = ""
+            badge = f"{nd['emoji']} DONE"
         else:
             emoji = "⏳" if (st in ("WIP", "NEXT") and blockers) else str(nd["emoji"])
-            badge = f"{emoji} [{st}]"
+            badge = f"{emoji} {st}"
             if blockers:
+                tag_parts.append(f"🔒 blocked by: {', '.join(blockers)}")
                 if impact > 0:
-                    status_tag = f"[blocked by: {', '.join(blockers)} | unblocks: {impact}]"
-                else:
-                    status_tag = f"[blocked by: {', '.join(blockers)}]"
+                    tag_parts.append(f"🔓 unblocks: {impact}")
             else:
-                perks: list[str] = []
                 if not show_downstream:
-                    perks.append("ready")
+                    tag_parts.append("🟢 ready")
                 if done_c > 0 and impact == 0:
-                    perks.append("FINAL")
+                    tag_parts.append("🏁 FINAL")
                 elif done_c > 0 and impact > 0:
-                    perks.append("STAGE")
+                    tag_parts.append("⚡ STAGE")
                 if is_momentum_next.get(u, 1) == 0:
-                    perks.append("COMBO")
-                kv_stats: list[str] = []
+                    tag_parts.append("🔥 COMBO")
                 if show_downstream:
                     n_chains = chain_counts.get(u, 0)
                     if n_chains > 1:
-                        kv_stats.append(f"chain: {n_chains}")
+                        tag_parts.append(f"⛓️ chain: {n_chains}")
                     if impact > 0:
                         imm_count = len(immediate_ready_targets.get(u, []))
                         if imm_count > 0:
-                            kv_stats.append(f"ready: +{imm_count}")
-                        kv_stats.append(f"unblocks: {impact}")
+                            tag_parts.append(f"🟢 ready: +{imm_count}")
+                        tag_parts.append(f"🔓 unblocks: {impact}")
                 else:
                     if impact > 0:
-                        kv_stats.append(f"unblocks: {impact}")
-                tag_parts = list(perks)
-                if kv_stats:
-                    tag_parts.append(", ".join(kv_stats))
-                status_tag = f"[{' | '.join(tag_parts)}]" if tag_parts else ""
+                        tag_parts.append(f"🔓 unblocks: {impact}")
         if also_in_refs:
-            also_tag = f"[also in: {', '.join(also_in_refs)}]"
-            status_tag = f"{status_tag} {also_tag}" if status_tag else also_tag
+            tag_parts.append(f"🔗 also in: {', '.join(also_in_refs)}")
+        status_tag = " · ".join(tag_parts)
         lead_cell = _lead_cell(tree_prefix, idx, ref)
         row_prefix = (
             f"  {_pad_display(lead_cell, lead_col_width)}  "
             f"{_pad_display(badge, 14)}  "
         )
-        desc = f"{title}  {status_tag}" if status_tag else title
+        desc = f"{title}  · {status_tag}" if status_tag else title
         rendered = _wrap_table_row(row_prefix, desc, term_width, cont_prefix=cont_prefix) + "\n"
-        return _style_task_row(
+        return _style_chain_task_row(
             rendered,
+            row_prefix=row_prefix,
+            title=title,
+            has_tags=bool(status_tag),
             is_external=not _is_target_node(u),
             is_done=(st == "DONE"),
             is_highlighted=_is_highlighted_node(u),
@@ -275,6 +273,58 @@ def cmd_chain(
 
     def _filter_note() -> str:
         return f" matching prefix={wanted_prefix}" if wanted_prefix is not None else ""
+
+    scope_done_tasks: list[dict[str, object]] = dag.get("scope_done_tasks", [])  # type: ignore[assignment]
+    if wanted_prefix is not None:
+        overall_done = sum(1 for t in scope_done_tasks if _task_matches_prefix(t, wanted_prefix))
+    else:
+        overall_done = len(scope_done_tasks)
+
+    scope_active_nodes = [
+        u
+        for u in topo_order
+        if _is_target_node(u)
+        and bool(nodes[u].get("exists"))
+        and nodes[u].get("file") == "TODO.md"
+        and str(nodes[u]["status"]) in ACTIVE_STATUS_ORDER
+        and _matches_prefix(u)
+    ]
+    overall_open_nodes = [u for u in scope_active_nodes if u not in excluded_hold]
+    overall_held = sum(1 for u in scope_active_nodes if u in excluded_hold)
+    overall_ready_nodes = [
+        u
+        for u in overall_open_nodes
+        if _is_ready_in_dag(nodes, prereqs, u, include_hold=include_hold)
+    ]
+    overall_ready = len(overall_ready_nodes)
+    overall_open = len(overall_open_nodes)
+    overall_blocked = overall_open - overall_ready
+    overall_total = overall_done + overall_open
+    overall_pct = round(100 * overall_done / overall_total) if overall_total > 0 else 0
+
+    ready_by_status: dict[str, int] = {}
+    for u in overall_ready_nodes:
+        st_u = str(nodes[u]["status"])
+        ready_by_status[st_u] = ready_by_status.get(st_u, 0) + 1
+    ready_breakdown = [
+        f"{ready_by_status[st_k]} {VALID_STATUSES[st_k]} {st_k}"
+        for st_k in ACTIVE_STATUS_ORDER
+        if ready_by_status.get(st_k, 0) > 0
+    ]
+    if ready_breakdown:
+        ready_summary = f"🟢 {overall_ready} ready ({', '.join(ready_breakdown)})"
+    else:
+        ready_summary = f"🟢 {overall_ready} ready"
+    open_summary_parts = [ready_summary]
+    if overall_blocked > 0:
+        open_summary_parts.append(f"⏳ {overall_blocked} blocked")
+    if overall_held > 0:
+        open_summary_parts.append(f"⏸️ {overall_held} held")
+    overall_header_plain = (
+        f"{overall_pct}% · ✅ {overall_done}/{overall_total} · "
+        f"{overall_open} open: {' · '.join(open_summary_parts)}"
+    )
+    sys.stdout.write(_style_overall_progress_header(overall_header_plain, use_color=use_color) + "\n\n")
 
     if ready:
         ready_tasks: list[tuple[Path, str]] = plan["ready_tasks"]  # type: ignore[assignment]
@@ -488,10 +538,10 @@ def cmd_chain(
                 )
                 chain_highlighted = any(_is_highlighted_node(u) for u in chain_nodes)
                 total_c = done_c + open_c
-                chain_stat_tag = f"{pct}% | {done_c}/{total_c} |"
+                chain_stat_tag = f"{pct}% · {done_c}/{total_c} ·"
                 header_line = f"{chain_stat_tag} Chain {chain_idx} -> {root_ref}: {root_title}:\n"
                 sys.stdout.write(
-                    _style_task_row(
+                    _style_chain_header_line(
                         header_line,
                         is_highlighted=chain_highlighted,
                         use_color=use_color,
@@ -566,9 +616,9 @@ def cmd_chain(
                             )
                             sub_cont_prefix = f"  {sub_cont_bars}" if sub_cont_bars.strip() else "    "
                             m_total = m_done + m_open
-                            sub_stat_tag = f"{m_pct}% | {m_done}/{m_total} |"
+                            sub_stat_tag = f"{m_pct}% · {m_done}/{m_total} ·"
                             if collapsed_done:
-                                sub_desc = f"{sub_stat_tag} Sub-chain -> {m_ref}: {m_title} (✅ [DONE] — see above)"
+                                sub_desc = f"{sub_stat_tag} Sub-chain -> {m_ref}: {m_title} (✅ DONE — see above)"
                             else:
                                 sub_desc = f"{sub_stat_tag} Sub-chain -> {m_ref}: {m_title}:"
                             sub_hdr = (
@@ -581,7 +631,7 @@ def cmd_chain(
                                 + "\n"
                             )
                             sys.stdout.write(
-                                _style_task_row(
+                                _style_chain_header_line(
                                     sub_hdr,
                                     is_external=not _is_target_node(m_node),
                                     is_done=(str(nodes[m_node]["status"]) == "DONE"),

@@ -229,9 +229,9 @@ HELP_QUEST_OPTIONS: tuple[tuple[str, str], ...] = (
      "keyword)"),
     ("-r, --ready",
      "Show only ready tasks ranked by bugfix prefix, status tier, Quest Momentum, best chain "
-     "rank, chain count, done count, and ready unlocks (rows show [FINAL | STAGE | COMBO | "
-     "chain: N, ready: +M, unblocks: K], with chain only when N > 1 and ready only when "
-     "M > 0); also accepted by list"),
+     "rank, chain count, done count, and ready unlocks (rows show 🏁 FINAL · ⚡ STAGE · "
+     "🔥 COMBO · ⛓️ chain: N · 🟢 ready: +M · 🔓 unblocks: K, with chain only when N > 1 and "
+     "ready only when M > 0); also accepted by list"),
     ("--prefix PREFIX", "Show only tasks matching single-letter ID prefix PREFIX (A-Z)"),
     ("--include-hold", "Include HOLD tasks and branches blocked by HOLD"),
     ("--status STATUS",

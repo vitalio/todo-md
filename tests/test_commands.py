@@ -638,7 +638,7 @@ class TestCommands(TodoMdTestCase):
             check=True,
         )
         self.assertEqual(len(r_ws_lim.stdout.strip().splitlines()), 1)
-        self.assertIn("[NEXT]", r_ws_lim.stdout)
+        self.assertIn("🎯 NEXT", r_ws_lim.stdout)
 
         r_ws_none = self._run([str(SCRIPT), "list", "-w", "--prefix", "Z"], cwd=str(proj_a), check=True)
         self.assertIn("No matching tasks (active, prefix=Z)", r_ws_none.stdout)

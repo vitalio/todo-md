@@ -152,7 +152,7 @@ def cmd_summary(base_dir: Path, full: bool = False) -> int:
         sys.stdout.write("*(No open tasks in TODO.md)*\n\n")
     sys.stdout.write("---\n")
     sys.stdout.write(f"IDs in use: {format_ids_summary(top)}\n")
-    sys.stdout.write(f"Open in TODO.md: {len(active_tasks)} task(s) | Archived in TODO_ARCHIVE.md: {len(arch_tasks)} task(s)\n")
+    sys.stdout.write(f"Open in TODO.md: {len(active_tasks)} task(s) · Archived in TODO_ARCHIVE.md: {len(arch_tasks)} task(s)\n")
     return 0
 
 def cmd_ids(base_dir: Path) -> int:
@@ -231,7 +231,7 @@ def _get_terminal_columns(fallback: int = DEFAULT_TERMINAL_WIDTH) -> int:
 def _char_display_width(ch: str) -> int:
     if unicodedata.category(ch) in ("Mn", "Me", "Cf"):
         return 0
-    if ch == "\u23f8" or ord(ch) >= 0x1F300 or unicodedata.east_asian_width(ch) in ("W", "F"):
+    if ch in ("\u23f8", "\u26a0", "\u26d3") or ord(ch) >= 0x1F300 or unicodedata.east_asian_width(ch) in ("W", "F"):
         return 2
     return 1
 
@@ -274,6 +274,192 @@ def _style_ansi_lines(text: str, sgr_open: str) -> str:
     raw = text[:-1] if has_nl else text
     styled = "\n".join(f"{sgr_open}{line}{ANSI_RESET}" if line else line for line in raw.split("\n"))
     return f"{styled}\n" if has_nl else styled
+
+ANSI_SEP_SGR = "2;90"
+ANSI_PCT_SGR = "1;36"
+ANSI_PCT_DONE_SGR = "1;32"
+ANSI_STAT_FRAC_SGR = "32"
+ANSI_STAT_ZERO_SGR = "2;90"
+ANSI_OPEN_LABEL_SGR = "1"
+ANSI_READY_SGR = "32"
+ANSI_BLOCKED_SGR = "33"
+ANSI_HELD_SGR = "90"
+ANSI_PERK_FINAL_SGR = "1;35"
+ANSI_PERK_STAGE_SGR = "1;36"
+ANSI_PERK_COMBO_SGR = "1;91"
+ANSI_CHAIN_STAT_SGR = "36"
+ANSI_UNBLOCKS_SGR = "36"
+ANSI_ALSO_IN_SGR = "2"
+
+STATUS_BADGE_SGR: dict[str, str] = {
+    "WIP": "1;34",
+    "NEXT": "36",
+    "QUESTION": "35",
+    "NEW": "37",
+    "HOLD": "90",
+}
+
+_CHAIN_HEADER_STAT_RE = re.compile(r"^(\s*(?:(?:│   |    )*[├└]── )?)(\d+%)( · )(\d+/\d+)( · )(.*)$")
+_OVERALL_STATUS_ITEM_RE = re.compile(r"(\d+\s+\S+\s+)(WIP|NEXT|QUESTION|NEW|HOLD)\b")
+_ROW_TAG_TOKEN_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"🏁 FINAL\b"), ANSI_PERK_FINAL_SGR),
+    (re.compile(r"⚡ STAGE\b"), ANSI_PERK_STAGE_SGR),
+    (re.compile(r"🔥 COMBO\b"), ANSI_PERK_COMBO_SGR),
+    (re.compile(r"🟢 ready: \+\d+"), ANSI_READY_SGR),
+    (re.compile(r"🟢 ready\b"), ANSI_READY_SGR),
+    (re.compile(r"⛓️ chain: \d+"), ANSI_CHAIN_STAT_SGR),
+    (re.compile(r"🔓 unblocks: \d+"), ANSI_UNBLOCKS_SGR),
+    (re.compile(r"🔒 blocked(?: by: [^\n·]+)?"), ANSI_BLOCKED_SGR),
+    (re.compile(r"🔗 also in: [^\n·]+"), ANSI_ALSO_IN_SGR),
+    (re.compile(r"(?<!\S)·(?!\S)"), ANSI_SEP_SGR),
+)
+
+def _sgr_wrap(token: str, sgr: str, base_sgr: str = "") -> str:
+    combined = f"{base_sgr};{sgr}" if base_sgr else sgr
+    restore = f"{ANSI_RESET}\033[{base_sgr}m" if base_sgr else ANSI_RESET
+    return f"\033[{combined}m{token}{restore}"
+
+def _style_overall_progress_header(
+    line: str,
+    use_color: bool | None = None,
+) -> str:
+    active_color = _use_ansi_color() if use_color is None else use_color
+    if not active_color:
+        return line
+    styled = line
+    styled = re.sub(
+        r"^(\d+%)",
+        lambda m: _sgr_wrap(m.group(1), ANSI_PCT_DONE_SGR if m.group(1) == "100%" else ANSI_PCT_SGR),
+        styled,
+        count=1,
+    )
+    styled = re.sub(
+        r"✅ (\d+)/(\d+)",
+        lambda m: _sgr_wrap(
+            m.group(0),
+            ANSI_STAT_FRAC_SGR if int(m.group(1)) > 0 else ANSI_STAT_ZERO_SGR,
+        ),
+        styled,
+        count=1,
+    )
+    styled = re.sub(
+        r"\b(\d+ open:)",
+        lambda m: _sgr_wrap(m.group(1), ANSI_OPEN_LABEL_SGR),
+        styled,
+        count=1,
+    )
+    styled = re.sub(
+        r"🟢 \d+ ready",
+        lambda m: _sgr_wrap(m.group(0), ANSI_READY_SGR),
+        styled,
+        count=1,
+    )
+    styled = _OVERALL_STATUS_ITEM_RE.sub(
+        lambda m: _sgr_wrap(m.group(0), STATUS_BADGE_SGR.get(m.group(2), "1")),
+        styled,
+    )
+    styled = re.sub(
+        r"⏳ \d+ blocked",
+        lambda m: _sgr_wrap(m.group(0), ANSI_BLOCKED_SGR),
+        styled,
+        count=1,
+    )
+    styled = re.sub(
+        r"⏸️ \d+ held",
+        lambda m: _sgr_wrap(m.group(0), ANSI_HELD_SGR),
+        styled,
+        count=1,
+    )
+    styled = re.sub(
+        r"(?<!\S)·(?!\S)",
+        lambda m: _sgr_wrap(m.group(0), ANSI_SEP_SGR),
+        styled,
+    )
+    return styled
+
+def _style_chain_header_line(
+    text: str,
+    is_external: bool = False,
+    is_done: bool = False,
+    is_highlighted: bool = False,
+    use_color: bool | None = None,
+) -> str:
+    active_color = _use_ansi_color() if use_color is None else use_color
+    if not active_color:
+        return text
+    if is_highlighted or is_done:
+        return _style_task_row(
+            text,
+            is_external=is_external,
+            is_done=is_done,
+            is_highlighted=is_highlighted,
+            use_color=active_color,
+        )
+    base_sgr = "2;3" if is_external else ""
+    has_nl = text.endswith("\n")
+    raw = text[:-1] if has_nl else text
+    lines = raw.split("\n")
+    m = _CHAIN_HEADER_STAT_RE.match(lines[0]) if lines else None
+    if m is not None:
+        lead, pct_str, sep1, frac_str, sep2, rest = m.groups()
+        done_num = int(frac_str.split("/", 1)[0])
+        pct_sgr = ANSI_PCT_DONE_SGR if pct_str == "100%" else ANSI_PCT_SGR
+        frac_sgr = ANSI_STAT_FRAC_SGR if done_num > 0 else ANSI_STAT_ZERO_SGR
+        lines[0] = (
+            f"{lead}"
+            f"{_sgr_wrap(pct_str, pct_sgr, base_sgr)}"
+            f" {_sgr_wrap('·', ANSI_SEP_SGR, base_sgr)} "
+            f"{_sgr_wrap(frac_str, frac_sgr, base_sgr)}"
+            f" {_sgr_wrap('·', ANSI_SEP_SGR, base_sgr)} "
+            f"{rest}"
+        )
+    joined = "\n".join(lines)
+    if base_sgr:
+        joined = _style_ansi_lines(joined, f"\033[{base_sgr}m")
+    return f"{joined}\n" if has_nl else joined
+
+def _style_tag_suffix_line(line: str, base_sgr: str = "") -> str:
+    out = line
+    for pat, sgr in _ROW_TAG_TOKEN_PATTERNS:
+        out = pat.sub(lambda m, _sgr=sgr: _sgr_wrap(m.group(0), _sgr, base_sgr), out)
+    return out
+
+def _style_chain_task_row(
+    rendered: str,
+    row_prefix: str,
+    title: str,
+    has_tags: bool,
+    is_external: bool = False,
+    is_done: bool = False,
+    is_highlighted: bool = False,
+    use_color: bool | None = None,
+) -> str:
+    active_color = _use_ansi_color() if use_color is None else use_color
+    if not active_color:
+        return rendered
+    if is_highlighted or is_done or not has_tags:
+        return _style_task_row(
+            rendered,
+            is_external=is_external,
+            is_done=is_done,
+            is_highlighted=is_highlighted,
+            use_color=active_color,
+        )
+    base_sgr = "2;3" if is_external else ""
+    pos = len(row_prefix)
+    for word in title.split():
+        found = rendered.find(word, pos)
+        if found == -1:
+            break
+        pos = found + len(word)
+    head_part = rendered[:pos]
+    tail_part = rendered[pos:]
+    tail_lines = tail_part.split("\n")
+    styled_tail_lines = [_style_tag_suffix_line(tl, base_sgr=base_sgr) for tl in tail_lines]
+    combined = head_part + "\n".join(styled_tail_lines)
+    if base_sgr:
+        return _style_ansi_lines(combined, f"\033[{base_sgr}m")
+    return combined
 
 def _style_task_row(
     text: str,
@@ -536,7 +722,7 @@ def cmd_list(
             st_str = str(t["status"])
             tid_up = str(t["id"]).upper()
             emoji = "⏳" if (st_str in ("WIP", "NEXT") and is_blocked) else str(t["emoji"])
-            badge = f"{emoji} [{st_str}]"
+            badge = f"{emoji} {st_str}"
             loc = str(t["file"])
             row_prefix = (
                 f"  {_pad_display(str(t['id']), 6)}  "
@@ -618,7 +804,7 @@ def cmd_workspace_summary(workspace_root: Path, full: bool = False) -> int:
     else:
         sys.stdout.write("*(No open tasks across workspace projects)*\n\n")
     sys.stdout.write("---\n")
-    sys.stdout.write(f"Workspace: {workspace_root} | Projects: {len(projects)} | Open tasks: {total_open}\n")
+    sys.stdout.write(f"Workspace: {workspace_root} · Projects: {len(projects)} · Open tasks: {total_open}\n")
     if empty_projects:
         sys.stdout.write(f"No open tasks: {', '.join(empty_projects)}\n")
     return 0
@@ -754,7 +940,7 @@ def cmd_workspace_list(
         tid_up = str(t["id"]).upper()
         ref = f"{name}:{t['id']}"
         emoji = "⏳" if (st_str in ("WIP", "NEXT") and is_blocked) else str(t["emoji"])
-        badge = f"{emoji} [{st_str}]"
+        badge = f"{emoji} {st_str}"
         row_prefix = (
             f"  {_pad_display(ref, 28)}  "
             f"{_pad_display(badge, 14)}  "

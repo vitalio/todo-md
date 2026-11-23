@@ -805,6 +805,22 @@ def build_execution_chain_dag(
         max(top_done_candidates)[2] if top_done_candidates else None
     )
 
+    scope_done_tasks: list[dict[str, object]] = []
+    seen_scope_done: set[tuple[Path, str]] = set()
+    for p_res in scope_dirs:
+        if p_res is None:
+            continue
+        arch_path = p_res / "TODO_ARCHIVE.md"
+        if not arch_path.is_file():
+            continue
+        for t in parse_tasks_in_text(read_if_exists(arch_path), "TODO_ARCHIVE.md"):
+            if str(t["status"]) != "DONE":
+                continue
+            d_key = (p_res.resolve(), str(t["id"]).upper())
+            if d_key not in seen_scope_done:
+                seen_scope_done.add(d_key)
+                scope_done_tasks.append(t)
+
     archived_tasks: list[tuple[Path, str]] = []
     if include_done:
         seen_arch: set[tuple[Path, str]] = set()
@@ -844,6 +860,7 @@ def build_execution_chain_dag(
         "is_orchestrator": is_orch,
         "target_project": target_project,
         "latest_done_task": latest_done_task,
+        "scope_done_tasks": scope_done_tasks,
         "include_done": include_done,
     }
 

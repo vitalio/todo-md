@@ -484,7 +484,7 @@ class TestParser(TodoMdTestCase):
             l for l in r_very_narrow.stdout.splitlines() if l.startswith("  ") and not l.strip().startswith("IDs")
         ]
         self.assertGreaterEqual(len(vn_lines), 2)
-        self.assertEqual(vn_lines[0].strip(), "F1      🔵 [WIP]        TODO.md")
+        self.assertEqual(vn_lines[0].strip(), "F1      🔵 WIP          TODO.md")
         for cl in vn_lines[1:]:
             self.assertEqual(len(cl) - len(cl.lstrip(" ")), 4)
             self.assertLessEqual(disp_w(cl), 42, msg=f"very narrow line overflowed 42 cols: {cl!r}")
@@ -610,7 +610,7 @@ class TestParser(TodoMdTestCase):
         # Enclosing Chain 1 (finale F1) and Chain 2 (containing todo_flow:D1) headers are highlighted
         self.assertTrue(
             any(
-                ln.startswith("\033[1;93m50% | 1/2 | Chain 1 -> F1: RB finale task:")
+                ln.startswith("\033[1;93m50% · 1/2 · Chain 1 -> F1: RB finale task:")
                 and ln.endswith("\033[0m")
                 for ln in lines_hl
             ),
@@ -618,7 +618,7 @@ class TestParser(TodoMdTestCase):
         )
         self.assertTrue(
             any(
-                ln.startswith("\033[1;93m0% | 0/3 | Chain 2 -> todo_flow:F1: Flow goal:")
+                ln.startswith("\033[1;93m0% · 0/3 · Chain 2 -> todo_flow:F1: Flow goal:")
                 and ln.endswith("\033[0m")
                 for ln in lines_hl
             ),
@@ -671,11 +671,11 @@ class TestParser(TodoMdTestCase):
             check=True,
         )
         self.assertTrue(
-            any(ln.startswith("50% | 1/2 | Chain 1 -> F1: RB finale task:") for ln in r_hl_only_f3.stdout.splitlines()),
+            any(not ln.startswith("\033[1;93m") and mod._strip_ansi(ln).startswith("50% · 1/2 · Chain 1 -> F1: RB finale task:") for ln in r_hl_only_f3.stdout.splitlines()),
             msg=r_hl_only_f3.stdout,
         )
         self.assertTrue(
-            any(ln.startswith("0% | 0/3 | Chain 2 -> todo_flow:F1: Flow goal:") for ln in r_hl_only_f3.stdout.splitlines()),
+            any(not ln.startswith("\033[1;93m") and mod._strip_ansi(ln).startswith("0% · 0/3 · Chain 2 -> todo_flow:F1: Flow goal:") for ln in r_hl_only_f3.stdout.splitlines()),
             msg=r_hl_only_f3.stdout,
         )
         self.assertTrue(
@@ -721,10 +721,10 @@ class TestParser(TodoMdTestCase):
             check=True,
         )
         all_lines = r_list_all.stdout.splitlines()
-        self.assertTrue(any(ln.startswith("\033[2;90m") and "  D1 " in ln and "✅ [DONE]" in ln for ln in all_lines), msg=r_list_all.stdout)
+        self.assertTrue(any(ln.startswith("\033[2;90m") and "  D1 " in ln and "✅ DONE" in ln for ln in all_lines), msg=r_list_all.stdout)
         self.assertTrue(any(ln.startswith("\033[1;93m") and "  F2 " in ln for ln in all_lines), msg=r_list_all.stdout)
         self.assertTrue(
-            any(ln.startswith("  ") and not ln.startswith("\033[") and "  F5 " in ln and "❌ [CANCELED]" in ln for ln in all_lines),
+            any(ln.startswith("  ") and not ln.startswith("\033[") and "  F5 " in ln and "❌ CANCELED" in ln for ln in all_lines),
             msg=r_list_all.stdout,
         )
 
@@ -738,7 +738,7 @@ class TestParser(TodoMdTestCase):
         )
         arch_lines = r_list_arch_hl.stdout.splitlines()
         self.assertTrue(
-            any(ln.startswith("\033[1;93m") and "  D1 " in ln and "✅ [DONE]" in ln for ln in arch_lines),
+            any(ln.startswith("\033[1;93m") and "  D1 " in ln and "✅ DONE" in ln for ln in arch_lines),
             msg=r_list_arch_hl.stdout,
         )
 
@@ -751,7 +751,7 @@ class TestParser(TodoMdTestCase):
         )
         ws_lines = r_ws_list.stdout.splitlines()
         self.assertTrue(
-            any(ln.startswith("\033[1;93m") and "run_block:D1 " in ln and "✅ [DONE]" in ln for ln in ws_lines),
+            any(ln.startswith("\033[1;93m") and "run_block:D1 " in ln and "✅ DONE" in ln for ln in ws_lines),
             msg=r_ws_list.stdout,
         )
         self.assertTrue(

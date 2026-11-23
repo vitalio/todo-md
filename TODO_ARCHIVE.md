@@ -1,3 +1,22 @@
+# ✅ [DONE] F84: Add overall Quest-Log progress header and format task badges, perks, and tags with icons, '·' separators, and ANSI palette without brackets — *2026-11-23*
+
+- Depends on: F59 -> F60 -> F61 -> B6 -> F72 -> F83 -> D5
+- Render a single-line overall game progress header at the top of `cmd_chain()` (`src/render_chain.py`) followed by a blank line before the first section (`Chain 1`, `Standalone tasks:`, or `Ready tasks:`):
+  - Format: `<pct>% · ✅ <done>/<total> · <open> open: 🟢 <ready> ready (<count> <emoji> <STATUS>, ...) · ⏳ <blocked> blocked · ⏸️ <held> held`.
+  - Compute `<done>` from all `DONE` tasks in `TODO_ARCHIVE.md` and `<open>` from active tasks in `TODO.md` (excluding `CANCELED` tasks and excluding `HOLD` tasks unless `--include-hold` is passed) across the active view scope (`target_project` in single-project views or all scoped projects in orchestrator / `-w` views, filtered by `--prefix <P>` when set), with `<total> = <done> + <open>` and `<pct> = round(100 * <done> / <total>)` (`0` when `<total> == 0`).
+  - Inside `🟢 <ready> ready (...)`, list non-zero ready task counts by status in `ACTIVE_STATUS_ORDER` (`1 🔵 WIP, 6 🎯 NEXT, 6 ⚪ NEW`; omit the parenthesized breakdown when `<ready> == 0`). Omit `· ⏳ <blocked> blocked` when `<blocked> == 0` and omit `· ⏸️ <held> held` when `<held> == 0`.
+- Replace `|` separators with `·` across `todo` human-readable output:
+  - Chain and sub-chain headers in `src/render_chain.py`: `<pct>% · <done>/<total> · Chain <N> -> <root_ref>: <root_title>:` and `<m_pct>% · <m_done>/<m_total> · Sub-chain -> <m_ref>: <m_title>:`.
+  - Overview summary lines in `src/render.py`: `Open in TODO.md: <N> task(s) · Archived in TODO_ARCHIVE.md: <M> task(s)` and `Workspace: <root> · Projects: <P> · Open tasks: <N>`.
+- Render status badges and row tags without square brackets `[...]`, using icons on every tag element separated by ` · `:
+  - Format status badges in `cmd_chain()`, `cmd_list()`, and `cmd_workspace_list()` as `<emoji> <STATUS>` without brackets (`🔵 WIP`, `🎯 NEXT`, `⏳ WIP`, `⏳ NEXT`, `❓ QUESTION`, `⚪ NEW`, `⏸️ HOLD`, `✅ DONE`, `❌ CANCELED`, `⚠️ MISSING`).
+  - Format trailing row tags in `cmd_chain()` (`src/render_chain.py`) prefixed after the task title with `  · ` and separated by ` · ` without outer brackets:
+    - Readiness and blockers: `🟢 ready`, `🔒 blocked by: <ref>, ...`, or `🔒 blocked` (for `MISSING`/`CANCELED`).
+    - RPG perks: `🏁 FINAL`, `⚡ STAGE`, `🔥 COMBO`.
+    - Downstream and cross-chain stats: `⛓️ chain: <N>` (in `--ready` when `N > 1`), `🟢 ready: +<M>` (in `--ready` when `M > 0`), `🔓 unblocks: <K>` (when `K > 0`), and `🔗 also in: <ref>, ...`.
+- Apply the `D5` composable ANSI color scheme in TTY mode (`use_color=True`) across the overall progress header, chain/sub-chain stats, perks, and tags after `_wrap_table_row()` width calculation so line wrapping and row-level styles (`DONE` dimming, external-project dimming, and `-H` / `--highlight` emphasis) compose cleanly.
+- Sync `src/header.py` (`--help`), `AGENTS.md`, `agents/todo.md`, and `README.md`, rebuild `todo` via `python3 build.py`, and update unit tests in `tests/`.
+
 # ✅ [DONE] D5: Design cohesive Quest-Log ANSI color palette and typography for RPG perks (FINAL, STAGE, COMBO), stats, prefixes, and statuses — *2026-11-23, Designed overall game progress header, bracket-free icon badges/perks/tags with '·' separators, and composable ANSI palette; scheduled implementation in F84*
 
 - Depends on: F59 -> F60 -> F61 -> B6 -> F72 -> F83

@@ -80,7 +80,11 @@ class TodoMdTestCase(unittest.TestCase):
         return rows
 
     def _row_refs(self, output: str) -> list[str]:
-        return re.findall(r"^  (?:[│ ]*(?:├── |└── |└─► ))?(\S+)\s+\S+\s+\[[A-Z]+\]", output, re.M)
+        return re.findall(
+            r"^  (?:[│ ]*(?:├── |└── |└─► ))?(\S+)\s+\S+\s+\[?(?:WIP|NEXT|QUESTION|NEW|HOLD|DONE|CANCELED|MISSING)\]?(?!\S)",
+            output,
+            re.M,
+        )
 
     @staticmethod
     def _flat_text(output: str) -> str:
