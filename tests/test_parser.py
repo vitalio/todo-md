@@ -203,34 +203,43 @@ class TestParser(TodoMdTestCase):
         self.assertNotIn("Task:", r_ws.stdout)
         self.assertNotIn("Title:", r_ws.stdout)
 
-        # Active backlog validation (`todo_md check`) rejects any in-body Role: line in TODO.md
-        # (outside code fences), while exempting historical TODO_ARCHIVE.md
+        # Backlog validation (`todo_md check`) rejects in-body Role: and Target files: lines
+        # across both TODO.md and TODO_ARCHIVE.md (outside code fences)
         chk_dir = ws / "role_check_proj"
         chk_dir.mkdir()
         self._run([str(SCRIPT), "init"], cwd=str(chk_dir), check=True)
         fence = "`" * 3
         (chk_dir / "TODO.md").write_text(
             "# ⚪ [NEW] F1: In-body role\n\n- Role: plan\n\n"
-            "# ⚪ [NEW] F2: Retired execute\n\n- Role: execute\n\n"
-            "# ⚪ [NEW] F3: Fenced role is ignored\n\n" + fence + "markdown\n- Role: work\n" + fence + "\n\n"
+            "# ⚪ [NEW] F2: Target files line\n\n- Target files: `src/cli.py`\n\n"
+            "# ⚪ [NEW] F3: Fenced lines are ignored\n\n"
+            + fence + "markdown\n- Role: work\n- Target files: `src/cli.py`\n" + fence + "\n\n"
             "# ⚪ [NEW] F4: Empty role line\n\n- Role:\n",
             encoding="utf-8",
         )
         (chk_dir / "TODO_ARCHIVE.md").write_text(
-            "# ✅ [DONE] U20: Historical archived task — *2026-01-01*\n\n"
-            "- Role: execute\n- Role: UpperCase!\n",
+            "# ✅ [DONE] U20: Archived task with legacy role — *2026-01-01*\n\n"
+            "- Role: execute\n\n"
+            "# ✅ [DONE] U21: Archived task with legacy target files — *2026-01-01*\n\n"
+            "- Target files: `src/parser.py`\n",
             encoding="utf-8",
         )
         r_chk_fail = self._run([str(SCRIPT), "check"], cwd=str(chk_dir))
         self.assertNotEqual(r_chk_fail.returncode, 0, msg=r_chk_fail.stdout)
-        for bad_tid in ("F1", "F2", "F4"):
+        for bad_tid in ("F1", "F4", "U20"):
             with self.subTest(bad_tid=bad_tid):
                 self.assertIn(f"task {bad_tid} has an in-body 'Role:' line", r_chk_fail.stderr)
+        for bad_tid in ("F2", "U21"):
+            with self.subTest(bad_tid=bad_tid):
+                self.assertIn(f"task {bad_tid} has an in-body 'Target files:' line", r_chk_fail.stderr)
         self.assertNotIn("task F3 ", r_chk_fail.stderr)
-        self.assertNotIn("U20", r_chk_fail.stderr)
 
         (chk_dir / "TODO.md").write_text(
-            "# 🎯 [NEXT] O4: Subsystem task\n\nBody without role.\n",
+            "# 🎯 [NEXT] O4: Subsystem task\n\nBody without legacy lines.\n",
+            encoding="utf-8",
+        )
+        (chk_dir / "TODO_ARCHIVE.md").write_text(
+            "# ✅ [DONE] U20: Clean archived task — *2026-01-01*\n\nClean body.\n",
             encoding="utf-8",
         )
         r_chk_ok = self._run([str(SCRIPT), "check"], cwd=str(chk_dir), check=True)

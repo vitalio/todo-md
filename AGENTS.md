@@ -94,10 +94,10 @@ rules are loaded via `.agents_bundle`.
 
 ## Task Prefixes & Role Decoupling
 
-- `todo_md` is decoupled from `agents-rules` role names: do not reintroduce
-  hardcoded role tables, `resolve_task_role()`, `--role`, `--by-role`, or
-  in-body `- Role:` lines; filter views natively with `--prefix` and
-  `--status`.
+- `todo_md` is decoupled from `agents-rules` role names and file preloading: do
+  not reintroduce hardcoded role tables, `resolve_task_role()`, `--role`,
+  `--by-role`, or in-body `- Role:` / `- Target files:` lines; filter views
+  natively with `--prefix` and `--status`.
 - Prefix metadata (`PREFIX_INFO`, `DEFAULT_TASK_PREFIX`) lives in
   `src/header.py`; `todo_md ids` renders the legend from it via
   `prefix_legend_lines()`, so keep `--help`, `README.md`, and

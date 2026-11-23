@@ -284,6 +284,32 @@ def validate_all(base_dir: Path) -> tuple[list[str], int]:
                 if fname == "TODO_ARCHIVE.md" and status not in ("DONE", "CANCELED"):
                     errors.append(f"{loc}: non-archived status [{status}] on task {tid} in TODO_ARCHIVE.md")
 
+    for fname in TASK_FILES:
+        fpath = base_dir / fname
+        if not fpath.is_file():
+            continue
+        for t in parse_tasks_in_text(read_if_exists(fpath), fname):
+            tid = str(t["id"]).upper()
+            lineno = int(t["line"])
+            sec = str(t["section"])
+            in_body_fence = False
+            for offset, sline in enumerate(sec.splitlines()):
+                if sline.lstrip().startswith(FENCE):
+                    in_body_fence = not in_body_fence
+                    continue
+                if in_body_fence:
+                    continue
+                if ROLE_LINE_RE.match(sline):
+                    errors.append(
+                        f"{fname}:{lineno + offset}: task {tid} has an in-body 'Role:' line "
+                        "(remove it; task prefixes and statuses are managed via headings)"
+                    )
+                elif TARGET_FILES_LINE_RE.match(sline):
+                    errors.append(
+                        f"{fname}:{lineno + offset}: task {tid} has an in-body 'Target files:' line "
+                        "(remove it)"
+                    )
+
     ws_root = resolve_workspace_root(base_dir)
     local_ids = set(seen_ids.keys())
     proj_task_cache: dict[Path, set[str]] = {}
@@ -293,18 +319,6 @@ def validate_all(base_dir: Path) -> tuple[list[str], int]:
             tid = str(t["id"]).upper()
             lineno = int(t["line"])
             sec = str(t["section"])
-            in_role_fence = False
-            for offset, sline in enumerate(sec.splitlines()):
-                if sline.lstrip().startswith(FENCE):
-                    in_role_fence = not in_role_fence
-                    continue
-                if in_role_fence:
-                    continue
-                if ROLE_LINE_RE.match(sline):
-                    errors.append(
-                        f"TODO.md:{lineno + offset}: task {tid} has an in-body 'Role:' line "
-                        "(remove it; task prefixes and statuses are managed via headings)"
-                    )
             clauses, syntax_errs = parse_dependency_clauses(sec)
             for serr in syntax_errs:
                 errors.append(f"TODO.md:{lineno}: task {tid} has dependency syntax error: {serr}")

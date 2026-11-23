@@ -23,11 +23,11 @@ import unicodedata
 from datetime import date
 from pathlib import Path
 
-VERSION = "0.45.0"
+VERSION = "0.45.1"
 REPO_MARKER = "todo_md-repo: vitalio/todo_md"
 DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/vitalio/todo_md/main/todo_md"
 FENCE = chr(96) * 3
-EMBEDDED_RULE_TODO_MD = '# Description: Structured Markdown task management (TODO.md and TODO_ARCHIVE.md) via todo_md\n- Task management (`todo_md`: `TODO.md`, `TODO_ARCHIVE.md`): Always inspect and\n  modify `TODO.md` and `TODO_ARCHIVE.md` via `todo_md` (never via `cat` or\n  manual file edits). Repository scope only: record each task in the `TODO.md`\n  of the repository it belongs to (run `todo_md -h` for full CLI option lists).\n  - Status lifecycle & task ID prefixes: `TODO.md` orders active tasks as\n    `🔵 [WIP]` -> `🎯 [NEXT]` -> `❓ [QUESTION]` -> `⚪ [NEW]` -> `⏸️ [HOLD]`,\n    and `TODO_ARCHIVE.md` keeps `✅ [DONE]` and `❌ [CANCELED]` newest-first.\n    Task ID prefixes (`A-Z`): `F` is a feature (default on `add`), `B` is a\n    bugfix (ranked ahead in `chain`), `D` is a design task, `L` is a\n    legislative rule task (`agents/`, `AGENTS.md`), and other `A-Z` prefixes\n    are custom domains. `todo_md check` rejects `- Role:` lines in active\n    `TODO.md` tasks, `todo_md next <ID>` strips any existing `- Role:` line,\n    and `todo_md <ID> [role=<role>]` in bundle mode\n    (`todo_md <ID> | agents_bundle | run_block`) is read-only: it emits\n    `Bundle-Name: todo_md`, `Task: <ID>`, `Prefix: <P>`, `Status: <S>`,\n    `Title: <title>`, and `Workdir: <dir>` (`Role: <role>` is emitted only when\n    `role=<role>` is passed); start a task with `todo_md status <ID> WIP` or\n    `todo_md next <ID>`.\n  - Inspect & target selection: pass `-C <dir|project>` or `--project <name>`\n    before subcommands (or `<project>:<ID>` on task refs). Core views:\n    `todo_md [opts] [-w]`, `todo_md overview [--full] [-w]`, `todo_md projects`,\n    `todo_md [show] <ID>...`, `todo_md last[-id] [<STATUS|archive>]`,\n    `todo_md list [active|archive|all|<STATUS>] [<ID>...] [--prefix <P>] [--status <S>] [-r|--ready] [--limit N] [--full]`,\n    `todo_md archive [<ID>...] [-m "<note>"] [--canceled] [-c]`, `todo_md ids`,\n    `todo_md queue <ID>... [--all]` (alias for `todo_md chain <ID>... [--all]`),\n    `todo_md chain [<ID>...] [--all] [--prefix <P>] [--status <S>] [--ready] [-l N|--limit N] [--include-hold] [--tree] [--numbered[=left|right]] [-f <ID>...] [-H] [-s <QUERY>]`,\n    `todo_md next-id [<ID>] [--prefix <P>] [--status <S>]`.\n  - Mutate & validate: `todo_md add [<PROJECT>] [<PREFIX>] "<title>" [-p <P>]\n    [--next] [--status <S>] [-m "<note>"] [-b "<body_md>"|-] [--depends <spec>]\n    [-c]`, `todo_md edit <ID>... [-t "<title>"] [-m "<note>"] [-b "<body_md>"|-]\n    [--depends <spec>] [-c]`, `todo_md append <ID>... [-b "<text>"|-] [-c]`,\n    `todo_md rename <OLD> <NEW|PREFIX> | <OLD>=<NEW|PREFIX>... [-c]`,\n    `todo_md next <ID>... [-m "<note>"] [--reopen] [-c]`,\n    `todo_md status <ID>... <STATUS> [-m "<note>"] [--reopen] [-c]`,\n    `todo_md reopen <ID>... [--status <S>] [-m "<note>"] [-c]`,\n    `todo_md done <ID>... [-m "<note>"] [-c]`,\n    `todo_md cancel <ID>... [-m "<reason>"] [-c]`, `todo_md check`.\n  - Dependencies & Chain integration (both directions): in `--depends` and\n    `- Depends on:`, use `,` for parallel items (`A,B`) and `->` for sequential\n    stages (`"A -> B -> C"`, `,` binds tighter than `->`; repeat for AND\n    branches; do not introduce a separate `- Order:` field). Wire new or refined\n    tasks both upstream (`--depends`) and downstream (`todo_md edit <ID>\n    --depends ...` on existing open tasks or waves).\n'
+EMBEDDED_RULE_TODO_MD = '# Description: Structured Markdown task management (TODO.md and TODO_ARCHIVE.md) via todo_md\n- Task management (`todo_md`: `TODO.md`, `TODO_ARCHIVE.md`): Always inspect and\n  modify `TODO.md` and `TODO_ARCHIVE.md` via `todo_md` (never via `cat` or\n  manual file edits). Repository scope only: record each task in the `TODO.md`\n  of the repository it belongs to (run `todo_md -h` for full CLI option lists).\n  - Status lifecycle & task ID prefixes: `TODO.md` orders active tasks as\n    `🔵 [WIP]` -> `🎯 [NEXT]` -> `❓ [QUESTION]` -> `⚪ [NEW]` -> `⏸️ [HOLD]`,\n    and `TODO_ARCHIVE.md` keeps `✅ [DONE]` and `❌ [CANCELED]` newest-first.\n    Task ID prefixes (`A-Z`): `F` is a feature (default on `add`), `B` is a\n    bugfix (ranked ahead in `chain`), `D` is a design task, `L` is a\n    legislative rule task (`agents/`, `AGENTS.md`), and other `A-Z` prefixes\n    are custom domains. `todo_md check` rejects `- Role:` and `- Target files:`\n    lines across `TODO*.md`, and `todo_md <ID> [role=<role>]` in bundle mode\n    (`todo_md <ID> | agents_bundle | run_block`) is read-only: it emits\n    `Bundle-Name: todo_md`, `Task: <ID>`, `Prefix: <P>`, `Status: <S>`,\n    `Title: <title>`, and `Workdir: <dir>` (`Role: <role>` is emitted only when\n    `role=<role>` is passed); start a task with `todo_md status <ID> WIP` or\n    `todo_md next <ID>`.\n  - Inspect & target selection: pass `-C <dir|project>` or `--project <name>`\n    before subcommands (or `<project>:<ID>` on task refs). Core views:\n    `todo_md [opts] [-w]`, `todo_md overview [--full] [-w]`, `todo_md projects`,\n    `todo_md [show] <ID>...`, `todo_md last[-id] [<STATUS|archive>]`,\n    `todo_md list [active|archive|all|<STATUS>] [<ID>...] [--prefix <P>] [--status <S>] [-r|--ready] [--limit N] [--full]`,\n    `todo_md archive [<ID>...] [-m "<note>"] [--canceled] [-c]`, `todo_md ids`,\n    `todo_md queue <ID>... [--all]` (alias for `todo_md chain <ID>... [--all]`),\n    `todo_md chain [<ID>...] [--all] [--prefix <P>] [--status <S>] [--ready] [-l N|--limit N] [--include-hold] [--tree] [--numbered[=left|right]] [-f <ID>...] [-H] [-s <QUERY>]`,\n    `todo_md next-id [<ID>] [--prefix <P>] [--status <S>]`.\n  - Mutate & validate: `todo_md add [<PROJECT>] [<PREFIX>] "<title>" [-p <P>]\n    [--next] [--status <S>] [-m "<note>"] [-b "<body_md>"|-] [--depends <spec>]\n    [-c]`, `todo_md edit <ID>... [-t "<title>"] [-m "<note>"] [-b "<body_md>"|-]\n    [--depends <spec>] [-c]`, `todo_md append <ID>... [-b "<text>"|-] [-c]`,\n    `todo_md rename <OLD> <NEW|PREFIX> | <OLD>=<NEW|PREFIX>... [-c]`,\n    `todo_md next <ID>... [-m "<note>"] [--reopen] [-c]`,\n    `todo_md status <ID>... <STATUS> [-m "<note>"] [--reopen] [-c]`,\n    `todo_md reopen <ID>... [--status <S>] [-m "<note>"] [-c]`,\n    `todo_md done <ID>... [-m "<note>"] [-c]`,\n    `todo_md cancel <ID>... [-m "<reason>"] [-c]`, `todo_md check`.\n  - Dependencies & Chain integration (both directions): in `--depends` and\n    `- Depends on:`, use `,` for parallel items (`A,B`) and `->` for sequential\n    stages (`"A -> B -> C"`, `,` binds tighter than `->`; repeat for AND\n    branches; do not introduce a separate `- Order:` field). Wire new or refined\n    tasks both upstream (`--depends`) and downstream (`todo_md edit <ID>\n    --depends ...` on existing open tasks or waves).\n'
 RULE_SOURCE_PATH = Path(__file__).resolve().parent.parent / "agents" / "todo_md.md"
 
 VALID_STATUSES: dict[str, str] = {
@@ -61,6 +61,7 @@ ANY_ID_RE = re.compile(
 PROJECT_TASK_RE = re.compile(r"^(.+?):([A-Za-z]\d+)$")
 DEPENDS_LINE_RE = re.compile(r"^\s*[-*]\s*Depends on:\s*(.+?)\s*$", re.IGNORECASE)
 ROLE_LINE_RE = re.compile(r"^\s*[-*]\s*Role:\s*(.*?)\s*$", re.IGNORECASE)
+TARGET_FILES_LINE_RE = re.compile(r"^\s*[-*]\s*Target files:\s*(.*?)\s*$", re.IGNORECASE)
 ROLE_NAME_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
 DEFAULT_TASK_PREFIX = "F"
 PREFIX_INFO: dict[str, str] = {
@@ -160,8 +161,7 @@ HELP_COMMANDS: tuple[tuple[str, str], ...] = (
     ("{prog} status <ID>... <STATUS> [opts]",
      "Set task status (WIP, NEXT, NEW, HOLD, QUESTION, DONE, CANCELED). Options: -m NOTE, --reopen"),
     ("{prog} next <ID>... [-m NOTE] [--reopen]",
-     "Promote task(s) <ID>... to 🎯 [NEXT] at the top of TODO.md (strips - Role:; "
-     "--reopen if archived)"),
+     "Promote task(s) <ID>... to 🎯 [NEXT] at the top of TODO.md (--reopen if archived)"),
     ("{prog} reopen <ID>... [opts]",
      "Move archived task(s) <ID>... back to TODO.md. Options: -s/--status STATUS (default: "
      "NEW), -m NOTE"),
@@ -248,7 +248,7 @@ HELP_PREFIXES: tuple[tuple[str, str], ...] = (
     ("D", "Design task"),
     ("L", "Legislative rule task (agents/, AGENTS.md)"),
     ("A-Z", "Any other letter is a custom domain prefix"),
-    ("Note", "{prog} check rejects '- Role:' lines in TODO.md; filter with --prefix and --status"),
+    ("Note", "{prog} check rejects '- Role:' and '- Target files:' lines in TODO*.md; filter with --prefix and --status"),
 )
 
 HELP_NOTES = (
@@ -1284,6 +1284,32 @@ def validate_all(base_dir: Path) -> tuple[list[str], int]:
                 if fname == "TODO_ARCHIVE.md" and status not in ("DONE", "CANCELED"):
                     errors.append(f"{loc}: non-archived status [{status}] on task {tid} in TODO_ARCHIVE.md")
 
+    for fname in TASK_FILES:
+        fpath = base_dir / fname
+        if not fpath.is_file():
+            continue
+        for t in parse_tasks_in_text(read_if_exists(fpath), fname):
+            tid = str(t["id"]).upper()
+            lineno = int(t["line"])
+            sec = str(t["section"])
+            in_body_fence = False
+            for offset, sline in enumerate(sec.splitlines()):
+                if sline.lstrip().startswith(FENCE):
+                    in_body_fence = not in_body_fence
+                    continue
+                if in_body_fence:
+                    continue
+                if ROLE_LINE_RE.match(sline):
+                    errors.append(
+                        f"{fname}:{lineno + offset}: task {tid} has an in-body 'Role:' line "
+                        "(remove it; task prefixes and statuses are managed via headings)"
+                    )
+                elif TARGET_FILES_LINE_RE.match(sline):
+                    errors.append(
+                        f"{fname}:{lineno + offset}: task {tid} has an in-body 'Target files:' line "
+                        "(remove it)"
+                    )
+
     ws_root = resolve_workspace_root(base_dir)
     local_ids = set(seen_ids.keys())
     proj_task_cache: dict[Path, set[str]] = {}
@@ -1293,18 +1319,6 @@ def validate_all(base_dir: Path) -> tuple[list[str], int]:
             tid = str(t["id"]).upper()
             lineno = int(t["line"])
             sec = str(t["section"])
-            in_role_fence = False
-            for offset, sline in enumerate(sec.splitlines()):
-                if sline.lstrip().startswith(FENCE):
-                    in_role_fence = not in_role_fence
-                    continue
-                if in_role_fence:
-                    continue
-                if ROLE_LINE_RE.match(sline):
-                    errors.append(
-                        f"TODO.md:{lineno + offset}: task {tid} has an in-body 'Role:' line "
-                        "(remove it; task prefixes and statuses are managed via headings)"
-                    )
             clauses, syntax_errs = parse_dependency_clauses(sec)
             for serr in syntax_errs:
                 errors.append(f"TODO.md:{lineno}: task {tid} has dependency syntax error: {serr}")
@@ -5110,9 +5124,6 @@ def cmd_transition(
     tid = str(found["id"])
     sec_lines = list(found["lines"])  # type: ignore[arg-type]
     sec_lines[0] = _format_heading(final_status, tid, str(found["title"]), note=effective_note)
-    stripped_plan_role = False
-    if final_status == "NEXT":
-        sec_lines, stripped_plan_role = _strip_plan_role_from_section_lines(sec_lines)
 
     if require_archived or (is_archived and reopen):
         commit_msg = f"Reopen task {tid} as {final_status}: {base_title}"
@@ -5129,29 +5140,15 @@ def cmd_transition(
         src_path = base_dir / source_file
         orig_lines = read_if_exists(src_path).splitlines()
         in_fence = False
-        start_idx: int | None = None
-        end_idx: int | None = None
         for idx, line in enumerate(orig_lines):
             if line.lstrip().startswith(FENCE):
                 in_fence = not in_fence
             if not in_fence and line.startswith("# "):
-                if start_idx is not None:
-                    end_idx = idx
-                    break
                 m = HEADING_RE.match(line)
                 if m and m.group(3).upper() == target:
-                    start_idx = idx
-                    if not stripped_plan_role:
-                        orig_lines[idx] = sec_lines[0]
-                        break
-        if stripped_plan_role and start_idx is not None:
-            if end_idx is None:
-                end_idx = len(orig_lines)
-            orig_lines = orig_lines[:start_idx] + [*sec_lines, ""] + orig_lines[end_idx:]
-            new_src_text = re.sub(r"\n{3,}", "\n\n", "\n".join(orig_lines).rstrip()) + "\n"
-            src_path.write_text(new_src_text, encoding="utf-8")
-        else:
-            src_path.write_text("\n".join(orig_lines) + "\n", encoding="utf-8")
+                    orig_lines[idx] = sec_lines[0]
+                    break
+        src_path.write_text("\n".join(orig_lines) + "\n", encoding="utf-8")
         sys.stdout.write(f"{prog_name()}: updated {target} -> [{final_status}] in {source_file}\n")
         return _finalize_mutation(base_dir, commit_msg, commit=commit, no_commit=no_commit)
 
@@ -5300,30 +5297,6 @@ def _normalize_depends_clauses(raw_items: list[str]) -> list[str]:
             )
         clauses.append(" -> ".join(", ".join(stage) for stage in stages))
     return clauses
-
-def _strip_plan_role_from_section_lines(sec_lines: list[str]) -> tuple[list[str], bool]:
-    if not sec_lines:
-        return sec_lines, False
-    heading = sec_lines[0]
-    body_lines: list[str] = []
-    in_fence = False
-    removed = False
-    for line in sec_lines[1:]:
-        if line.lstrip().startswith(FENCE):
-            in_fence = not in_fence
-        if not in_fence and ROLE_LINE_RE.match(line):
-            removed = True
-            continue
-        body_lines.append(line)
-    if not removed:
-        return sec_lines, False
-    while body_lines and not body_lines[0].strip():
-        body_lines.pop(0)
-    while body_lines and not body_lines[-1].strip():
-        body_lines.pop()
-    if not body_lines:
-        return [heading], True
-    return [heading, "", *body_lines], True
 
 def _normalize_role_override(raw_role: str) -> str:
     if "\n" in raw_role or "\r" in raw_role:

@@ -87,7 +87,7 @@ class TestCli(TodoMdTestCase):
         self.assertIn("do not introduce a separate `- Order:` field", rule_txt)
         self.assertIn("Bundle-Name: todo_md", rule_txt)
         self.assertNotIn("Files:", rule_txt)
-        self.assertIn("strips any existing `- Role:` line", rule_txt)
+        self.assertNotIn("strips any existing `- Role:` line", rule_txt)
         self.assertIn("agents_bundle | run_block", rule_txt)
         self.assertNotIn("role=work", rule_txt)
         self.assertNotIn("role=plan", rule_txt)
@@ -97,7 +97,7 @@ class TestCli(TodoMdTestCase):
         self.assertNotIn("--role", rh.stdout)
         self.assertNotIn("--by-role", rh.stdout)
         self.assertIn("Task ID prefixes (`A-Z`): `F` is a feature", rule_txt)
-        self.assertIn("rejects `- Role:` lines in active", rule_txt)
+        self.assertIn("rejects `- Role:` and `- Target files:`", rule_txt)
         self.assertFalse((ROOT / "install.ps1").exists())
 
     def _assert_help_aligned(self, text: str) -> None:

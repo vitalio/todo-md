@@ -61,6 +61,7 @@ ANY_ID_RE = re.compile(
 PROJECT_TASK_RE = re.compile(r"^(.+?):([A-Za-z]\d+)$")
 DEPENDS_LINE_RE = re.compile(r"^\s*[-*]\s*Depends on:\s*(.+?)\s*$", re.IGNORECASE)
 ROLE_LINE_RE = re.compile(r"^\s*[-*]\s*Role:\s*(.*?)\s*$", re.IGNORECASE)
+TARGET_FILES_LINE_RE = re.compile(r"^\s*[-*]\s*Target files:\s*(.*?)\s*$", re.IGNORECASE)
 ROLE_NAME_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
 DEFAULT_TASK_PREFIX = "F"
 PREFIX_INFO: dict[str, str] = {
@@ -160,8 +161,7 @@ HELP_COMMANDS: tuple[tuple[str, str], ...] = (
     ("{prog} status <ID>... <STATUS> [opts]",
      "Set task status (WIP, NEXT, NEW, HOLD, QUESTION, DONE, CANCELED). Options: -m NOTE, --reopen"),
     ("{prog} next <ID>... [-m NOTE] [--reopen]",
-     "Promote task(s) <ID>... to 🎯 [NEXT] at the top of TODO.md (strips - Role:; "
-     "--reopen if archived)"),
+     "Promote task(s) <ID>... to 🎯 [NEXT] at the top of TODO.md (--reopen if archived)"),
     ("{prog} reopen <ID>... [opts]",
      "Move archived task(s) <ID>... back to TODO.md. Options: -s/--status STATUS (default: "
      "NEW), -m NOTE"),
@@ -248,7 +248,7 @@ HELP_PREFIXES: tuple[tuple[str, str], ...] = (
     ("D", "Design task"),
     ("L", "Legislative rule task (agents/, AGENTS.md)"),
     ("A-Z", "Any other letter is a custom domain prefix"),
-    ("Note", "{prog} check rejects '- Role:' lines in TODO.md; filter with --prefix and --status"),
+    ("Note", "{prog} check rejects '- Role:' and '- Target files:' lines in TODO*.md; filter with --prefix and --status"),
 )
 
 HELP_NOTES = (

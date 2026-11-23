@@ -9,9 +9,8 @@
     Task ID prefixes (`A-Z`): `F` is a feature (default on `add`), `B` is a
     bugfix (ranked ahead in `chain`), `D` is a design task, `L` is a
     legislative rule task (`agents/`, `AGENTS.md`), and other `A-Z` prefixes
-    are custom domains. `todo_md check` rejects `- Role:` lines in active
-    `TODO.md` tasks, `todo_md next <ID>` strips any existing `- Role:` line,
-    and `todo_md <ID> [role=<role>]` in bundle mode
+    are custom domains. `todo_md check` rejects `- Role:` and `- Target files:`
+    lines across `TODO*.md`, and `todo_md <ID> [role=<role>]` in bundle mode
     (`todo_md <ID> | agents_bundle | run_block`) is read-only: it emits
     `Bundle-Name: todo_md`, `Task: <ID>`, `Prefix: <P>`, `Status: <S>`,
     `Title: <title>`, and `Workdir: <dir>` (`Role: <role>` is emitted only when

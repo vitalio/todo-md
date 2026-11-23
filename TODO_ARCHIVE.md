@@ -1,3 +1,11 @@
+# ✅ [DONE] F77: Remove legacy - Role: stripping on next and clean - Role: / - Target files: from TODO_ARCHIVE.md — *2026-11-23*
+
+- Depends on: F72, F74, F76
+- Remove transitional `_strip_plan_role_from_section_lines` auto-stripping on `todo_md next` / status promotion to `NEXT` from `src/commands.py`, and remove `(strips - Role:; ...)` notes from `src/header.py`, `agents/todo_md.md`, `AGENTS.md`, and `README.md`.
+- Extend `todo_md check` in `src/parser.py` to reject legacy in-body `- Role:` and `- Target files:` lines across both `TODO.md` and `TODO_ARCHIVE.md`.
+- Strip historical `- Role:` and `- Target files:` lines from `TODO_ARCHIVE.md`.
+- Acceptance criteria: `todo_md next` no longer contains legacy `- Role:` stripping code, `todo_md check` validates both `TODO.md` and `TODO_ARCHIVE.md` against `- Role:` and `- Target files:` lines, `TODO_ARCHIVE.md` is clean, and `./build.py` and `python3 -m unittest discover -s tests` pass.
+
 # ✅ [DONE] F76: Remove - Target files: extraction, Files: bundle header, todo_md files subcommand, and --no-files — *2026-11-23, v0.45.0*
 
 - Depends on: F74
@@ -15,7 +23,6 @@
   - In `emit_task_bundle()`, emit `{"kind": "prompt", "id": tid, "name": f"{src_file}:{tid}", "chain": ["todo_md"]}`.
   - In `emit_context_bundle()`, emit `{"kind": "prompt", "name": "todo_md", "chain": ["todo_md"]}`.
   - Update `tests/test_bundle.py`, `README.md`, and `AGENTS.md` to reference canonical `rule` and `prompt` fragments.
-- Target files: `src/bundle.py`, `tests/test_bundle.py`, `README.md`.
 
 # ✅ [DONE] F75: Add todo_md rename subcommand and extend batch <ID>... support across edit, append, archive, queue, and files — *2026-11-23, implemented todo_md rename and batch <ID>... across edit, append, archive, queue, and files*
 
@@ -31,7 +38,6 @@
   - `todo_md files [<ID>...] [--max-lines N] [--max-total-lines N] [--max-bytes N] [--max-total-bytes N]` (merging and normalizing `- Target files:` entries across all specified tasks under shared budgets).
 - Keep every module under `src/` below 1000 lines by extracting or relocating functions from `src/commands.py` (currently 1088 lines, e.g. moving read-only `resolve_top_task_id`, `cmd_next_id`, and `cmd_files` out of `src/commands.py`) and updating `build.py` / `AGENTS.md` if module boundaries change.
 - Update `src/header.py` (`--help`), `agents/todo_md.md`, `README.md`, `AGENTS.md`, and unit tests in `tests/test_commands.py` and `tests/test_cli.py`, and rebuild `./todo_md` via `python3 build.py`.
-- Target files: `src/header.py`, `src/parser.py:highest_ids_in_use..select_task_files`, `src/commands.py:_expand_task_id_args..cmd_files`, `src/cli.py:main`, `agents/todo_md.md`, `README.md`, `AGENTS.md`, `tests/test_commands.py`, `tests/test_cli.py`.
 
 # ✅ [DONE] F72: Emit Bundle-Name and declarative Files preamble headers, decouple hardcoded roles from todo_md, and drop Windows support — *2026-11-22*
 
@@ -41,14 +47,12 @@
   - Decouple `todo_md` from `agents-rules` role names: remove hardcoded `resolve_task_role()`, `PREFIX_DEFAULT_ROLES`, `STATUS_ROLES`, `ROLE_EASE_ORDER`, `ROLE_EFFORT_WEIGHTS`, `RETIRED_ROLES`, `--role`, `--by-role`, and the `[role]` table column from `src/header.py`, `src/parser.py`, `src/dag.py`, `src/chains.py`, `src/render.py`, `src/render_chain.py`, `src/commands.py`, and `src/cli.py`; rank chains and tasks natively by bugfix prefix (`B*`), status tier (`WIP` -> `NEXT` -> `QUESTION` -> `NEW` -> `HOLD`), and Quest Momentum; support native `--prefix <P>` and `--status <S>` filtering in `list`, `chain`, and `next-id`.
   - Remove `agents/todo_md_work.md` (`EMBEDDED_RULE_TODO_MD_WORK` in `build.py` and `src/header.py`) and keep `agents/todo_md.md` focused strictly on `todo_md` CLI commands, statuses, prefixes (`A-Z`, noting `L` for legislative rule tasks alongside `F`, `B`, `D`), `--depends`, and `- Target files:` without hardcoded role workflow instructions (which move to `agents-rules` `agents/adapters/todo_md.bundle`).
   - Drop Windows support: remove `install.ps1` and remove `install.ps1` / `windows-latest` references from `.github/workflows/ci.yml`, `build.py`, `README.md`, and `AGENTS.md`.
-- Target files: `src/header.py`, `src/parser.py`, `src/render.py`, `src/chains.py`, `src/bundle.py`, `src/cli.py`, `agents/todo_md.md`, `AGENTS.md`, `README.md`.
 
 # ✅ [DONE] B7: Skip repeated git pull across batched mutations, support multi-ID status transitions, and simplify Target files rule — *2026-11-22*
 
 - In `_sync_upstream()` (`src/commands.py`), skip running `git pull` when `git status --porcelain --untracked-files=no` is non-empty (including when `TODO.md` or `TODO_ARCHIVE.md` was already modified by an earlier command in the same uncommitted mutation batch), and pass `--no-rebase` (`git pull --ff-only --no-rebase --quiet`) so `git pull` runs only once at the start of a clean batch and never fails under global `pull.rebase=true`.
 - Support multiple task IDs in `todo_md next <ID>...`, `todo_md status <ID>... <STATUS>`, `todo_md done <ID>...`, `todo_md cancel <ID>...`, and `todo_md reopen <ID>...` (`src/commands.py`, `src/cli.py`, `src/header.py`), running `_sync_upstream()` once before applying the batch transition.
 - In `agents/todo_md.md`, simplify the `Target files contract` bullet so planners record known target files as plain backticked paths on `- Target files:` only when already identified during planning, without spending extra steps searching for files or computing symbol/line slices.
-- Target files: `src/commands.py`, `src/cli.py`, `src/header.py`, `agents/todo_md.md`, `README.md`, `tests/test_cli.py`.
 
 # ✅ [DONE] B6: Keep ready NEXT tasks at the top of flat chains, dynamically re-rank --tree subtrees, and prefix chain headers with [<pct>% | <done>/<total>] — *2026-11-22*
 
@@ -75,10 +79,6 @@
   `total = done + open`) so headers render as
   `[<pct>% | <done>/<total>] Chain <N> -> <root_ref>: <root_title>:` and
   `├── [<pct>% | <done>/<total>] Sub-chain -> <milestone_ref>: <title>:`.
-- Target files: `src/chains.py:_prepare_active_plan..plan_execution_chains`,
-  `src/render_chain.py:cmd_chain`, `README.md`,
-  `tests/test_chain.py:test_root_anchored_chains_quest_momentum_also_in_and_all_done_tasks..test_flat_default_tree_flag_numbered_alignment_and_short_limit`,
-  `tests/test_parser.py:test_composable_task_styling_in_chain_and_list`.
 
 # ✅ [DONE] F71: Extend discovery_session reuse to resolve_dependency_statuses, cross-project stage edges, and multi-task show/top-id queries — *2026-11-22*
 
@@ -87,7 +87,6 @@
 - In `src/dag.py` (`build_dependency_dag()`), pass `cur_dir` instead of `base_dir` to `lookup_external_alias(cur_dir, ws_resolved, proj_name)` inside `_resolve_ref()`, and key `shared.stage_edges` by `ws_resolved` instead of `(ws_resolved, disp_resolved)` so workspace views (`overview -w`, `list -w`) reuse orchestrator stage edges across all child projects within one `discovery_session()`.
 - In `src/commands.py` (`resolve_top_task_id()`, `cmd_next_id()`), `src/render.py` (`cmd_show()`), and `src/cli.py` (`_show_tasks()`), wrap `resolve_top_task_id`, `cmd_next_id`, and `_show_tasks` in `discovery_session()` (`@_discovery_scoped`) and reuse `_ACTIVE_DISCOVERY.task_maps` in `cmd_show()` so multi-candidate `resolve_top_task_id()` checks and multi-ID `show` loops share cached project discovery and task maps.
 - Expand `test_orchestrator_inbound_edges_in_queue_next_id_list_and_show` in `tests/test_deps.py` to assert `discovery_session` cache reuse across `resolve_dependency_statuses()`, cross-project `stage_edges`, `resolve_top_task_id()`, and multi-task `show`.
-- Target files: `src/dag.py:resolve_dependency_statuses.._is_task_blocked`, `src/commands.py:resolve_top_task_id..cmd_next_id`, `src/render.py:cmd_show`, `src/cli.py:_show_tasks`, `tests/test_deps.py:test_orchestrator_inbound_edges_in_queue_next_id_list_and_show`.
 
 # ✅ [DONE] F70: Refresh stale module references in backlog items after the module split — *2026-11-22, Updated post-F62 module references in D2, D3, D5, D6, and F42*
 
@@ -105,7 +104,6 @@ Other backlog items still point Target files and symbol locations at src/command
   - `src/commands.py` (from `src/commands.py:1-293`, `303-1010`, `1103-1146`): backlog file sorting, Git auto-commit helpers, and mutating/query CLI commands (`cmd_check()`, `cmd_init()`, `cmd_add()`, `cmd_edit()`, `cmd_append()`, `cmd_transition()`, `cmd_reopen()`, `resolve_top_task_id()`, `cmd_next_id()`, `cmd_files()`).
   - `src/cli.py` (`src/cli.py:1-399` and `src/cli.py:399-759`): self-update commands (`cmd_check_update()`, `cmd_update()`), CLI argument parsing (`_parse_quest_log_args()`), and `main()`.
 - Update `MODULE_ORDER` in `build.py`, regenerate standalone `./todo_md`, align `AGENTS.md` module descriptions, and verify all unit tests in `tests/test_*.py` pass without behavioral regressions.
-- Target files: `build.py`, `AGENTS.md`, `src/header.py`, `src/parser.py:1-360`, `src/commands.py:1-310`, `src/cli.py:1-399`.
 
 # ✅ [DONE] F64: Share workspace/orchestrator discovery across per-task DAG builds and include inbound blockers in workspace overview — *2026-11-22*
 
@@ -114,21 +112,18 @@ Other backlog items still point Target files and symbol locations at src/command
   - In `src/parser.py`, avoid repeating `resolve_workspace_root()`, `discover_projects()`, `discover_orchestrators_for_project()`, `collect_all_tasks()`, and orchestrator stage-edge extraction across repeated `build_dependency_dag()` / `_task_dag()` calls within a single CLI command or view render (`_order_active_tasks()`, `_is_task_blocked()`, `_task_dependency_info()`, `_inbound_blocker_items()`, `format_dependency_summary()`, `cmd_list()`, `cmd_workspace_list()`, `cmd_summary()`, `cmd_workspace_summary()`, and `cmd_show()`).
   - In `_format_task_for_summary()` (`src/parser.py:1038-1073`), pass `task=task` to `format_dependency_summary()` even when `proj_prefix` is set so `todo_md overview -w` (`cmd_workspace_summary()`) includes inbound `.todo_projects` orchestrator stage blockers in the `Dependencies (...)` line, matching `show`, `list`, and `chain`.
   - Extend `test_orchestrator_inbound_edges_in_queue_next_id_list_and_show` in `tests/test_deps.py` to verify that `overview -w` reports inbound orchestrator blockers for prefixed project tasks and clears them once the prerequisite is marked `DONE`, and verify that repeated per-task DAG queries reuse orchestrator discovery within a render pass.
-- Target files: `src/parser.py:433-908`, `src/parser.py:1038-1073`, `src/parser.py:2152-2223`, `tests/test_deps.py:459-498`.
 
 # ✅ [DONE] B4: Preserve existing '- Depends on:' and '- Target files:' lines in 'todo_md edit -b' — *2026-11-22*
 
 - In `_apply_depends_to_body_lines()` and `cmd_edit()` in `src/commands.py`, when `body is not None` (`-b` / `--body` or piped `stdin`) and `depends_clauses is None` (`--depends` was not passed), automatically preserve any existing `- Depends on:` lines from the previous task body (`old_sec[1:]`) whenever the new `body` does not already include its own `- Depends on:` lines; clear existing `- Depends on:` lines only when `--depends ""` is explicitly passed.
 - Similarly, when `body is not None` and the new `body` omits a `- Target files:` bullet line that existed in `old_sec[1:]`, preserve the existing `- Target files:` line at the end of the updated task body so body refinements in `role=plan` never silently strip dependency chains or target-file closures.
 - Add unit tests in `tests/test_commands.py` verifying that `todo_md edit <ID> -b ...` preserves existing `- Depends on:` and `- Target files:` lines by default, overrides them when the new body or `--depends` provides replacements, and clears `- Depends on:` when `--depends ""` is passed.
-- Target files: `src/commands.py:_apply_depends_to_body_lines..cmd_edit`, `tests/test_commands.py`.
 
 # ✅ [DONE] F69: Keep todo_md --help lines within 100 display columns and 100 UTF-8 bytes — *2026-11-22*
 
 - In `src/header.py`, update `_help_wrap()` so wrapped `--help` lines stay within `width` both by terminal display columns (`help_display_width(cand) <= width`) and by UTF-8 byte length (`len(cand.encode("utf-8")) <= width`), preventing false positives when checking `todo_md -h` with byte-oriented tools such as `mawk 'length($0) > 100'` on lines containing multi-byte status emoji (`next` and `TODO.md`).
 - In `tests/test_cli.py` (`_assert_help_aligned()`), assert both `width(ln) <= 100` and `len(ln.encode("utf-8")) <= 100` for every line of `--help` output.
 - Regenerate standalone `./todo_md` via `python3 build.py`, verify `python3 build.py --check`, reinstall locally, and bump `VERSION` (`PATCH`).
-- Target files: `src/header.py`, `tests/test_cli.py:TestCli._assert_help_aligned..TestCli.test_help_structured_sections_and_alignment`.
 
 # ✅ [DONE] B5: Support POSIX sh/Bash and multi-language symbol slices with whole-file fallback in todo_md files — *2026-11-22*
 
@@ -136,7 +131,6 @@ Other backlog items still point Target files and symbol locations at src/command
 - In `_symbol_span_end()` in `src/commands.py`, when a line at `_line_indent(line) == indent` starts with a closing brace `}`, include that closing line (`end = idx`) and `break` immediately so brace-delimited functions terminate cleanly at their closing brace without spilling into subsequent top-level constructs.
 - In `extract_task_files()` in `src/commands.py`, when a `path:symbol` or `path:sym1..sym2` reference resolves to an existing repository file (`rel_sym`) but `_resolve_symbol_range()` returns `None`, emit the warning to `stderr` and fall back to including the whole file (`entries.append((rel_sym, None))`) instead of dropping the file entry with `continue`.
 - Extend `test_files_symbol_slices_and_range_normalization` in `tests/test_commands.py` to cover POSIX sh / Bash functions (`name() { ... }` and `function name() { ... }`), multi-language keyword declarations, and whole-file fallback when a symbol name is not found in an existing target file.
-- Target files: `src/commands.py:_line_indent..extract_task_files`, `tests/test_commands.py:test_files_symbol_slices_and_range_normalization`.
 
 # ✅ [DONE] F68: Support role=<role> in todo_md, split agents/todo_md.md into pure Markdown rules, and move WIP transition to agent step 1 — *2026-11-22*
 
@@ -144,7 +138,6 @@ Other backlog items still point Target files and symbol locations at src/command
 - Split `agents/todo_md.md` into two pure static Markdown rule files without `[if ...]` / `[endif]` directives (keeping `.md` rule files strictly plain Markdown text): `agents/todo_md.md` (full backlog management reference for `plan`, `design`, `review`, and default) and `agents/todo_md_work.md` (compact execution rule for `role=work`). Embed both in `build.py` and `src/header.py` (`EMBEDDED_RULE_TODO_MD` and `EMBEDDED_RULE_TODO_MD_WORK`), remove `RULE_IF_BLOCK_RE`, and select the rule by effective `role` in `get_embedded_todo_rule(role)`.
 - Make `todo_md <ID>` strictly read-only in all modes (TTY, `todo_md <ID> | cat`, and bundle pipes): remove `_start_session_wip()` and `--no-wip` from `src/bundle.py`, `src/cli.py`, and `src/header.py` so reading or piping a task never mutates `TODO.md` on disk. Instead, instruct the `role=work` agent in `agents/todo_md_work.md` to transition the active task to `WIP` in its first executed `run_block` step via `todo_md status <ID> WIP` (without `-c`, if not already `WIP`) and close it via `todo_md done <ID>` inside the final guarded commit step.
 - Update `README.md` and unit tests in `tests/test_bundle.py` to verify pure read-only task bundle generation, `role=<role>` overrides on `<ID>` / `overview` / Quest-Log streams, and selection of `agents/todo_md_work.md` vs `agents/todo_md.md`.
-- Target files: `build.py`, `src/bundle.py`, `src/header.py`, `src/parser.py:cmd_show`, `src/cli.py:290-515`, `src/cli.py:760-797`, `agents/todo_md.md`, `README.md`, `tests/test_bundle.py`.
 
 # ✅ [DONE] F67: Slim agents/todo_md.md embedded rule, strip '# Description:', and emit compact role=work slice — *2026-11-22*
 
@@ -152,7 +145,6 @@ Other backlog items still point Target files and symbol locations at src/command
   - For `role=work` (`Role: work` header in `emit_task_bundle()`), emit a compact ~12-15 line `todo_md:todo_md` rule covering only worker invariants: inspect/modify `TODO*.md` exclusively via `todo_md` (never `cat` or manual edits), close the active task via `todo_md done <ID>` inside the final guarded code commit (without `-c` / `--commit`, staging `TODO.md` and `TODO_ARCHIVE.md` atomically with code changes), and record out-of-scope findings via `todo_md add "<title>" -b "<problem_and_impact>"` in default `NEW` status without `--depends` (pointing to `todo_md -h` for full CLI flags).
   - For `role=plan`, `role=design`, `role=review`, and role-less context streams (`emit_context_bundle()`), emit a concise ~35-45 line rule (~2.5k-3.5k chars instead of 14.5k chars) covering task status lifecycle (`WIP -> NEXT -> QUESTION -> NEW -> HOLD`), prefix/status role derivation (`D* -> design`, non-`D` `WIP/NEXT -> work`, `NEW/QUESTION/HOLD -> plan`), core inspection/mutation commands (`todo_md [opts] [-w]`, `show`, `list`, `chain`, `files`, `add`, `edit`, `append`, `next`, `status`, `done`, `cancel`, `check`), dependency syntax (`,` and `->`), bidirectional chain integration, and the `- Target files:` contract (pointing to `todo_md -h` for full option lists instead of duplicating TUI rendering internals).
 - Update `tests/test_bundle.py` to verify that `# Description:` is stripped, `Role: work` task bundles emit the compact worker rule slice, and `Role: plan` / `design` / context bundles emit the full planning rule including `Target files contract`.
-- Target files: `agents/todo_md.md`, `src/header.py`, `src/bundle.py`, `tests/test_bundle.py`.
 
 # ✅ [DONE] F66: Active backlog tasks reference removed src/rules/todo_md.md and src/bundles/todo_md.bundle — *2026-11-22, Replaced stale src/rules/todo_md.md and src/bundles/todo_md.bundle references with agents/todo_md.md in D3, D2, and F42*
 
@@ -171,7 +163,6 @@ Other backlog items still point Target files and symbol locations at src/command
   - Session start `WIP` transition in bundle mode: when `todo_md <ID>` emits a `context-bundle-protocol` stream for a single active task in `TODO.md` whose resolved role is `work` or `design` (`NEXT` tasks and `D*` tasks in `NEW` or `NEXT`) and whose status is not yet `WIP` (unless `--no-wip` is passed), automatically transition that task to `🔵 [WIP]` on disk before rendering the `"task"` fragment so the active session is immediately visible as `WIP`. Plain TTY/step calls, `--no-wip`, archived tasks, and `NEW` non-`D` tasks (`role=plan`) do not mutate status on disk.
   - In bundle mode, emit `Bundle-Protocol: 1`, `Bundle-Command`, `Bundle-Boundary: <nonce>`, `Bundle-Expose: Role, Task, Title`, context headers (`Task`, `Title`, `Role`, `Workdir`), `===== Rules =====` containing `{"kind": "rule", "id": "todo_md:todo_md", "chain": ["todo_md"]}`, preloaded `{"kind": "include", "name": "<rel_path>[:<start>-<end>]", "chain": ["todo_md"]}` fragments for `- Target files:` entries within default size budgets (`<= 400` lines per file/slice, `<= 1200` total lines, `<= 32768` bytes; skipped when `--no-files` is passed), and `===== Prompt =====` containing `{"kind": "task", "id": "<ID>", "name": "<file>:<ID>", "chain": ["todo_md"]}` (or `{"kind": "context", "name": "todo_md", "chain": ["todo_md"]}`).
   - Update `agents/todo_md.md` to document the `- Target files:` contract (`path:symbol`, `path:sym1..sym2`, and `path:start-end` slices for files `> 400` lines; omitting `TODO*.md`/`AGENTS.md`), automatic `WIP` transition on bundle session start for `work` and `design` tasks, and running `todo_md done <ID>` inside the final commit step.
-- Target files: `src/header.py`, `src/commands.py:1025-1155`, `src/cli.py:379-759`, `agents/todo_md.md`, `build.py`, `README.md`, `tests/helpers.py`, `tests/test_parser.py:245-305`, `tests/test_commands.py:190-235`, `tests/test_commands.py:655-729`, `tests/test_cli.py:1-260`.
 
 # ❌ [CANCELED] F65: Workspace overview omits inbound orchestrator blockers for prefixed project tasks — *Consolidated into F64*
 
@@ -184,7 +175,6 @@ Other backlog items still point Target files and symbol locations at src/command
 - Ensure `todo_md chain -f <ID>` / `todo_md queue <ID>` (`Next actionable:` in `cmd_chain()` in `src/commands.py:1380-1560`), `todo_md next-id <ID>` (`cmd_next_id()` in `src/commands.py:944-1010`), `_task_dependency_info()` (`cmd_list()` in `src/parser.py:646-792`), and `format_dependency_summary()` (`cmd_show()` in `src/parser.py:646-792`) all report consistent orchestrator-aware blockers and the true first unblocked actionable prerequisite (e.g., `todo_flow:D4` instead of blocked `todo_md:D6`).
 - Align `--ready` (`-r`) task ranking in `plan_execution_chains()` (`src/parser.py:3078-3375`) with top chain priority (`best_chain_rank`): compute ranked `chain_entries` (`Chain 1..K`) before ordering `ready_only` tasks and include each ready task's best (minimum) parent chain index (`best_chain_rank`, ahead of local `-chain_counts`/`-done_counts`/`-unblocks`) so all ready tasks advancing `Chain 1` rank ahead of tasks belonging only to lower-ranked chains (`Chain 2..K`) without needing artificial intra-repo dependency edges.
 - Update `agents/todo_md.md` (or `src/rules/todo_md.md`) and add regression tests in `tests/test_chain.py:1750-2087` and `tests/test_deps.py:1-260` covering `Next actionable:`, `next-id <ID>`, `list`, `show`, and `--ready` (`-r`) chain-priority ordering.
-- Target files: `src/parser.py:433-645`, `src/parser.py:646-792`, `src/parser.py:2029-2290`, `src/parser.py:3078-3375`, `src/commands.py:944-1010`, `src/commands.py:1380-1560`, `tests/test_deps.py:1-260`, `tests/test_chain.py:1750-2087`.
 
 # ✅ [DONE] B3: Scope Sub-chain milestone stats and subtree_nodes to rendered subtree tasks in build_chain_milestone_tree — *2026-11-21, Scoped Sub-chain stats and subtree_nodes to rendered subtree tasks*
 
@@ -327,7 +317,6 @@ Enhance `todo_md --ready` (and add the `-r` short flag) so ready tasks are ranke
 
 # ✅ [DONE] F50: Unify Quest-Log as default todo_md view with flat chains by default, --tree 4-char connectors, --numbered, multi-ID show, --search, and filters — *2026-11-20*
 
-- Role: work
 - Depends on: F53
 - Flat topological chains by default, `--tree` / `-t` 4-char connectors, and `--numbered` in `cmd_chain()` (`src/commands.py`):
   - By default (without `--tree`), render each root chain `Chain <N> -> <root_ref>: <root_title> (<total> tasks, <pct>% | <done> done, <open> open):` as a flat topological sequence of tasks in execution order (without tree connectors or nested `Sub-chain ->` headers).
@@ -349,7 +338,6 @@ Enhance `todo_md --ready` (and add the `-r` short flag) so ready tasks are ranke
 
 # ✅ [DONE] F53: Render nested milestone sub-chains and multi-line wrapped tree rows in todo_md chain — *2026-11-20, Render nested milestone sub-chains and multi-line wrapped tree rows in todo_md chain*
 
-- Role: work
 - Depends on: F52
 - In `src/parser.py` and `cmd_chain()` (`src/commands.py`), detect intermediate milestone / aggregator nodes inside a chain's prerequisite cone (internal nodes that have prerequisites of their own before feeding into downstream tasks, including `DONE` prerequisites when `--all` is active) and render their prerequisite subtrees as indented `├─ Sub-chain -> <milestone_ref>: <title> (<pct>% | <done> done, <open> open):` blocks with tree connectors (`├─`, `│   `, and `└─►` on closing milestone and root rows).
 - Extend `_wrap_table_row()` in `src/parser.py` with an optional tree continuation prefix (`cont_prefix`) so all chain and sub-chain tree rows wrap cleanly across multiple lines while preserving active vertical tree bars (`│   `) on wrapped continuation lines without `...` truncation in terminals or pipes.
@@ -358,7 +346,6 @@ Enhance `todo_md --ready` (and add the `-r` short flag) so ready tasks are ranke
 
 # ✅ [DONE] F49: Split monolithic test_todo_md.py into modular tests/test_*.py with tests/helpers.py and full returncode diagnostics — *2026-11-20, Split monolithic test_todo_md.py into modular tests/test_*.py with tests/helpers.py and full returncode diagnostics*
 
-- Role: work
 - Create `tests/helpers.py` with `ROOT`, `SCRIPT`, `INSTALL_SH`, and a shared base class `TodoMdTestCase(unittest.TestCase)` that caches the loaded `./todo_md` module once at import/class setup and provides `setUp()`, `tearDown()`, `_table_rows()`, `_assert_ok()`, `_run_subprocess()`, `_run_in_process()`, and `_run()`.
 - Update the remaining `self.assertEqual(r.returncode, 0)` assertions that lack a `msg=` argument to either pass `check=True` to `self._run(...)` or include `msg=r.stderr` / `self._assert_ok()`.
 - Programmatically slice all 33 `test_*` methods from `tests/test_todo_md.py` via `ast.parse()` (`node.lineno`..`node.end_lineno`) without re-emitting test bodies in chat into focused test modules:
@@ -371,7 +358,6 @@ Enhance `todo_md --ready` (and add the `-r` short flag) so ready tasks are ranke
 
 # ✅ [DONE] F52: Build root-anchored chains with monotonic Quest Momentum ranking, [also in: ...] annotations, and --all dimmed DONE tasks — *2026-11-20*
 
-- Role: work
 - Depends on: F38
 - In `plan_execution_chains()` (`src/parser.py`), replace undirected weakly-connected component grouping with root-anchored chains: build one chain per terminal closing root task (sink node in the active dependency DAG with `in_degree > 0` or resolved `DONE` prerequisites outside `finale_set` and no outgoing active dependents) from its transitive prerequisite cone.
 - Enforce monotonic Quest Momentum and non-decreasing chain ranking in `plan_execution_chains()` (`src/parser.py`) so completing a step via `todo_md done` never demotes the active chain:
@@ -397,7 +383,6 @@ Enhance `todo_md --ready` (and add the `-r` short flag) so ready tasks are ranke
 
 # ❌ [CANCELED] F37: Document Quest-Log chain, side-quest, and priority concepts in AGENTS.md and README.md — *Merged into F50*
 
-- Role: work
 - Depends on: F50
 - Expand `## Product Philosophy & Quest-Log UX` in `AGENTS.md` to define `Chain finales` (ready `work` finale quests whose prerequisite chain is already `DONE`, surfaced first for maximum completion payoff), root-anchored `Chain <N> -> <root_ref>: <root_title>` questlines with nested `Sub-chain` milestones and RPG progress stats (`<total> tasks, <pct>% | <done> done, <open> open`), `Standalone tasks` (side quests ordered by bugs `B*` first, role execution ease `work` -> `plan` -> `design`, then status), `Held branches` (locked branches waiting on `HOLD` conditions), and monotonic Quest Momentum ranking (in-flight `WIP` or most-recently-completed `DONE` affinity, started-chain status floor, whole-cone bug/effort metrics, and immutable root tie-breaker in `plan_execution_chains()`).
 - Add a concise Quest-Log summary in `README.md` explaining `chain`, `queue`, and `done` progression for users (keeping `src/rules/todo_md.md` lean without narrative metaphors).
@@ -410,7 +395,6 @@ Enhance `todo_md --ready` (and add the `-r` short flag) so ready tasks are ranke
 
 # ✅ [DONE] F43: Implement status-aware task role fallback, promotion transition, and role validation — *2026-11-20*
 
-- Role: work
 - Implement the status-aware role assignment and validation contract from `todo_flow` (`docs/adr/0001-task-role-assignment-and-status-fallback.md`):
   1. Status-aware role fallback (`src/header.py`, `src/parser.py`): set `PREFIX_DEFAULT_ROLES = {"D": "design"}` (removing `"F": "work"` and `"B": "work"`). Update `resolve_task_role(task_id, section_text, status=...)` (and callers across `show`, `list`, `chain`, `next-id`) so explicit `- Role: <role>` always wins (normalized to lowercase); when omitted, `D*` resolves to `"design"`, and any non-`D` prefix (`F`, `B`, or custom `A-Z`) resolves to `"work"` when status is `WIP` or `NEXT` and to `"plan"` when status is `NEW`, `QUESTION`, or `HOLD`. Ensure `todo_md <ID>` (`show`) always emits `Role: <role>` in its preamble.
   2. Promotion transition & CLI role normalization (`src/commands.py`): normalize `--role` values in `_normalize_role_arg()` to lowercase and validate against `^[a-z][a-z0-9_-]*$` (rejecting retired roles `execute` and `audit` with a clear hint to use `work` or `review`). When promoting a task to `NEXT` via `todo_md next <ID>` (or `todo_md status <ID> NEXT`), remove an existing `- Role: plan` line from the task body so the promoted non-`D` task resolves to `work` automatically.
@@ -420,7 +404,6 @@ Enhance `todo_md --ready` (and add the `-r` short flag) so ready tasks are ranke
 
 # ✅ [DONE] F48: Integrate .todo_projects orchestrator DAG into todo_md chain and dim external-project tasks in project-scoped views — *2026-11-20, Integrate .todo_projects orchestrator DAG into todo_md chain and dim external-project tasks*
 
-- Role: work
 - When `todo_md chain` runs inside an orchestrator repository containing `.todo_projects` (or `.todo_projects.local` / `TODO_MD_PROJECTS`), automatically build execution chains across the orchestrator and all configured projects from `.todo_projects` by default (without requiring `-w`), and filter `todo_md chain -w` discovery to `.todo_projects` when present.
 - When `todo_md chain` targets a child project (either run directly inside `<child>` or via `todo_md -C <child> chain` / `--project <child>`), automatically discover any workspace orchestrator whose `.todo_projects` lists `<child>` and merge the orchestrator's cross-project dependency edges into `build_execution_chain_dag()` (`src/parser.py`) so child tasks (such as `run_block:F72`) reflect their real orchestrator prerequisites (`[blocked by: todo_flow:D8, todo_flow:F4]`) and join their full chain instead of appearing as `[ready]` standalone tasks.
 - In project-scoped `cmd_chain()` views (`src/commands.py`), filter displayed `Chain finales:`, `Chain 1..N`, `Standalone tasks:`, `Ready tasks:`, `Queues:`, and `Held branches:` to only chains and tasks containing at least one task from the target project.
@@ -430,7 +413,6 @@ Enhance `todo_md --ready` (and add the `-r` short flag) so ready tasks are ranke
 
 # ✅ [DONE] F47: Restrict Chain finales to work tasks and rank chains by role-weighted velocity (work=1, plan=2, design=5) — *2026-11-20, Restrict Chain finales to work tasks and rank chains by role-weighted velocity*
 
-- Role: work
 - Define `ROLE_EFFORT_WEIGHTS` in `src/header.py` mapping task roles to expected implementation-task equivalents (`"work": 1`, `"plan": 2`, `"design": 5`, with unknown/unannotated roles defaulting to `5`) alongside `ROLE_EASE_ORDER`.
 - Restrict `finale_set` and `Chain finales:` in `_prepare_active_plan()` and `plan_execution_chains()` (`src/parser.py`) strictly to ready leaf tasks (`active_unblocks == 0`) that have completed `DONE` prerequisites (`done_prereqs` or `done_nodes`) AND resolve to `role == "work"`. Within `Chain finales:`, sort by bug priority (`B*` first), active status tier, descending `done_count` (`-len(done_nodes)` so finales of longer completed chains rank above 2-task chains), `order_idx`, and canonical task ref.
 - Keep standalone tasks with no open or completed dependencies (`open_count == 1` and `done_count == 0`) in `Standalone tasks:` regardless of role (`work`, `plan`, or `design`).
@@ -440,7 +422,6 @@ Enhance `todo_md --ready` (and add the `-r` short flag) so ready tasks are ranke
 
 # ✅ [DONE] F46: Number execution chains with RPG progress stats and rank chains and standalone tasks by bugs, role ease, and total value — *2026-11-20, Numbered RPG progress chain headers and deterministic bug/role/value chain ranking*
 
-- Role: work
 - In `build_execution_chain_dag()` (`src/parser.py`), recursively traverse `- Depends on:` clauses of `DONE` prerequisites (across both local `TODO_ARCHIVE.md` and cross-project `<project>:<ID>` archives in `-w` workspace mode) while excluding `CANCELED` and `MISSING` tasks, recording the transitive `DONE` node set (`done_nodes`) for each active task and connected chain component.
 - Make connected-component traversal and DAG ordering in `build_execution_chain_dag()` and `plan_execution_chains()` (`src/parser.py`) strictly deterministic by sorting `undirected` neighbors and tie-breakers with a canonical task reference key rather than relying on Python `set` iteration order.
 - Compute non-decreasing chain value and RPG progress metrics for each chain in `plan_execution_chains()` (`src/parser.py`): `open_count`, `done_count` (unique transitive `DONE` tasks linked to the chain), `total_tasks = done_count + open_count`, `progress_pct = round(100 * done_count / total_tasks)`, bug metrics (`ready` `B*` count, `total_bugs = open_bugs + done_bugs`, minimum dependency distance to an open `B*` task), and role execution ease (`work` < `plan` < `design` < other, based on the ready step role and remaining open task roles).
@@ -451,14 +432,12 @@ Enhance `todo_md --ready` (and add the `-r` short flag) so ready tasks are ranke
 
 # ✅ [DONE] B1: Filter todo_md next-id by --role and readiness and pass --role work in todo_md.bundle — *2026-11-20*
 
-- Role: work
 - Update `resolve_top_task_id()` and `cmd_next_id()` (`src/commands.py`) and CLI parsing in `main()` (`src/cli.py`) to accept `--role <role>` (and `--role=<role>`) on `todo_md next-id`, and ensure `resolve_top_task_id()` skips tasks with unresolved `- Depends on:` blockers as well as tasks not matching `--role` when specified.
 - Update `src/bundles/todo_md.bundle` (`[if role=work]`) to invoke `var task=$(todo_md next-id --role work)` so `role=work` never auto-selects or transitions `design` or `plan` tasks (or blocked tasks) to `WIP`.
 - Keep `src/header.py` (`--help`), `src/rules/todo_md.md`, `README.md`, and `tests/test_todo_md.py` in sync, rebuild `./todo_md` via `build.py` (and reinstall via `install.sh`), and bump `VERSION` for a MINOR release.
 
 # ❌ [CANCELED] D4: Design named execution chains, milestone sub-grouping, and questline clarity in todo_md chain — *Superseded by F46 numbered RPG progress headers and invariant chain value ranking*
 
-- Role: design
 - Explore adding human-readable names to `todo_md chain` headers (both automatic derivation from a chain's terminal goal task title when unique and an optional explicit `- Chain: <name>` / `--chain` metadata field as override) instead of printing only long `A -> B -> C` ID lists.
 - Evaluate splitting or labeling large merged weakly-connected components (such as multi-wave orchestrator DAGs) by milestone/goal sub-chains (`wave` / `queue`-style subtrees) and distinguishing quick `work` side-quests from `design` tasks in `Standalone tasks:`.
 - Define optional filtering by chain name (`todo_md chain "<name>"`) and coordinate questline naming conventions with `AGENTS.md` Quest-Log UX (`F37`) and orchestrator wave summaries.
@@ -466,7 +445,6 @@ Enhance `todo_md --ready` (and add the `-r` short flag) so ready tasks are ranke
 
 # ✅ [DONE] F45: Show chain finales with all dependencies resolved first in todo_md chain — *2026-11-20, Surface chain finales first with [ready | after: ...] in todo_md chain*
 
-- Role: work
 - Track resolved (`DONE`) prerequisites per active node (`done_prereqs`) in `build_execution_chain_dag()` (`src/parser.py`) when traversing `- Depends on:` clauses instead of discarding them without trace.
 - In `_prepare_active_plan()` and `plan_execution_chains()` (`src/parser.py`), classify single-node active components (`len(comp) == 1`) that have resolved `DONE` prerequisites and no open blockers into a dedicated `finales` list (separate from `standalone` tasks that never had dependencies), and rank ready chain finales first within their status tier in `_node_rank()` across default `chain`, `--ready`, and `--by-role` modes.
 - In `cmd_chain()` (`src/commands.py`), render `Chain finales:` as the very first section (before `Chain: ...` and `Standalone tasks:`), format their status tag as `[ready | after: <ref>, ...]` (showing up to 3 resolved prerequisite refs with `...` truncation) across `chain`, `--ready`, and `--by-role`, and apply `--role` and `--limit` filters consistently starting from `Chain finales:`.
@@ -488,13 +466,11 @@ Enhance `todo_md --ready` (and add the `-r` short flag) so ready tasks are ranke
 
 # ✅ [DONE] F41: Show downstream next tasks in todo_md chain --ready output — *2026-11-19, Show downstream unblocked targets in chain --ready output*
 
-- Role: work
 - Update the `ready` rendering branch in `cmd_chain()` (`src/commands.py`) using `dependents` from `build_execution_chain_dag()` (`src/parser.py`) so each ready row with `[unblocks N]` also displays its immediate (or downstream) unblocked targets (for example `[ready | unblocks 3 -> F54, F68, ...]` or `leads to: ...`), giving chain continuation context without leaving `--ready`.
 - Keep `src/header.py` (`--help`), `README.md`, and `tests/test_todo_md.py` in sync, rebuild `./todo_md` via `build.py`, and bump `VERSION` for a PATCH release.
 
 # ✅ [DONE] F40: Add --by-role execution queue mode to todo_md chain — *2026-11-19*
 
-- Role: work
 - Add a role-tiered queue planner helper (e.g. `plan_execution_chains_by_role()` in `src/parser.py`) over `build_execution_chain_dag()` that partitions active non-held tasks into four topologically sorted queues:
   1. `Queue 1 (work)`: `role == "work"` with no open transitive dependencies or all transitive dependencies also in `work`.
   2. `Queue 2 (plan)`: `role == "plan"` with no open transitive dependencies or transitive dependencies in `work`/`plan`.
@@ -505,7 +481,6 @@ Enhance `todo_md --ready` (and add the `-r` short flag) so ready tasks are ranke
 
 # ✅ [DONE] F39: Display role badges in todo_md chain and add --role filter — *2026-11-18*
 
-- Role: work
 - Update `cmd_chain()` (`src/commands.py`) to display a padded `[role]` column (reusing `_task_role_badge()` from `src/parser.py`, matching `cmd_list()` / `cmd_workspace_list()`, and leaving it blank for `MISSING` placeholders where `exists` is false) across `Chain:`, `Standalone tasks:`, and `--ready` rows while preserving `_wrap_table_row()` alignment.
 - Add `--role <role>` (and `--role=<role>`) option to `todo_md chain` in `main()` (`src/cli.py`) and `cmd_chain()` (`src/commands.py`), filtering displayed tasks via `_task_matches_role()` (e.g. `todo_md chain -w --role work --ready` or `--role plan`) while keeping DAG validation and unblock context clear.
 - Keep `src/header.py` (`--help`), `src/rules/todo_md.md`, `README.md`, and `tests/test_todo_md.py` in sync, rebuild `./todo_md` via `build.py` (and reinstall via `install.sh` if applicable), and bump `VERSION` for a MINOR release.
@@ -520,7 +495,6 @@ Enhance `todo_md --ready` (and add the `-r` short flag) so ready tasks are ranke
 
 # ✅ [DONE] F32: Add --tree view to todo_md list with terminal-width title truncation — *2026-11-18, Add --tree dependency hierarchy view to list with terminal-width truncation*
 
-- Role: work
 - Depends on: F31
 - Add `--tree` option to `todo_md list` in `src/cli.py`, `src/parser.py`, and `src/header.py` (`-h`/`--help`) to render active dependency chains as an indented hierarchy (`└─` / `├─`) with prerequisites placed above their blocked dependents across status buckets.
 - Detect terminal width via `shutil.get_terminal_size` (with a sensible non-TTY fallback) to truncate task titles with `...` so rows stay on a single line, and fall back to compact ID-only tree lines when the terminal is too narrow to show titles cleanly.
@@ -529,7 +503,6 @@ Enhance `todo_md --ready` (and add the `-r` short flag) so ready tasks are ranke
 # ✅ [DONE] F25: Detect stale completion date notes on active tasks in todo_md check — *2026-11-18, reject stale completion date notes on active tasks in check*
 
 - Extend `validate_all` in `src/parser.py` so `todo_md check` (and automatic post-mutation validation) reports an error when an active task in `TODO.md` retains a completion date stamp (`— *YYYY-MM-DD...*`) in its heading, instructing the user to move it back to `TODO_ARCHIVE.md` or clear the stale note.
-- Target files: `src/parser.py`, `src/rules/todo_md.md`, `README.md`, `tests/test_todo_md.py`.
 
 # ✅ [DONE] F34: Rank ready tasks by unblock impact in chain and print newly unblocked tasks on done — *2026-11-18, Rank ready tasks by unblock impact in chain and print newly unblocked tasks on done*
 
@@ -540,7 +513,6 @@ Enhance `todo_md --ready` (and add the `-r` short flag) so ready tasks are ranke
 
 # ✅ [DONE] F33: Add todo_md chain command for local and cross-project execution order — *2026-11-18, Add todo_md chain command for local and cross-project execution order*
 
-- Role: work
 - Add `todo_md chain [--limit N] [--include-hold]` (supporting `-w` / `--workspace` and `-C` / `--project`) in `src/parser.py`, `src/commands.py`, `src/cli.py`, and `src/header.py`.
 - Build a unified dependency DAG across all open non-`HOLD` tasks in the target project (resolving transitive `<project>:<ID>` prerequisites) or across all discovered workspace projects when `-w` is set, printing a compact `A -> B -> C` chain summary followed by ordered task rows (truncated to the first `N` tasks when `--limit N` is passed).
 - Exclude `HOLD` tasks and tasks transitively blocked by `HOLD` from the main chain by default, rendering frozen chains under a separate `Held branches:` section (e.g., `H1 (HOLD) -> F2 (NEW)`), and include them in the main chain when `--include-hold` is passed.
@@ -548,7 +520,6 @@ Enhance `todo_md --ready` (and add the `-r` short flag) so ready tasks are ranke
 
 # ✅ [DONE] F31: Show full unblock chain and blocked WIP badge in todo_md list — *2026-11-18, Show full unblock chains and blocked WIP badges in list*
 
-- Role: work
 - Update `_task_dependency_info` in `src/parser.py` so multi-step unresolved dependency chains render the full ordered path from the ready root to the direct blocker (for example `[blocked: F21 (WIP) -> F22 (NEXT) -> F23 (WIP)]`) instead of truncating intermediate tasks with `<- start: <ID>`, while keeping `[blocked: <ID> (<STATUS>)]` for single-hop blockers.
 - Update `cmd_list` and `cmd_workspace_list` in `src/parser.py` to display `⏳ [WIP]` (matching `⏳ [NEXT]`) whenever a `WIP` task has unresolved dependencies.
 - Update `src/rules/todo_md.md`, `README.md`, and unit tests in `tests/test_todo_md.py` to cover full chain formatting and blocked `WIP` badges.
@@ -569,14 +540,12 @@ Enhance `todo_md --ready` (and add the `-r` short flag) so ready tasks are ranke
 
 - Move `import urllib.request` out of top-level `src/header.py` into `fetch_remote_script` in `src/cli.py` so regular commands (`--version`, `check`, `add`, `list`, etc.) avoid importing `urllib.request`, `http.client`, and `ssl` (~21 ms startup overhead).
 - Rebuild standalone `todo_md` via `python3 build.py`, verify `python3 build.py --check`, reinstall locally via `sh install.sh --yes`, and add an offline unit test in `tests/test_todo_md.py` confirming `urllib.request` is not imported on normal commands while `update` / `check-update` behavior remains intact.
-- Target files: `src/header.py`, `src/cli.py`, `todo_md`, `tests/test_todo_md.py`.
 
 # ✅ [DONE] F28: Speed up unit tests by running CLI calls in-process — *2026-11-17, in-process CLI test runner*
 
 - Load the built `todo_md` script once per test class (e.g. in `setUpClass` via `importlib.machinery.SourceFileLoader`) and execute `main(argv)` in-process inside `tests/test_todo_md.py` with isolated `stdout`, `stderr`, `stdin`, `cwd`, and `os.environ` instead of spawning nearly 300 `subprocess.run` processes.
 - Keep real `subprocess.run` coverage for executable entrypoint and environment integration tests (`-h`, `--version`, `pty` TTY error handling, `git` `--commit`, and `install.sh`).
 - Verify `python3 -m unittest discover -s tests` passes cleanly with zero `ResourceWarning`s and completes in under 2 seconds.
-- Target files: `tests/test_todo_md.py`.
 
 # ✅ [DONE] F27: Order list output topologically by dependencies, highlight blocked NEXT tasks, and add --ready filter — *2026-11-17*
 
@@ -603,7 +572,6 @@ Enhance `todo_md --ready` (and add the `-r` short flag) so ready tasks are ranke
 - Add `todo_md queue <ID> [--all]` to display the stable topologically sorted execution queue (hiding `DONE` by default unless `--all` is passed) with `[ready]` / `[blocked by: ...]` markers and `Next actionable: <ref>`.
 - Extend `todo_md next-id [<ID>]` to accept an optional `<ID>` (or `<project>:<ID>`) and print the first unblocked actionable task ID in `<ID>`'s queue (or `<ID>` itself when all deps are `DONE`), exiting non-zero on cycles, missing/canceled blockers, or already-closed targets.
 - Update `src/rules/todo_md.md` to specify the `--depends` contract (`A,B` vs `"A -> B -> C"`, no `- Order:`, one-way boundaries) and `queue` / `next-id <ID>` usage.
-- Target files: `src/header.py`, `src/parser.py`, `src/commands.py`, `src/cli.py`, `src/rules/todo_md.md`, `README.md`, `tests/test_todo_md.py`.
 
 # ✅ [DONE] F26: Display resolved task role and support --role filter in todo_md list — *2026-11-17*
 
@@ -632,7 +600,6 @@ Enhance `todo_md --ready` (and add the `-r` short flag) so ready tasks are ranke
 - Reject transitions from `TODO_ARCHIVE.md` (`DONE` or `CANCELED`) to active statuses (`WIP`, `NEXT`, `NEW`, `HOLD`, `QUESTION`) in `status` and `next` (and reject re-archiving already archived tasks in `done`, `cancel`, and `archive <ID>`) unless `--reopen` is explicitly passed, exiting non-zero with the current archived status, closing note, and a hint to use `--reopen` or `reopen <ID>`.
 - Add `--reopen` support to `status` and `next`, plus a `todo_md reopen <ID> [--status <STATUS>] [-m "<note>"] [-c]` subcommand that moves the task back to `TODO.md` (default status `NEW`) and clears any prior closing note from the heading unless `-m` is supplied.
 - Ensure pre-execution hooks in `src/bundles/todo_md.bundle` (`$ todo_md status {task:} WIP`) fail fast before session startup if given an archived task ID, while read/audit commands (`show`, `files`, `role=audit`) continue to work on archived tasks.
-- Target files: `src/cli.py`, `src/commands.py`, `src/header.py`, `src/rules/todo_md.md`, `src/bundles/todo_md.bundle`, `README.md`, `tests/test_todo_md.py`.
 
 # ✅ [DONE] F23: Emit Task, Role, and Workdir headers in single-task show output — *2026-11-17, emit Task, Role, and Workdir headers*
 

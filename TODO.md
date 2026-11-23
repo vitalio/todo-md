@@ -1,11 +1,3 @@
-# 🎯 [NEXT] F77: Remove legacy - Role: stripping on next and clean - Role: / - Target files: from TODO_ARCHIVE.md
-
-- Depends on: F72, F74, F76
-- Remove transitional `_strip_plan_role_from_section_lines` auto-stripping on `todo_md next` / status promotion to `NEXT` from `src/commands.py`, and remove `(strips - Role:; ...)` notes from `src/header.py`, `agents/todo_md.md`, `AGENTS.md`, and `README.md`.
-- Extend `todo_md check` in `src/parser.py` to reject legacy in-body `- Role:` and `- Target files:` lines across both `TODO.md` and `TODO_ARCHIVE.md`.
-- Strip historical `- Role:` and `- Target files:` lines from `TODO_ARCHIVE.md`.
-- Acceptance criteria: `todo_md next` no longer contains legacy `- Role:` stripping code, `todo_md check` validates both `TODO.md` and `TODO_ARCHIVE.md` against `- Role:` and `- Target files:` lines, `TODO_ARCHIVE.md` is clean, and `./build.py` and `python3 -m unittest discover -s tests` pass.
-
 # 🎯 [NEXT] F73: Forbid cross-project Depends on references in non-orchestrator repositories in todo_md check
 
 - In `validate_all()` (`src/parser.py`), reject cross-project `<project>:<ID>` references (`PROJECT_TASK_RE`) in `- Depends on:` when the current repository is not an orchestrator (`not has_local_todo_projects_config(base_dir)`), reporting a clear error message instructing to keep cross-project dependencies in the workspace orchestrator repository (`.todo_projects`).
