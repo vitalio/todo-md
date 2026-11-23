@@ -488,7 +488,7 @@ def cmd_chain(
                 )
                 chain_highlighted = any(_is_highlighted_node(u) for u in chain_nodes)
                 total_c = done_c + open_c
-                chain_stat_tag = f"[{pct}% | {done_c}/{total_c}]"
+                chain_stat_tag = f"{pct}% | {done_c}/{total_c} |"
                 header_line = f"{chain_stat_tag} Chain {chain_idx} -> {root_ref}: {root_title}:\n"
                 sys.stdout.write(
                     _style_task_row(
@@ -566,7 +566,7 @@ def cmd_chain(
                             )
                             sub_cont_prefix = f"  {sub_cont_bars}" if sub_cont_bars.strip() else "    "
                             m_total = m_done + m_open
-                            sub_stat_tag = f"[{m_pct}% | {m_done}/{m_total}]"
+                            sub_stat_tag = f"{m_pct}% | {m_done}/{m_total} |"
                             if collapsed_done:
                                 sub_desc = f"{sub_stat_tag} Sub-chain -> {m_ref}: {m_title} (✅ [DONE] — see above)"
                             else:

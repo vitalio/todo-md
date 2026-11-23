@@ -610,7 +610,7 @@ class TestParser(TodoMdTestCase):
         # Enclosing Chain 1 (finale F1) and Chain 2 (containing todo_flow:D1) headers are highlighted
         self.assertTrue(
             any(
-                ln.startswith("\033[1;93m[50% | 1/2] Chain 1 -> F1: RB finale task:")
+                ln.startswith("\033[1;93m50% | 1/2 | Chain 1 -> F1: RB finale task:")
                 and ln.endswith("\033[0m")
                 for ln in lines_hl
             ),
@@ -618,7 +618,7 @@ class TestParser(TodoMdTestCase):
         )
         self.assertTrue(
             any(
-                ln.startswith("\033[1;93m[0% | 0/3] Chain 2 -> todo_flow:F1: Flow goal:")
+                ln.startswith("\033[1;93m0% | 0/3 | Chain 2 -> todo_flow:F1: Flow goal:")
                 and ln.endswith("\033[0m")
                 for ln in lines_hl
             ),
@@ -671,11 +671,11 @@ class TestParser(TodoMdTestCase):
             check=True,
         )
         self.assertTrue(
-            any(ln.startswith("[50% | 1/2] Chain 1 -> F1: RB finale task:") for ln in r_hl_only_f3.stdout.splitlines()),
+            any(ln.startswith("50% | 1/2 | Chain 1 -> F1: RB finale task:") for ln in r_hl_only_f3.stdout.splitlines()),
             msg=r_hl_only_f3.stdout,
         )
         self.assertTrue(
-            any(ln.startswith("[0% | 0/3] Chain 2 -> todo_flow:F1: Flow goal:") for ln in r_hl_only_f3.stdout.splitlines()),
+            any(ln.startswith("0% | 0/3 | Chain 2 -> todo_flow:F1: Flow goal:") for ln in r_hl_only_f3.stdout.splitlines()),
             msg=r_hl_only_f3.stdout,
         )
         self.assertTrue(

@@ -19,8 +19,9 @@ rules are loaded via `.context.bundle`.
   letting users drill into full quest details, dependency chains (`chain`),
   and execution paths (`queue`, `--full`) on demand.
 - Default view is the Quest-Log: `todo` (also `todo -w` and `todo <project>`)
-  renders `cmd_chain()` as flat topological chains in execution order without row
-  numbers; `--tree` / `-t` adds nested `Sub-chain ->` milestone trees with 4-char
+  renders `cmd_chain()` (`<pct>% | <done>/<total> | Chain <N> -> <root_ref>: <root_title>:`) as flat
+  topological chains in execution order without row numbers; `--tree` / `-t` adds nested
+  `<pct>% | <done>/<total> | Sub-chain -> <m_ref>: <m_title>:` milestone trees with 4-char
   connectors (`├── `, `└── `, `└─► `, `│   `) and `--numbered[=left|right]` adds
   period-free row numbers padded to the widest number. The Markdown overview lives
   in `todo overview` (and bare `todo --full`).

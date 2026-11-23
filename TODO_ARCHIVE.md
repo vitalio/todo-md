@@ -1,3 +1,10 @@
+# ✅ [DONE] F83: Format Chain and Sub-chain headers as '<pct>% | <done>/<total> | Chain <N> -> ...' without brackets — *2026-11-23*
+
+- Depends on: F59 -> F60 -> F61 -> B6 -> F72
+- Bump: `PATCH`
+- In `cmd_chain()` (`src/render_chain.py`), format root chain headers as `<pct>% | <done>/<total> | Chain <N> -> <root_ref>: <root_title>:` and nested `--tree` milestone headers as `<m_pct>% | <m_done>/<m_total> | Sub-chain -> <m_ref>: <m_title>:` (replacing the bracketed `[<pct>% | <done>/<total>]` prefix).
+- Update Quest-Log header format references in `README.md` and `AGENTS.md`, rebuild `./todo`, and update tests in `tests/test_chain.py` and `tests/test_parser.py`.
+
 # ✅ [DONE] F73: Forbid cross-project Depends on references in non-orchestrator repositories in todo check — *2026-11-23, Reject cross-project Depends on references in non-orchestrator repositories in todo check*
 
 - In `validate_all()` (`src/parser.py`), reject cross-project `<project>:<ID>` references (`PROJECT_TASK_RE`) in `- Depends on:` when the current repository is not an orchestrator (`not has_local_todo_projects_config(base_dir)`), reporting a clear error message instructing to keep cross-project dependencies in the workspace orchestrator repository (`.todo_projects`).

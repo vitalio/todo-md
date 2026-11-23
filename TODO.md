@@ -1,10 +1,3 @@
-# 🎯 [NEXT] F83: Format Chain and Sub-chain headers as '<pct>% | <done>/<total> | Chain <N> -> ...' without brackets
-
-- Depends on: F59 -> F60 -> F61 -> B6 -> F72
-- Bump: `PATCH`
-- In `cmd_chain()` (`src/render_chain.py`), format root chain headers as `<pct>% | <done>/<total> | Chain <N> -> <root_ref>: <root_title>:` and nested `--tree` milestone headers as `<m_pct>% | <m_done>/<m_total> | Sub-chain -> <m_ref>: <m_title>:` (replacing the bracketed `[<pct>% | <done>/<total>]` prefix).
-- Update Quest-Log header format references in `README.md` and `AGENTS.md`, rebuild `./todo`, and update tests in `tests/test_chain.py` and `tests/test_parser.py`.
-
 # 🎯 [NEXT] F80: Support <alias>=<path> project mapping in .todo_projects and .todo_projects.local
 
 - Allow entries in `.todo_projects` and `.todo_projects.local` to map a canonical project identifier to a local relative or external directory path (`<project_id>=<path>`), so `Depends on: <project_id>:<ID>` in an orchestrator's `TODO.md` resolves cleanly even when a local checkout directory has a different name or location.
