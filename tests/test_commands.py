@@ -357,23 +357,25 @@ class TestCommands(TodoMdTestCase):
             self.assertEqual(r.returncode, 0, f"{filt}: {r.stderr}")
             self.assertEqual(r.stdout.strip(), exp, f"last-id {filt}")
 
-        # last and show last render full section for resolved task
+        # last and show last render full section for resolved task without IDs-in-use footer
         r_last = self._run([str(SCRIPT), "last", "DONE"])
         self.assertEqual(r_last.returncode, 0, r_last.stderr)
         self.assertIn("# TODO_ARCHIVE.md:", r_last.stdout)
         self.assertIn("# ✅ [DONE] F11: Done task", r_last.stdout)
         self.assertIn("Body D1", r_last.stdout)
-        self.assertIn("IDs in use:", r_last.stdout)
+        self.assertNotIn("IDs in use:", r_last.stdout)
 
         r_show_last = self._run([str(SCRIPT), "show", "last"])
         self.assertEqual(r_show_last.returncode, 0, r_show_last.stderr)
         self.assertIn("# TODO.md:", r_show_last.stdout)
         self.assertIn("# ⚪ [NEW] F8: New two", r_show_last.stdout)
         self.assertIn("Body U2", r_show_last.stdout)
+        self.assertNotIn("IDs in use:", r_show_last.stdout)
 
-        # list and list -w display active tasks in exact TODO.md file order (top to bottom)
+        # list and list -w display active tasks in exact TODO.md file order (top to bottom) without IDs-in-use footer
         r_list_new = self._run([str(SCRIPT), "list", "NEW"], check=True)
         self.assertLess(r_list_new.stdout.index("F7"), r_list_new.stdout.index("F8"))
+        self.assertNotIn("IDs in use:", r_list_new.stdout)
 
         r_list_act = self._run([str(SCRIPT), "list", "active"], check=True)
         out = r_list_act.stdout

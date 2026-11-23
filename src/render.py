@@ -182,7 +182,6 @@ def cmd_last(base_dir: Path, filt: str | None = None) -> int:
 @_discovery_scoped
 def cmd_show(base_dir: Path, task_id: str) -> int:
     target = task_id.strip().upper()
-    top = highest_ids_in_use(base_dir)
     p_res = base_dir.resolve()
     workdir = str(p_res)
     shared = _ACTIVE_DISCOVERY
@@ -211,7 +210,7 @@ def cmd_show(base_dir: Path, task_id: str) -> int:
         dep_line = format_dependency_summary(base_dir, section, task=t)
         dep_block = f"\n{dep_line}" if dep_line else ""
         sys.stdout.write(
-            f"{headers}\n\n# {t['file']}:{t['line']}\n{section}{dep_block}\n\n---\nIDs in use: {format_ids_summary(top)}\n"
+            f"{headers}\n\n# {t['file']}:{t['line']}\n{section}{dep_block}\n"
         )
         return 0
     sys.stderr.write(f"{prog_name()}: task {target!r} not found in TODO*.md under {base_dir}\n")
@@ -740,32 +739,43 @@ def cmd_list(
                     use_color=use_color,
                 )
             )
-    top = highest_ids_in_use(base_dir)
-    sys.stdout.write(f"\nIDs in use: {format_ids_summary(top)}\n")
     return 0
 
 def cmd_projects(base_dir: Path, explicit_dir: str | None = None) -> int:
-    ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
-    projects = discover_projects(ws_root)
+    b_res = base_dir.resolve()
+    ws_root = resolve_workspace_root(b_res, explicit_dir=explicit_dir)
+    ws_res = ws_root.resolve()
+    all_projs = discover_projects(ws_res)
+    if has_local_todo_projects_config(b_res) or (
+        explicit_dir is None and bool(os.environ.get("TODO_MD_PROJECTS", "").strip())
+    ):
+        entries = read_configured_todo_project_entries(
+            b_res, ws_res, include_env=True, discovered=all_projs
+        )
+        projects = [
+            (alias if alias else project_label(p_dir, ws_res), p_dir)
+            for alias, p_dir in entries
+        ]
+    else:
+        projects = all_projs
     if not projects:
         sys.stdout.write(f"No todo_md projects found under {ws_root}\n")
         return 0
     sys.stdout.write(f"Workspace: {ws_root} ({len(projects)} project(s))\n")
     term_width = _get_terminal_columns()
     for name, proj_dir in projects:
-        active = parse_tasks_in_text(read_if_exists(proj_dir / "TODO.md"), "TODO.md")
+        p_res = proj_dir.resolve()
+        active = parse_tasks_in_text(read_if_exists(p_res / "TODO.md"), "TODO.md")
         counts: dict[str, int] = {}
         for t in active:
             st = str(t["status"])
             counts[st] = counts.get(st, 0) + 1
         highlights = [f"{st}: {counts[st]}" for st in ("WIP", "NEXT", "QUESTION") if counts.get(st)]
         base_prefix = f"  {_pad_display(name, 26)}  {len(active):>3} open"
-        if highlights:
-            sys.stdout.write(
-                _wrap_table_row(f"{base_prefix} ", f"({', '.join(highlights)})", term_width) + "\n"
-            )
-        else:
-            sys.stdout.write(f"{base_prefix}\n")
+        details = f"({', '.join(highlights)})  {p_res}" if highlights else str(p_res)
+        sys.stdout.write(
+            _wrap_table_row(f"{base_prefix} ", details, term_width) + "\n"
+        )
     return 0
 
 @_discovery_scoped

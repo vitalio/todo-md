@@ -54,8 +54,9 @@ rules are loaded via `.context.bundle`.
 - `src/header.py` — help tables rendered by `usage_text()` (`-h`/`--help`),
   standard library imports, version placeholder (`__VERSION__`, injected from
   `VERSION` by `build.py`), and task heading regexes.
-- `src/workspace.py` — project and workspace root resolution, `.todo_projects`
-  and orchestrator discovery, and the per-render `discovery_session()` cache
+- `src/workspace.py` — project and workspace root resolution, `.todo_projects` /
+  `.todo_projects.local` (including `<project_id>=<path>` alias mappings) and
+  orchestrator discovery, and the per-render `discovery_session()` cache
   (`_discovery_scoped` on `cmd_list`, `cmd_show`, `cmd_summary`,
   `cmd_workspace_*`, `_order_active_tasks`); route new discovery calls through
   the cached wrappers and never mutate task files inside an active session.

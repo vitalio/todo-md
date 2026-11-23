@@ -678,10 +678,12 @@ def cmd_add(
     if len(pos) >= 2 and not re.fullmatch(r"[A-Za-z](?:\d+)?", pos[0].strip()):
         cand_proj = pos[0].strip().replace("\\", "/").strip("/")
         ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
-        cand_dir = (ws_root / cand_proj).resolve()
-        if cand_proj and ".." not in cand_proj.split("/") and is_todo_project(cand_dir):
-            base_dir = cand_dir
-            pos = pos[1:]
+        if cand_proj and ".." not in cand_proj.split("/"):
+            ext_dir = lookup_external_alias(base_dir, ws_root, cand_proj)
+            cand_dir = ext_dir if ext_dir is not None else (ws_root / cand_proj).resolve()
+            if is_todo_project(cand_dir):
+                base_dir = cand_dir
+                pos = pos[1:]
 
     _sync_upstream(base_dir, commit, no_commit)
     if len(pos) == 1:

@@ -630,8 +630,11 @@ def main(argv: list[str] | None = None) -> int:
         if Path(args[0]).is_dir():
             explicit_dir = args.pop(0)
         elif not re.fullmatch(r"[A-Za-z]\d+", args[0]) and not PROJECT_TASK_RE.match(args[0]):
-            ws_probe = resolve_workspace_root(resolve_target_dir(None))
-            cand = (ws_probe / args[0].replace("\\", "/").strip("/")).resolve()
+            probe_base = resolve_target_dir(None)
+            ws_probe = resolve_workspace_root(probe_base)
+            norm_arg = args[0].replace("\\", "/").strip("/")
+            ext_cand = lookup_external_alias(probe_base, ws_probe, norm_arg)
+            cand = ext_cand if ext_cand is not None else (ws_probe / norm_arg).resolve()
             if is_todo_project(cand):
                 explicit_dir = str(cand)
                 args.pop(0)

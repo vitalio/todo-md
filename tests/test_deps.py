@@ -3,6 +3,7 @@
 
 import contextlib
 import io
+import os
 import unittest
 import unittest.mock
 from tests.helpers import ROOT, SCRIPT, TodoMdTestCase
@@ -81,11 +82,13 @@ class TestDeps(TodoMdTestCase):
         r_show_ready = self._run([str(SCRIPT), "parent_proj/sub_proj:F1"], cwd=str(ws), check=True)
         self.assertIn("Dependencies (ready): proj_a:F1 ✅ [DONE]", r_show_ready.stdout)
 
-        # Workspace projects listing skips .hidden_proj and node_modules, includes parent_proj and parent_proj/sub_proj
+        # Workspace projects listing skips .hidden_proj and node_modules, includes parent_proj and parent_proj/sub_proj and resolved paths
         r_projs = self._run([str(SCRIPT), "projects"], cwd=str(ws), check=True)
         self.assertIn("proj_a", r_projs.stdout)
+        self.assertIn(str(proj_a.resolve()), r_projs.stdout)
         self.assertIn("parent_proj", r_projs.stdout)
         self.assertIn("parent_proj/sub_proj", r_projs.stdout)
+        self.assertIn(str(proj_c.resolve()), r_projs.stdout)
         self.assertNotIn(".hidden_proj", r_projs.stdout)
         self.assertNotIn("node_modules", r_projs.stdout)
 
@@ -623,6 +626,101 @@ class TestDeps(TodoMdTestCase):
         self.assertEqual(r_next_done.stdout.strip(), "F1")
         r_show_done = self._run([str(SCRIPT), "F1"], cwd=str(todo_md_p), check=True)
         self.assertNotIn("Dependencies (blocked)", r_show_done.stdout)
+
+    def test_alias_path_mapping_in_todo_projects_and_local_and_scoped_projects_view(self):
+        ws = (self.tmp / "ws_alias_map").resolve()
+        ext_root = (self.tmp / "ext_checkouts").resolve()
+        orch = ws / "todo-flow"
+        local_checkout = ws / "todo_md_checkout"
+        sibling_unlisted = ws / "unlisted_sibling"
+        ext_checkout = ext_root / "rb-custom-dir"
+        for d in (orch, local_checkout, sibling_unlisted, ext_checkout):
+            d.mkdir(parents=True)
+            self._run([str(SCRIPT), "init"], cwd=str(d), check=True)
+
+        # Map canonical project IDs to local relative directory and external path
+        (orch / ".todo_projects").write_text(
+            "# Canonical alias mappings\ntodo-md=../todo_md_checkout\n",
+            encoding="utf-8",
+        )
+        (orch / ".todo_projects.local").write_text(
+            f"run-block={ext_checkout}\n",
+            encoding="utf-8",
+        )
+
+        # Add tasks via canonical aliases (-p <alias>, add <alias>, and show/edit <alias>:<ID>)
+        self._run(
+            [str(SCRIPT), "add", "todo-md", "F", "Task in aliased local checkout", "--next"],
+            cwd=str(orch),
+            check=True,
+        )
+        self._run(
+            [str(SCRIPT), "-p", "run-block", "add", "B", "Bug in aliased external checkout", "--next"],
+            cwd=str(orch),
+            check=True,
+        )
+        self._run(
+            [str(SCRIPT), "add", "F", "Unlisted sibling task", "--next"],
+            cwd=str(sibling_unlisted),
+            check=True,
+        )
+
+        # Orchestrator depends on canonical aliases todo-md:F1 -> run-block:B1
+        self._run(
+            [
+                str(SCRIPT),
+                "add",
+                "F",
+                "Orchestrator milestone via canonical aliases",
+                "--next",
+                "--depends",
+                "todo-md:F1 -> run-block:B1",
+            ],
+            cwd=str(orch),
+            check=True,
+        )
+        self._run([str(SCRIPT), "check"], cwd=str(orch), check=True)
+
+        # `todo projects` inside orchestrator lists only managed projects + orchestrator with resolved paths
+        r_projs = self._run([str(SCRIPT), "projects"], cwd=str(orch), check=True)
+        self.assertIn("(3 project(s))", r_projs.stdout)
+        self.assertIn("todo-flow", r_projs.stdout)
+        self.assertIn(str(orch.resolve()), r_projs.stdout)
+        self.assertIn("todo-md", r_projs.stdout)
+        self.assertIn(str(local_checkout.resolve()), r_projs.stdout)
+        self.assertIn("run-block", r_projs.stdout)
+        self.assertIn(str(ext_checkout.resolve()), r_projs.stdout)
+        self.assertNotIn("unlisted_sibling", r_projs.stdout)
+
+        # Quest-Log and dependency resolution use canonical alias labels and resolve across checkouts
+        r_chain = self._run([str(SCRIPT), "chain"], cwd=str(orch), check=True)
+        self.assertIn("todo-md:F1", r_chain.stdout)
+        self.assertIn("run-block:B1", r_chain.stdout)
+        self.assertNotIn("unlisted_sibling", r_chain.stdout)
+
+        r_next = self._run([str(SCRIPT), "next-id", "F1"], cwd=str(orch), check=True)
+        self.assertEqual(r_next.stdout.strip(), "todo-md:F1")
+
+        # Child checkouts see inbound stage edge from orchestrator
+        r_child_next = self._run(
+            [str(SCRIPT), "next-id", "B1"],
+            cwd=str(ext_checkout),
+            env={**os.environ, "TODO_MD_WORKSPACE": str(ws)},
+            check=True,
+        )
+        self.assertEqual(r_child_next.stdout.strip(), "todo-md:F1")
+
+        # Rename in aliased child rewrites orchestrator dependency using canonical alias
+        self._run([str(SCRIPT), "rename", "todo-md:F1", "F9"], cwd=str(orch), check=True)
+        r_show_orch = self._run([str(SCRIPT), "show", "F1"], cwd=str(orch), check=True)
+        self.assertIn("Depends on: todo-md:F9 -> run-block:B1", r_show_orch.stdout)
+        self.assertNotIn("IDs in use:", r_show_orch.stdout)
+
+        # Completing all stages unblocks the orchestrator task
+        r_done_1 = self._run([str(SCRIPT), "done", "todo-md:F9"], cwd=str(orch), check=True)
+        self.assertNotIn("todo-flow:F1", r_done_1.stdout)
+        r_done_2 = self._run([str(SCRIPT), "done", "run-block:B1"], cwd=str(orch), check=True)
+        self.assertIn("Unblocked: todo-flow:F1", r_done_2.stdout)
 
 
 if __name__ == "__main__":

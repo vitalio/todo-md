@@ -1,10 +1,3 @@
-# 🎯 [NEXT] F80: Support <alias>=<path> project mapping in .todo_projects and .todo_projects.local
-
-- Allow entries in `.todo_projects` and `.todo_projects.local` to map a canonical project identifier to a local relative or external directory path (`<project_id>=<path>`), so `Depends on: <project_id>:<ID>` in an orchestrator's `TODO.md` resolves cleanly even when a local checkout directory has a different name or location.
-- Scope `todo projects` inside an orchestrator repository (when `.todo_projects` or `.todo_projects.local` is present) strictly to the orchestrator's managed projects (plus the orchestrator itself) rather than all sibling directories in the parent workspace, and display each project's resolved directory path so `cmd todo projects` in `.context.bundle` provides an unambiguous workspace map.
-- Remove the `IDs in use: ... (next free: ...)` footer from `todo show` and `todo list` output (and remove `todo ids` from embedded `agents/todo.md`) so inspection output stays focused and never tempts agents to pre-guess future task IDs before running `todo add`.
-- Update embedded `agents/todo.md` to: (1) define the status readiness contract (`NEW` for unscoped tasks needing planning, `NEXT` for scoped tasks ready for execution, `WIP` for active work, `QUESTION` for tasks blocked on clarification, `HOLD` for deferred items); (2) state that `todo add` auto-assigns and prints the new `<ID>` (wire dependent tasks using the ID printed by `todo add`); (3) warn that because `,` binds tighter than `->`, `"X, A -> B, Y"` parses as `"(X, A) -> (B, Y)"` so a sequential chain alongside parallel items must be separated with `;` (`"X, Y; A -> B"`); and (4) note that `todo projects` resolves workspace project names and aliases to physical directory paths.
-
 # 🎯 [NEXT] D3: Design explicit HOLD task review workflow and reverse dependency visibility
 
 - Specify how `HOLD` tasks expose downstream blocked dependents (`Blocks: ...` in `show` / `list HOLD`, including cross-project references under `-w`) so reviewers see what unblocks when a `HOLD` condition is met.

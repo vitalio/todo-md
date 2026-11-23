@@ -135,7 +135,7 @@ HELP_COMMANDS: tuple[tuple[str, str], ...] = (
      "backlog); bare --full prints it expanded"),
     ("{prog} search <QUERY> [opts]",
      "Search task IDs, titles, and bodies (same as -s/--search QUERY)"),
-    ("{prog} projects", "List discovered workspace projects and open task counts"),
+    ("{prog} projects", "List workspace or orchestrator projects, open task counts, and directory paths"),
     ("{prog} <ID>... | show <ID>...",
      "Show tasks <ID>... (space- or comma-separated, <project>:<ID> supported) with "
      "Task/Prefix/Status/Title/Workdir headers, separated by blank lines"),

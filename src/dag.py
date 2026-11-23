@@ -23,15 +23,15 @@ def resolve_dependency_statuses(
         pm = PROJECT_TASK_RE.match(ref)
         if pm:
             proj_name, tid = pm.group(1).strip().replace("\\", "/").strip("/"), pm.group(2).upper()
-            target_dir = (ws_root / proj_name).resolve()
-            if not is_todo_project(target_dir) and ws_root.name == ".todo_projects":
-                alt_dir = (ws_root.parent / proj_name).resolve()
-                if is_todo_project(alt_dir):
-                    target_dir = alt_dir
-            if not is_todo_project(target_dir):
-                ext_dir = lookup_external_alias(base_dir, ws_root, proj_name)
-                if ext_dir is not None:
-                    target_dir = ext_dir
+            ext_dir = lookup_external_alias(base_dir, ws_root, proj_name)
+            if ext_dir is not None and is_todo_project(ext_dir):
+                target_dir = ext_dir
+            else:
+                target_dir = (ws_root / proj_name).resolve()
+                if not is_todo_project(target_dir) and ws_root.name == ".todo_projects":
+                    alt_dir = (ws_root.parent / proj_name).resolve()
+                    if is_todo_project(alt_dir):
+                        target_dir = alt_dir
             if not is_todo_project(target_dir):
                 results.append((ref, "MISSING", ""))
                 continue
@@ -76,15 +76,14 @@ def build_dependency_dag(
         pm = PROJECT_TASK_RE.match(ref)
         if pm:
             proj_name = pm.group(1).strip().replace("\\", "/").strip("/")
+            alias = lookup_external_alias(cur_dir, ws_resolved, proj_name)
+            if alias is not None and is_todo_project(alias):
+                return alias, pm.group(2).upper()
             cand = (ws_resolved / proj_name).resolve()
             if not is_todo_project(cand) and ws_resolved.name == ".todo_projects":
                 alt = (ws_resolved.parent / proj_name).resolve()
                 if is_todo_project(alt):
                     cand = alt
-            if not is_todo_project(cand):
-                alias = lookup_external_alias(cur_dir, ws_resolved, proj_name)
-                if alias is not None:
-                    cand = alias
             return cand, pm.group(2).upper()
         return cur_dir.resolve(), ref.upper()
 
@@ -92,7 +91,7 @@ def build_dependency_dag(
         ndir, ntid = node_key
         if disp_is_proj and ndir == disp_resolved:
             return ntid
-        return f"{project_label(ndir, ws_resolved)}:{ntid}"
+        return f"{project_display_name(ndir, ws_resolved, disp_resolved)}:{ntid}"
 
     root = (target_dir.resolve(), task_id.strip().upper())
     nodes: dict[tuple[Path, str], dict[str, object]] = {}
@@ -443,10 +442,11 @@ def build_execution_chain_dag(
     disp_resolved = cwd_resolved
 
     all_ws_projects = discover_projects(ws_resolved)
-    project_lookup: dict[str, Path] = {}
+    alias_lookup = configured_project_alias_map(b_res, ws_resolved, discovered=all_ws_projects)
+    project_lookup: dict[str, Path] = dict(alias_lookup)
     for rel, pdir in all_ws_projects:
         p_res = pdir.resolve()
-        project_lookup[rel] = p_res
+        project_lookup.setdefault(rel, p_res)
         if "/" not in rel and p_res.name not in project_lookup:
             project_lookup[p_res.name] = p_res
 
@@ -458,6 +458,7 @@ def build_execution_chain_dag(
         if p_res not in seen_seed_dirs and is_todo_project(p_res):
             seen_seed_dirs.add(p_res)
             seed_dirs.append(p_res)
+            project_lookup.setdefault(project_display_name(p_res, ws_resolved, b_res), p_res)
             project_lookup.setdefault(project_label(p_res, ws_resolved), p_res)
             project_lookup.setdefault(p_res.name, p_res)
 
@@ -498,6 +499,11 @@ def build_execution_chain_dag(
         pm = PROJECT_TASK_RE.match(ref)
         if pm:
             proj_name = pm.group(1).strip().replace("\\", "/").strip("/")
+            if proj_name in alias_lookup:
+                return alias_lookup[proj_name], pm.group(2).upper()
+            ext_alias = lookup_external_alias(cur_dir, ws_resolved, proj_name)
+            if ext_alias is not None and is_todo_project(ext_alias):
+                return ext_alias, pm.group(2).upper()
             cand = (ws_resolved / proj_name).resolve()
             if is_todo_project(cand):
                 return cand, pm.group(2).upper()
@@ -514,7 +520,7 @@ def build_execution_chain_dag(
         ndir, ntid = node_key
         if disp_is_proj and ndir == disp_resolved:
             return ntid
-        return f"{project_label(ndir, ws_resolved)}:{ntid}"
+        return f"{project_display_name(ndir, ws_resolved, b_res)}:{ntid}"
 
     seeds: list[tuple[Path, str]] = []
     for p_res in seed_dirs:
@@ -907,7 +913,8 @@ def find_newly_unblocked_tasks(
 ) -> list[str]:
     comp_res = completed_dir.resolve()
     comp_tid = completed_id.strip().upper()
-    ws_root = resolve_workspace_root(comp_res)
+    cwd_res = Path.cwd().resolve()
+    ws_root = resolve_workspace_root(cwd_res if is_todo_project(cwd_res) else comp_res)
     ws_res = ws_root.resolve()
 
     candidate_dirs: list[Path] = []
@@ -920,38 +927,40 @@ def find_newly_unblocked_tasks(
             candidate_dirs.append(p_res)
 
     _add_project(comp_res)
+    _add_project(cwd_res)
     _add_project(ws_res)
     for _, proj_dir in discover_projects(ws_res):
         _add_project(proj_dir)
+    comp_ws = resolve_workspace_root(comp_res).resolve()
+    if comp_ws != ws_res:
+        _add_project(comp_ws)
+        for _, proj_dir in discover_projects(comp_ws):
+            _add_project(proj_dir)
 
     probe_roots: list[Path] = [comp_res]
-    for anc in comp_res.parents:
-        probe_roots.append(anc)
-        if anc == ws_res:
-            break
+    if cwd_res not in probe_roots:
+        probe_roots.append(cwd_res)
+    for start_dir in (comp_res, cwd_res):
+        for anc in start_dir.parents:
+            if anc not in probe_roots:
+                probe_roots.append(anc)
+            if anc in (ws_res, comp_ws):
+                break
     if ws_res not in probe_roots:
         probe_roots.append(ws_res)
 
     for root in probe_roots:
-        tp = root / ".todo_projects"
-        if tp.is_dir():
-            _add_project(tp)
-            for _, proj_dir in discover_projects(tp):
-                _add_project(proj_dir)
-        elif tp.is_file():
-            for raw_line in read_if_exists(tp).splitlines():
-                entry = raw_line.strip()
-                if not entry or entry.startswith("#"):
-                    continue
-                p_cand = Path(entry).expanduser()
-                if not p_cand.is_absolute():
-                    p_cand = root / p_cand
-                _add_project(p_cand)
+        if has_local_todo_projects_config(root):
+            for p_cfg in read_configured_todo_projects(root, ws_res, include_env=False):
+                _add_project(p_cfg)
+    for o_dir, cfg_dir_list in [discover_orchestrators_for_project(comp_res, ws_res)]:
+        for p_o in (*o_dir, *cfg_dir_list):
+            _add_project(p_o)
 
     def _format_unblocked_ref(proj_dir: Path, tid: str) -> str:
         if proj_dir == comp_res:
             return tid
-        return f"{project_label(proj_dir, ws_res)}:{tid}"
+        return f"{project_display_name(proj_dir, ws_res, comp_res)}:{tid}"
 
     unblocked: list[str] = []
     seen_refs: set[str] = set()

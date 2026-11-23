@@ -362,11 +362,11 @@ def validate_all(base_dir: Path) -> tuple[list[str], int]:
                                     "workspace orchestrator repository with .todo_projects)"
                                 )
                                 continue
-                            target_dir = (ws_root / proj_name).resolve()
-                            if not is_todo_project(target_dir):
-                                ext_dir = lookup_external_alias(base_dir, ws_root, proj_name)
-                                if ext_dir is not None:
-                                    target_dir = ext_dir
+                            ext_dir = lookup_external_alias(base_dir, ws_root, proj_name)
+                            if ext_dir is not None and is_todo_project(ext_dir):
+                                target_dir = ext_dir
+                            else:
+                                target_dir = (ws_root / proj_name).resolve()
                             if not is_todo_project(target_dir):
                                 errors.append(f"TODO.md:{lineno}: task {tid} depends on unknown project in {ref!r}")
                                 continue
