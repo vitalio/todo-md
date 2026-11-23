@@ -1,6 +1,8 @@
 # 🎯 [NEXT] F80: Support <alias>=<path> project mapping in .todo_projects and .todo_projects.local
 
 - Allow entries in `.todo_projects` and `.todo_projects.local` to map a canonical project identifier to a local relative or external directory path (`<project_id>=<path>`), so `Depends on: <project_id>:<ID>` in an orchestrator's `TODO.md` resolves cleanly even when a local checkout directory has a different name or location.
+- Scope `todo projects` inside an orchestrator repository (when `.todo_projects` or `.todo_projects.local` is present) strictly to the orchestrator's managed projects (plus the orchestrator itself) rather than all sibling directories in the parent workspace, and display each project's resolved directory path so `cmd todo projects` in `.context.bundle` provides an unambiguous workspace map.
+- Update embedded `agents/todo.md` to state that `todo add` auto-assigns and prints the next free `<ID>` (never run `todo ids` to guess future IDs beforehand) and that `todo projects` resolves workspace project names and aliases to physical directory paths.
 
 # 🎯 [NEXT] D3: Design explicit HOLD task review workflow and reverse dependency visibility
 
