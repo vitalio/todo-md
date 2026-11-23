@@ -10,8 +10,8 @@
 - Rename project/repository references from `todo_md` to `todo-md` (`vitalio/todo-md`) and CLI entrypoint to `todo` per `todo_flow:D8` (`docs/adr/0004-ecosystem-rename-and-cutover.md`):
   - Emit `Bundle-Name: vitalio/todo-md`, embedded rule `agents/todo.md` with `{cmd:todo}` substitution (`id: "vitalio/todo-md:todo"`, `chain: ["vitalio/todo-md"]`), and repo marker `# todo-md-repo: vitalio/todo-md`.
   - Preserve `TODO.md` / `TODO_ARCHIVE.md` / `.todo_projects` conventions and `TODO_MD_*` environment variables.
-  - Replace any existing `todo_md` binary in `$INSTALL_DIR` during `install.sh` / `update`, add `--uninstall` (`todo uninstall` / `todo --uninstall` and `install.sh --uninstall`), and run `python3 build.py && ./install.sh --yes` to migrate the local machine.
-- Acceptance criteria: `build.py` outputs `todo`, `install.sh` installs `todo` and removes legacy `todo_md`, `--uninstall` removes the installed binary, and `python3 -m unittest discover -s tests` passes.
+  - Replace any existing `todo_md` binary in `$INSTALL_DIR` during `install.sh` / `update`, add `--uninstall` (`todo uninstall` / `todo --uninstall` and `install.sh --uninstall`), rename the GitHub repository `vitalio/todo_md` -> `vitalio/todo-md` and update local `git remote` URL, and run `python3 build.py && ./install.sh --yes` to migrate the local machine.
+- Acceptance criteria: GitHub repo is `vitalio/todo-md`, `build.py` outputs `todo`, `install.sh` installs `todo` and removes legacy `todo_md`, `--uninstall` removes the installed binary, and `python3 -m unittest discover -s tests` passes.
 
 # 🎯 [NEXT] D3: Design explicit HOLD task review workflow and reverse dependency visibility
 
