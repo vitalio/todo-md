@@ -1,3 +1,10 @@
+# ✅ [DONE] B10: Add -q/--quiet ID-only output to todo add and avoid auto-bundle mode when piped to standard shell filters — *2026-11-23*
+
+- Add `-q` / `--quiet` (or `--id-only`) to `cmd_add` (`todo add -q ...`) so it prints only the newly assigned `<ID>\n` to `stdout`, enabling clean command-substitution capture (`new_id=$(todo add -q ...)`) in single-step batch scripts while preserving `"todo: added <ID> ([<STATUS>]) to TODO.md"` as the default human-readable output.
+- Fix `bundle_mode_enabled()` in `src/bundle.py` so piping `todo` interactively into standard shell filters (`todo | grep ...`, `todo | less`, `todo | head`, `todo | tail`, `todo | wc`, `todo | awk`, `todo | sed`, `todo | sort`, `todo | cut`, `todo | tr`) does not activate `Bundle-Protocol: 1` and dump the embedded `===== Rules =====` block into the pipe (inspect active processes in the current process group / FIFO peer on Linux/macOS so auto-bundle on a FIFO only triggers when the downstream pipeline consumer is `context` / `run` or when `--bundle` / `TODO_MD_BUNDLE=1` is set, falling back safely to plain output when piped to standard text filters).
+- Sync `agents/todo.md`, `-h`/`--help` (`src/header.py`), `README.md`, and unit tests in `tests/test_commands.py` and `tests/test_bundle.py`, and rebuild `./todo`.
+- Version bump: `MINOR`.
+
 # ✅ [DONE] B9: Cache discovery and alias resolution across cmd_check, cmd_chain, and DAG builders and add hard-timeout performance tests — *2026-11-23, Cached discovery and alias resolution across cmd_check, cmd_chain, and DAG builders and added hard-timeout performance tests*
 
 - Wrap `validate_all` (`cmd_check`, `cmd_workspace_check`, and post-mutation validation), `cmd_chain`, `build_execution_chain_dag`, `cmd_projects`, and `find_newly_unblocked_tasks` in `discovery_session()` (`@_discovery_scoped`), and share `_ACTIVE_DISCOVERY.task_maps` inside `build_execution_chain_dag`.

@@ -142,6 +142,58 @@ class TestBundle(TodoMdTestCase):
                 )
                 self.assertEqual("Bundle-Protocol: 1" in r.stdout, expected, msg=r.stdout)
 
+        fake_bin = self.tmp / "fake_bin"
+        fake_bin.mkdir()
+        cat_script = "#!/usr/bin/env python3\nimport sys\nsys.stdout.write(sys.stdin.read())\n"
+        for name in ("context", "run", "agents_bundle", "run_block"):
+            p = fake_bin / name
+            p.write_text(cat_script, encoding="utf-8")
+            p.chmod(0o755)
+        pipe_env = {**base_env, "PATH": f"{fake_bin}:{base_env.get('PATH', '')}"}
+
+        for tokens, expected_kind in (
+            (["context"], "bundle"),
+            (["/usr/local/bin/run", "s1/1"], "bundle"),
+            (["python3", "/home/user/.local/bin/agents_bundle.py"], "bundle"),
+            (["sh", "/usr/bin/run_block"], "bundle"),
+            (["grep", "F1"], "filter"),
+            (["less", "-R"], "filter"),
+            (["head", "-n", "10"], "filter"),
+            (["tail", "-n", "5"], "filter"),
+            (["wc", "-l"], "filter"),
+            (["awk", "{print $1}"], "filter"),
+            (["sed", "-n", "1,5p"], "filter"),
+            (["sort"], "filter"),
+            (["cut", "-d:", "-f1"], "filter"),
+            (["tr", "a-z", "A-Z"], "filter"),
+            (["sh", "-c", "todo | less"], "filter"),
+            (["sh", "-c", "todo F1 | context | run"], "bundle"),
+        ):
+            with self.subTest(tokens=tokens):
+                self.assertEqual(self.todo_md_mod._classify_process_tokens(tokens), expected_kind)
+
+        for consumer, extra, args, expected in (
+            ("context", {}, "F1", True),
+            ("run", {}, "F1", True),
+            ("context", {"IN_RUN_BLOCK": "1"}, "F1", False),
+            ("context", {"IN_RUN_BLOCK": "1", "RUN_BLOCK_STEP_STDOUT_INO": "1:1"}, "F1", True),
+            ("grep -v '^$'", {}, "F1", False),
+            ("head -n 20", {}, "", False),
+            ("wc -l", {}, "", False),
+        ):
+            with self.subTest(consumer=consumer, extra=extra, args=args):
+                cmd = f"{SCRIPT} {args} | {consumer}".strip()
+                r_pipe = self._run_subprocess(
+                    ["sh", "-c", cmd],
+                    env={**pipe_env, **extra},
+                    check=True,
+                )
+                self.assertEqual(
+                    "Bundle-Protocol: 1" in r_pipe.stdout,
+                    expected,
+                    msg=f"cmd={cmd!r}\nstdout={r_pipe.stdout}",
+                )
+
     def test_help_documents_bundle_flags(self):
         r = self._run_subprocess([str(SCRIPT), "--help"], check=True)
         for frag in ("--bundle", "--plain", "role=ROLE", "TODO_MD_BUNDLE", "TODO_MD_PLAIN"):

@@ -1,10 +1,3 @@
-# 🎯 [NEXT] B10: Add -q/--quiet ID-only output to todo add and avoid auto-bundle mode when piped to standard shell filters
-
-- Add `-q` / `--quiet` (or `--id-only`) to `cmd_add` (`todo add -q ...`) so it prints only the newly assigned `<ID>\n` to `stdout`, enabling clean command-substitution capture (`new_id=$(todo add -q ...)`) in single-step batch scripts while preserving `"todo: added <ID> ([<STATUS>]) to TODO.md"` as the default human-readable output.
-- Fix `bundle_mode_enabled()` in `src/bundle.py` so piping `todo` interactively into standard shell filters (`todo | grep ...`, `todo | less`, `todo | head`, `todo | tail`, `todo | wc`, `todo | awk`, `todo | sed`, `todo | sort`, `todo | cut`, `todo | tr`) does not activate `Bundle-Protocol: 1` and dump the embedded `===== Rules =====` block into the pipe (inspect active processes in the current process group / FIFO peer on Linux/macOS so auto-bundle on a FIFO only triggers when the downstream pipeline consumer is `context` / `run` or when `--bundle` / `TODO_MD_BUNDLE=1` is set, falling back safely to plain output when piped to standard text filters).
-- Sync `agents/todo.md`, `-h`/`--help` (`src/header.py`), `README.md`, and unit tests in `tests/test_commands.py` and `tests/test_bundle.py`, and rebuild `./todo`.
-- Version bump: `MINOR`.
-
 # 🎯 [NEXT] D3: Design explicit HOLD task review workflow and reverse dependency visibility
 
 - Specify how `HOLD` tasks expose downstream blocked dependents (`Blocks: ...` in `show` / `list HOLD`, including cross-project references under `-w`) so reviewers see what unblocks when a `HOLD` condition is met.
@@ -36,6 +29,10 @@
 - Add a short Quest-Log and dependency (`--depends`, `todo -r`, `todo -t`, `todo -f`) scenario to `Quick Start`.
 - Replace the 3,160-character single-row `todo chain` table cell and leading `git pull --ff-only` edge-case paragraph in `CLI Reference` with a dedicated `Quest-Log Views` overview plus separate `Commands`, `Global & Quest-Log Options` (including `--no-commit`), and `Environment` (`TODO_MD_*`) tables matching `todo --help` and `agents/stack/cli/docs.md`.
 - Replace stale `todo <ID> | agents_bundle | run_block` pipeline example in the `todo show` row with `todo <ID> | context | run`, and format the `License` section link consistently with sibling repositories.
+
+# ⚪ [NEW] B11: Skip spawning git subprocess in _sync_upstream when no .git directory exists in ancestor path
+
+_sync_upstream() in src/commands.py unconditionally spawns 'git rev-parse --is-inside-work-tree' on every mutating command (init, add, edit, append, status, done, etc.), adding subprocess fork overhead on every call in non-Git directories and temporary test directories.
 
 # ⏸️ [HOLD] P1: JSON output mode (`--json`) — *Defer machine-readable JSON output until an external client or dashboard is needed*
 

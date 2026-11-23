@@ -152,7 +152,8 @@ HELP_COMMANDS: tuple[tuple[str, str], ...] = (
      "Print TODO_ARCHIVE.md, or archive task(s) <ID>... (as DONE, or CANCELED with --canceled)"),
     ("{prog} add [<PROJ>] [<PREFIX>] <TITLE>",
      "Add a task with an auto-assigned ID; body comes from -b or stdin. Options: "
-     "-p PREFIX (default: F), --next, --status STATUS, -m NOTE, -b BODY|-, --depends SPEC"),
+     "-p PREFIX (default: F), -q/--quiet (--id-only), --next, --status STATUS, -m NOTE, "
+     "-b BODY|-, --depends SPEC"),
     ("{prog} edit <ID>... [opts]",
      "Update task(s) <ID>.... Options: --next, --status STATUS, -t TITLE, -m NOTE, "
      "-b BODY|-, --depends SPEC. A new body keeps existing '- Depends on:' lines it "
@@ -208,7 +209,7 @@ HELP_GLOBAL_OPTIONS: tuple[tuple[str, str], ...] = (
     ("--no-commit", "Accepted as a no-op alias (commits are disabled by default)"),
     ("--bundle",
      "Emit a context-bundle-protocol v1 stream for <ID> (show), last, the default view and "
-     "overview; auto-enabled when stdout is a pipe other than the run_block step output. "
+     "overview; auto-enabled when piped directly into context or run outside a run_block step. "
      "The stream is read-only: it never changes task status"),
     ("--plain", "Disable bundle auto-detection (--bundle takes precedence)"),
     ("role=ROLE",

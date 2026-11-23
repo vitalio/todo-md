@@ -616,8 +616,9 @@ def main(argv: list[str] | None = None) -> int:
     bundle_flags.update(a for a in args if a in BUNDLE_FLAGS)
     args = [a for a in args if a not in BUNDLE_FLAGS]
     bundle = BundleOptions(
-        bundle_mode_enabled("--bundle" in bundle_flags, "--plain" in bundle_flags),
         argv=orig_args,
+        bundle_flag="--bundle" in bundle_flags,
+        plain_flag="--plain" in bundle_flags,
     )
 
     if dir_selector is not None:

@@ -56,7 +56,7 @@ def _sync_upstream(base_dir: Path, commit: bool = False, no_commit: bool = False
             msg += f"\n{detail}"
         raise SystemExit(msg)
 
-def _git_commit_todo(base_dir: Path, commit_msg: str) -> None:
+def _git_commit_todo(base_dir: Path, commit_msg: str, quiet: bool = False) -> None:
     try:
         r_wt = subprocess.run(
             ["git", "-C", str(base_dir), "rev-parse", "--is-inside-work-tree"],
@@ -109,7 +109,8 @@ def _git_commit_todo(base_dir: Path, commit_msg: str) -> None:
         check=False,
     )
     sha = f" ({r_sha.stdout.strip()})" if r_sha.returncode == 0 and r_sha.stdout.strip() else ""
-    sys.stdout.write(f"{prog_name()}: committed {', '.join(changed)}{sha}: {commit_msg}\n")
+    if not quiet:
+        sys.stdout.write(f"{prog_name()}: committed {', '.join(changed)}{sha}: {commit_msg}\n")
 
 def _sort_todo_file(todo_path: Path, promote_id: str | None = None) -> None:
     if not todo_path.is_file():
@@ -137,6 +138,7 @@ def _finalize_mutation(
     commit: bool = False,
     no_commit: bool = False,
     promote_id: str | None = None,
+    quiet: bool = False,
 ) -> int:
     _sort_todo_file(base_dir / "TODO.md", promote_id=promote_id)
     errors, _ = validate_all(base_dir)
@@ -145,7 +147,7 @@ def _finalize_mutation(
             sys.stderr.write(f"ERROR: {e}\n")
         return 1
     if _commit_enabled(commit, no_commit):
-        _git_commit_todo(base_dir, commit_msg)
+        _git_commit_todo(base_dir, commit_msg, quiet=quiet)
     return 0
 
 def cmd_init(
@@ -620,6 +622,7 @@ def cmd_add(
     prog = prog_name()
     status = "NEW"
     prepend = False
+    quiet = False
     prefix: str | None = None
     note: str | None = None
     body: str | None = None
@@ -633,6 +636,9 @@ def cmd_add(
             i += 1
         elif a == "--no-commit":
             no_commit = True
+            i += 1
+        elif a in ("-q", "--quiet", "--id-only"):
+            quiet = True
             i += 1
         elif a in ("--next", "-n", "--top"):
             status = "NEXT"
@@ -706,7 +712,7 @@ def cmd_add(
             raise SystemExit(f"{prog}: invalid ID prefix {first!r}; expected a single letter A-Z (e.g. F, B, P)")
     else:
         raise SystemExit(
-            f"{prog}: usage: {prog} add [<PREFIX>] <TITLE> [-p PREFIX] [--next] [--status STATUS] [-m NOTE] [-b BODY]"
+            f"{prog}: usage: {prog} add [<PREFIX>] <TITLE> [-p PREFIX] [-q|--quiet] [--next] [--status STATUS] [-m NOTE] [-b BODY]"
         )
 
     if not title:
@@ -723,7 +729,10 @@ def cmd_add(
         sec_lines.extend(["", *body_lines])
 
     _insert_task_section(base_dir / "TODO.md", sec_lines, _default_todo_header(base_dir), prepend=prepend)
-    sys.stdout.write(f"{prog}: added {tid} ([{status}]) to TODO.md\n")
+    if quiet:
+        sys.stdout.write(f"{tid}\n")
+    else:
+        sys.stdout.write(f"{prog}: added {tid} ([{status}]) to TODO.md\n")
     base_title, _ = _strip_heading_note(title)
     return _finalize_mutation(
         base_dir,
@@ -731,6 +740,7 @@ def cmd_add(
         commit=commit,
         no_commit=no_commit,
         promote_id=(tid if prepend else None),
+        quiet=quiet,
     )
 
 def cmd_edit(

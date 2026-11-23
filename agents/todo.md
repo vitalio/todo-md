@@ -31,8 +31,9 @@
     do not run `{cmd:todo} chain --all --tree` across the entire backlog
     without a target `<ID>` or `-l N`.
   - Mutate & validate: `{cmd:todo} add [<PROJECT>] [<PREFIX>] "<title>" [-p <P>]
-    [--next] [--status <S>] [-m "<note>"] [-b "<body_md>"|-] [--depends <spec>]`
-    auto-assigns and prints the new `<ID>` (wire dependent tasks using the ID
+    [-q|--quiet] [--next] [--status <S>] [-m "<note>"] [-b "<body_md>"|-] [--depends <spec>]`
+    auto-assigns and prints the new `<ID>` (`-q` / `--quiet` prints only `<ID>`
+    for `id=$({cmd:todo} add -q ...)`; wire dependent tasks using the ID
     printed by `{cmd:todo} add`),
     `{cmd:todo} edit <ID>... [--next] [--status <S>] [-t "<title>"]
     [-m "<note>"] [-b "<body_md>"|-] [--depends <spec>]`,

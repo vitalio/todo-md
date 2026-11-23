@@ -86,6 +86,17 @@ class TestCommands(TodoMdTestCase):
         self.assertEqual(r_pfx.returncode, 0, r_pfx.stderr)
         self.assertIn("added B1", r_pfx.stdout)
 
+        # -q / --quiet / --id-only prints only <ID>\n to stdout
+        for qflag, expected_id in (("-q", "F3"), ("--quiet", "F4"), ("--id-only", "B2")):
+            with self.subTest(qflag=qflag):
+                args = [str(SCRIPT), "add", qflag]
+                if expected_id.startswith("B"):
+                    args.extend(["-p", "B"])
+                args.extend([f"Quiet task {expected_id}", "--depends", "F1"])
+                r_q = self._run(args)
+                self.assertEqual(r_q.returncode, 0, r_q.stderr)
+                self.assertEqual(r_q.stdout, f"{expected_id}\n")
+
         r_chk = self._run([str(SCRIPT), "check"])
         self.assertEqual(r_chk.returncode, 0, r_chk.stderr)
 

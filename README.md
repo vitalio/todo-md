@@ -62,7 +62,7 @@ Global options accepted before subcommands:
 | `todo last-id [<STATUS\|archive>]` | Print ID of last task in status/archive (default: `NEW`) |
 | `todo list [filter] [<ID>...] [--prefix P] [--status S] [-r\|--ready] [-s\|--search Q] [-H\|--highlight] [-l N\|--limit N] [--full]` | List tasks (`active`, `archive`, `all`, or `<STATUS>`) in dependency order with display-width aligned status badges, terminal-width column wrapping, full `[blocked: ...]` unblock chains, composable TTY target `<ID>...` highlighting and `DONE` dimming, and optional `--prefix` / `--status` / `-r` / `--ready` / `-s` / `--search` (`-H` / `--highlight` to highlight matches in full list) / `-l N` / `--limit N` filters |
 | `todo archive [<ID>...] [-m NOTE] [--canceled]` | Print `TODO_ARCHIVE.md`, or archive task(s) `<ID>...` to `TODO_ARCHIVE.md` (as `DONE`, or `CANCELED` with `--canceled`) |
-| `todo add [<PROJ>] [<PREFIX>] <TITLE> [opts]` | Add a new task with auto-assigned ID (`-p PREFIX`, `--next`, `--status STATUS`, `-m NOTE`, `-b BODY\|-`, `--depends SPEC`) |
+| `todo add [<PROJ>] [<PREFIX>] <TITLE> [opts]` | Add a new task with auto-assigned ID (`-p PREFIX`, `-q` / `--quiet` / `--id-only` for bare `<ID>` stdout output, `--next`, `--status STATUS`, `-m NOTE`, `-b BODY\|-`, `--depends SPEC`) |
 | `todo edit <ID>... [opts]` | Update status, title, note, body, or dependencies for task(s) `<ID>...` (`--next`, `--status STATUS`, `-t TITLE`, `-m NOTE`, `-b BODY\|-`, `--depends SPEC`); a new body keeps existing `- Depends on:` lines that it omits, and `--depends ""` clears dependencies |
 | `todo append <ID>... [-b TEXT\|-]` | Append progress/notes to task(s) `<ID>...` body (`-b TEXT\|-` or `stdin`) |
 | `todo rename <OLD> <NEW\|P> \| <OLD>=<NEW\|P>...` | Atomically rename task ID(s) across `TODO.md` and `TODO_ARCHIVE.md` (target can be an explicit `<NEW_ID>`, allowing swaps/cycles, or a single-letter prefix `A-Z` for the next free ID) and rewrite `- Depends on:` references (including `<project>:<OLD>` in workspace orchestrators) |
@@ -113,9 +113,10 @@ Quest-Log / overview for `todo [-w]` and `todo overview`) as a prompt
 fragment (`kind: "prompt"`).
 
 - Bundle mode is on with `--bundle` (`TODO_MD_BUNDLE=1`), or automatically when
-  stdout is a pipe that is not the `run_block` step output (inside a
-  `run_block` step without `RUN_BLOCK_STEP_STDOUT_INO`, plain output is used).
-  `--plain` (`TODO_MD_PLAIN=1`) disables auto-detection.
+  stdout is piped into `context` (`agents_bundle`) or `run` (`run_block`)
+  outside a `run_block` step output pipe (piping to standard shell filters like
+  `grep`, `less`, `head`, `tail`, `wc`, `awk`, `sed`, `sort`, `cut`, or `tr`
+  keeps plain output). `--plain` (`TODO_MD_PLAIN=1`) disables auto-detection.
 - Read-only: `todo <ID>`, plain or in bundle mode, never changes `TODO.md`.
 - Role override: `role=<role>` on `<ID>`, `show`, `last`, `overview`, and the
   default view emits `Role: <role>` in the bundle preamble
