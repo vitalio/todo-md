@@ -1,3 +1,11 @@
+# ✅ [DONE] F79: Support --next and --status in todo_md edit — *2026-11-23*
+
+- Support `--next` (`-n`, `--top`) and `--status <STATUS>` (`-s <STATUS>`) in `cmd_edit()` / `_edit_single_task()` (`src/commands.py`), matching `todo_md add`:
+  - `--next` (`-n`, `--top`) sets the task status to `NEXT` and promotes the edited task to the top of its status tier (`promote_id=tid` in `_finalize_mutation()`).
+  - `--status <STATUS>` (`-s <STATUS>`) updates the task status to one of the active `TODO.md` statuses (`WIP`, `NEXT`, `NEW`, `HOLD`, `QUESTION`), promoting the task when the target status is `WIP` or `NEXT`, and rejecting archive statuses (`DONE`, `CANCELED`) with a clear error pointing to `done` / `cancel`.
+  - Allow `--next` or `--status <STATUS>` either standalone on `todo_md edit <ID>...` or combined with `-t`, `-m`, `-b`, `--depends`, or stdin body updates.
+- Keep `src/header.py` (`-h` / `--help`), `agents/todo_md.md`, and `README.md` in sync, add unit tests in `tests/test_commands.py`, rebuild `./todo_md` via `python3 build.py`, and run `./install.sh --yes`.
+
 # ✅ [DONE] F78: Support -s/-H/-l in todo_md list and ';' branch separator with multi-stage duplicate hint in --depends — *2026-11-23*
 
 - Depends on: F77

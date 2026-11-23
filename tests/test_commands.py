@@ -819,6 +819,77 @@ class TestCommands(TodoMdTestCase):
         todo_txt = (self.tmp / "TODO.md").read_text(encoding="utf-8")
         self.assertEqual(todo_txt.count("- Batch bullet"), 3)
 
+    def test_edit_next_and_status_flags(self):
+        self._run([str(SCRIPT), "init"], check=True)
+        self._run([str(SCRIPT), "add", "First new", "-b", "Body 1."], check=True)
+        self._run([str(SCRIPT), "add", "Existing next", "--next", "-b", "Body 2."], check=True)
+        self._run([str(SCRIPT), "add", "Second new", "-b", "Body 3."], check=True)
+        self._run([str(SCRIPT), "add", "Third new", "-b", "Body 4."], check=True)
+
+        # Standalone --next promotes edited task to NEXT at top of NEXT tier (above F2)
+        self._run([str(SCRIPT), "edit", "F1", "--next"], check=True)
+        todo_txt = (self.tmp / "TODO.md").read_text(encoding="utf-8")
+        self.assertIn("# 🎯 [NEXT] F1: First new", todo_txt)
+        self.assertLess(todo_txt.index("F1:"), todo_txt.index("F2:"))
+
+        # Short -n alias combined with title/note/body updates promotes above F1
+        self._run(
+            [str(SCRIPT), "edit", "F3", "-n", "-t", "Second promoted", "-m", "top next", "-b", "Updated body 3."],
+            check=True,
+        )
+        todo_txt = (self.tmp / "TODO.md").read_text(encoding="utf-8")
+        self.assertIn("# 🎯 [NEXT] F3: Second promoted — *top next*", todo_txt)
+        self.assertIn("Updated body 3.", todo_txt)
+        self.assertLess(todo_txt.index("F3:"), todo_txt.index("F1:"))
+
+        # --top alias promotes F4 above F3
+        self._run([str(SCRIPT), "edit", "F4", "--top"], check=True)
+        todo_txt = (self.tmp / "TODO.md").read_text(encoding="utf-8")
+        self.assertIn("# 🎯 [NEXT] F4: Third new", todo_txt)
+        self.assertLess(todo_txt.index("F4:"), todo_txt.index("F3:"))
+
+        # --status / -s with active statuses (WIP, NEXT, QUESTION, NEW, HOLD)
+        self._run([str(SCRIPT), "edit", "F2", "--status", "WIP"], check=True)
+        self._run([str(SCRIPT), "edit", "F1", "-s", "WIP", "-m", "now wip"], check=True)
+        todo_txt = (self.tmp / "TODO.md").read_text(encoding="utf-8")
+        self.assertIn("# 🔵 [WIP] F1: First new — *now wip*", todo_txt)
+        self.assertIn("# 🔵 [WIP] F2: Existing next", todo_txt)
+        # F1 promoted to WIP after F2 sits above F2 at top of WIP tier
+        self.assertLess(todo_txt.index("F1:"), todo_txt.index("F2:"))
+
+        self._run([str(SCRIPT), "edit", "F4", "--status=HOLD"], check=True)
+        self._run([str(SCRIPT), "edit", "F3", "--status", "QUESTION", "--depends", "F1"], check=True)
+        self._run([str(SCRIPT), "edit", "F2", "--status", "NEW"], check=True)
+        todo_txt = (self.tmp / "TODO.md").read_text(encoding="utf-8")
+        self.assertIn("# ❓ [QUESTION] F3: Second promoted — *top next*", todo_txt)
+        self.assertIn("- Depends on: F1", todo_txt)
+        self.assertIn("# ⚪ [NEW] F2: Existing next", todo_txt)
+        self.assertIn("# ⏸️ [HOLD] F4: Third new", todo_txt)
+
+        # Reject archive statuses (DONE, CANCELED) and unknown statuses
+        for bad_args, exp_err in (
+            (["edit", "F1", "--status", "DONE"], "use 'todo_md done' or 'todo_md cancel'"),
+            (["edit", "F1", "-s", "CANCELED"], "use 'todo_md done' or 'todo_md cancel'"),
+            (["edit", "F1", "--status=DONE"], "active status"),
+            (["edit", "F1", "--status", "INVALID"], "edit status must be WIP, NEXT, NEW, HOLD, or QUESTION"),
+            (["edit", "F1", "--status"], "requires an argument"),
+        ):
+            with self.subTest(bad_args=bad_args):
+                proc = self._run([str(SCRIPT), *bad_args])
+                self.assertNotEqual(proc.returncode, 0, msg=proc.stdout)
+                self.assertIn(exp_err, proc.stderr)
+
+        # Archived tasks cannot have their status changed via edit --next / --status without reopen
+        self._run([str(SCRIPT), "done", "F1", "-m", "finished"], check=True)
+        for arch_args in (["edit", "F1", "--next"], ["edit", "F1", "--status", "WIP"]):
+            with self.subTest(arch_args=arch_args):
+                proc = self._run([str(SCRIPT), *arch_args])
+                self.assertNotEqual(proc.returncode, 0, msg=proc.stdout)
+                self.assertIn("archived as [DONE]", proc.stderr)
+                self.assertIn("reopen", proc.stderr)
+
+        self._run([str(SCRIPT), "check"], check=True)
+
 
 if __name__ == "__main__":
     unittest.main()

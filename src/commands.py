@@ -738,6 +738,8 @@ def cmd_edit(
     explicit_dir: str | None = None,
 ) -> int:
     prog = prog_name()
+    new_status: str | None = None
+    promote_top = False
     new_title: str | None = None
     note: str | None = None
     clear_note = False
@@ -752,6 +754,20 @@ def cmd_edit(
             i += 1
         elif a == "--no-commit":
             no_commit = True
+            i += 1
+        elif a in ("--next", "-n", "--top"):
+            new_status = "NEXT"
+            promote_top = True
+            i += 1
+        elif a in ("--status", "-s"):
+            if i + 1 >= len(argv):
+                raise SystemExit(f"{prog}: {a} requires an argument")
+            new_status = argv[i + 1].strip().upper()
+            promote_top = new_status in ("WIP", "NEXT")
+            i += 2
+        elif a.startswith("--status="):
+            new_status = a.split("=", 1)[1].strip().upper()
+            promote_top = new_status in ("WIP", "NEXT")
             i += 1
         elif a in ("-t", "--title"):
             if i + 1 >= len(argv):
@@ -783,13 +799,26 @@ def cmd_edit(
             pos.append(a)
             i += 1
 
+    if new_status is not None:
+        if new_status in ("DONE", "CANCELED"):
+            raise SystemExit(
+                f"{prog}: edit --status must be an active status (WIP, NEXT, NEW, HOLD, or QUESTION), "
+                f"got {new_status!r}; use '{prog} done' or '{prog} cancel' to archive tasks"
+            )
+        if new_status not in ("WIP", "NEXT", "NEW", "HOLD", "QUESTION"):
+            raise SystemExit(f"{prog}: edit status must be WIP, NEXT, NEW, HOLD, or QUESTION (got {new_status!r})")
+
     raw_ids = _expand_task_id_args(pos)
     if not raw_ids:
-        raise SystemExit(f"{prog}: usage: {prog} edit <ID>... [-t TITLE] [-m NOTE] [-b BODY] [--depends SPEC]")
+        raise SystemExit(
+            f"{prog}: usage: {prog} edit <ID>... [--next] [--status STATUS] [-t TITLE] [-m NOTE] [-b BODY] [--depends SPEC]"
+        )
     body = _resolve_body_arg(body)
     depends_clauses = _normalize_depends_clauses(depends_raw) if depends_raw is not None else None
-    if new_title is None and note is None and body is None and depends_clauses is None:
-        raise SystemExit(f"{prog}: edit requires at least one of -t TITLE, -m NOTE, -b BODY, --depends, or stdin")
+    if new_status is None and new_title is None and note is None and body is None and depends_clauses is None:
+        raise SystemExit(
+            f"{prog}: edit requires at least one of --next, --status STATUS, -t TITLE, -m NOTE, -b BODY, --depends, or stdin"
+        )
     targets = [resolve_project_task_ref(base_dir, ref, explicit_dir=explicit_dir) for ref in raw_ids]
     seen_dirs: set[Path] = set()
     for tdir, _ in targets:
@@ -806,6 +835,8 @@ def cmd_edit(
             clear_note=clear_note,
             body=body,
             depends_clauses=depends_clauses,
+            new_status=new_status,
+            promote_top=promote_top,
             commit=commit,
             no_commit=no_commit,
         )
@@ -823,6 +854,8 @@ def _edit_single_task(
     depends_clauses: list[str] | None,
     commit: bool,
     no_commit: bool,
+    new_status: str | None = None,
+    promote_top: bool = False,
 ) -> int:
     prog = prog_name()
     for fname in TASK_FILES:
@@ -851,9 +884,17 @@ def _edit_single_task(
             end_idx = len(lines)
         _, status, tid, old_full_title = matched_groups
         base_title, old_note = _strip_heading_note(old_full_title)
+        if new_status is not None and (fname == "TODO_ARCHIVE.md" or status in ("DONE", "CANCELED")):
+            note_detail = f" (closing note: {old_note})" if old_note else ""
+            sys.stderr.write(
+                f"{prog}: task {tid} is archived as [{status}]{note_detail}; "
+                f"use '{prog} reopen {tid}' or pass --reopen with status/next to reopen it\n"
+            )
+            return 1
+        final_status = new_status if new_status is not None else status
         final_title = new_title.strip() if new_title is not None else base_title
         final_note = None if clear_note else (note if note is not None else old_note)
-        heading = _format_heading(status, tid, final_title, note=final_note)
+        heading = _format_heading(final_status, tid, final_title, note=final_note)
 
         if body is not None:
             body_lines = body.strip().splitlines() if body.strip() else []
@@ -876,7 +917,13 @@ def _edit_single_task(
         new_text = re.sub(r"\n{3,}", "\n\n", "\n".join(updated_lines).rstrip()) + "\n"
         p.write_text(new_text, encoding="utf-8")
         sys.stdout.write(f"{prog}: updated task {tid} in {fname}\n")
-        return _finalize_mutation(base_dir, f"Update task {tid}: {final_title}", commit=commit, no_commit=no_commit)
+        return _finalize_mutation(
+            base_dir,
+            f"Update task {tid}: {final_title}",
+            commit=commit,
+            no_commit=no_commit,
+            promote_id=(tid if promote_top and fname == "TODO.md" else None),
+        )
 
     sys.stderr.write(f"{prog}: task {target!r} not found in TODO*.md under {base_dir}\n")
     return 1

@@ -27,8 +27,8 @@
     `todo_md next-id [<ID>] [--prefix <P>] [--status <S>]`.
   - Mutate & validate: `todo_md add [<PROJECT>] [<PREFIX>] "<title>" [-p <P>]
     [--next] [--status <S>] [-m "<note>"] [-b "<body_md>"|-] [--depends <spec>]
-    [-c]`, `todo_md edit <ID>... [-t "<title>"] [-m "<note>"] [-b "<body_md>"|-]
-    [--depends <spec>] [-c]`, `todo_md append <ID>... [-b "<text>"|-] [-c]`,
+    [-c]`, `todo_md edit <ID>... [--next] [--status <S>] [-t "<title>"]
+    [-m "<note>"] [-b "<body_md>"|-] [--depends <spec>] [-c]`, `todo_md append <ID>... [-b "<text>"|-] [-c]`,
     `todo_md rename <OLD> <NEW|PREFIX> | <OLD>=<NEW|PREFIX>... [-c]`,
     `todo_md next <ID>... [-m "<note>"] [--reopen] [-c]`,
     `todo_md status <ID>... <STATUS> [-m "<note>"] [--reopen] [-c]`,

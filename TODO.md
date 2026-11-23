@@ -1,11 +1,3 @@
-# 🎯 [NEXT] F79: Support --next and --status in todo_md edit
-
-- Support `--next` (`-n`, `--top`) and `--status <STATUS>` (`-s <STATUS>`) in `cmd_edit()` / `_edit_single_task()` (`src/commands.py`), matching `todo_md add`:
-  - `--next` (`-n`, `--top`) sets the task status to `NEXT` and promotes the edited task to the top of its status tier (`promote_id=tid` in `_finalize_mutation()`).
-  - `--status <STATUS>` (`-s <STATUS>`) updates the task status to one of the active `TODO.md` statuses (`WIP`, `NEXT`, `NEW`, `HOLD`, `QUESTION`), promoting the task when the target status is `WIP` or `NEXT`, and rejecting archive statuses (`DONE`, `CANCELED`) with a clear error pointing to `done` / `cancel`.
-  - Allow `--next` or `--status <STATUS>` either standalone on `todo_md edit <ID>...` or combined with `-t`, `-m`, `-b`, `--depends`, or stdin body updates.
-- Keep `src/header.py` (`-h` / `--help`), `agents/todo_md.md`, and `README.md` in sync, add unit tests in `tests/test_commands.py`, rebuild `./todo_md` via `python3 build.py`, and run `./install.sh --yes`.
-
 # 🎯 [NEXT] F73: Forbid cross-project Depends on references in non-orchestrator repositories in todo_md check
 
 - In `validate_all()` (`src/parser.py`), reject cross-project `<project>:<ID>` references (`PROJECT_TASK_RE`) in `- Depends on:` when the current repository is not an orchestrator (`not has_local_todo_projects_config(base_dir)`), reporting a clear error message instructing to keep cross-project dependencies in the workspace orchestrator repository (`.todo_projects`).
