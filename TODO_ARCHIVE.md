@@ -1,3 +1,9 @@
+# ✅ [DONE] D5: Design cohesive Quest-Log ANSI color palette and typography for RPG perks (FINAL, STAGE, COMBO), stats, prefixes, and statuses — *2026-11-23, Designed overall game progress header, bracket-free icon badges/perks/tags with '·' separators, and composable ANSI palette; scheduled implementation in F84*
+
+- Depends on: F59 -> F60 -> F61 -> B6 -> F72 -> F83
+- Inspect `_style_task_row()` (`src/render.py`) and `cmd_chain()` (`src/render_chain.py`) and design a composable ANSI styling scheme for TTY output (`use_color=True`) covering uppercase RPG perks (`FINAL`, `STAGE`, `COMBO`), numeric stats (`chain: N, done: D, ready: +M, unblocks: K` and leading chain/sub-chain header stats `<pct>% | <done>/<total> |`), task ID prefixes, and status badges.
+- Render live ANSI terminal previews comparing candidate color/bold palettes and verify how token-level styling composes with existing row-level styles (`DONE` dimming, external-project dimming, and `-H` / `--highlight` emphasis) without disturbing `_wrap_table_row()` display-width calculations.
+
 # ✅ [DONE] F83: Format Chain and Sub-chain headers as '<pct>% | <done>/<total> | Chain <N> -> ...' without brackets — *2026-11-23*
 
 - Depends on: F59 -> F60 -> F61 -> B6 -> F72
