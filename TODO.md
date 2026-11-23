@@ -1,3 +1,11 @@
+# 🎯 [NEXT] F78: Support -s/--search, -H/--highlight, and -l/--limit in todo_md list
+
+- In `src/cli.py` (`list` parser in `main()`), accept `-s <QUERY>` / `--search <QUERY>` / `--search=<QUERY>` (failing with `<flag> requires a non-empty query argument` when missing or blank), `-H` / `--highlight` (disabling search focus to render the full list with search matches highlighted), and `-l N` alongside `--limit N` and `-n N`.
+- Add `task_matches_pattern(t, pat, base_dir, project_label=None) -> bool` in `src/parser.py` (used by both `search_tasks()` and `cmd_list()` / `cmd_workspace_list()`) matching case-insensitively against `<ID>`, `<project>:<ID>`, task title, and full section text.
+- In `cmd_list()` and `cmd_workspace_list()` (`src/render.py`), accept `search: str | None = None` and `highlight_only: bool = False`: when `search` is set, filter `shown` / `items` to matching tasks by default (and highlight them via `targets`) or keep all tasks with matches highlighted when `highlight_only=True` (`-H`), and append `search=<query!r>` to the `No matching tasks (...)` message when no tasks match.
+- Update `HELP_COMMANDS` in `src/header.py` (keeping `--help` lines within 100 columns/bytes), `agents/todo_md.md`, `README.md`, and unit tests in `tests/test_commands.py` and `tests/test_cli.py`, rebuild `./todo_md` via `python3 build.py`, reinstall locally, and bump `VERSION` (`MINOR`).
+- Target files: `src/header.py:HELP_COMMANDS`, `src/parser.py:compile_search_pattern..search_tasks`, `src/render.py:cmd_list..cmd_workspace_list`, `src/cli.py:710-805`, `agents/todo_md.md`, `README.md:54-84`, `tests/test_cli.py:18-90`, `tests/test_commands.py:570-660`.
+
 # 🎯 [NEXT] F77: Remove legacy - Role: stripping on next and clean - Role: / - Target files: from TODO_ARCHIVE.md
 
 - Depends on: F72, F74, F76
@@ -31,7 +39,7 @@
 
 # ⚪ [NEW] F42: Rename project to todo-md and CLI utility to todo
 
-- Depends on: F72, F75, F77
+- Depends on: F72, F75, F77, F78
 - Rename project/repository references from `todo_md` to `todo-md` and CLI entrypoint from `todo_md` to `todo` (preserving `TODO.md`/`TODO_ARCHIVE.md` task-file conventions and applying agreed env-var/alias decisions from `todo_flow:D8` and ADR 0003).
 - Acceptance criteria: `build.py` outputs `todo`, `install.sh` installs `todo` (plus any agreed compatibility alias), `--help`/rules/docs/tests reflect `todo-md` and `todo`, and `python3 -m unittest discover -s tests` passes.
 
@@ -50,7 +58,7 @@
 
 # ⏸️ [HOLD] P1: JSON output mode (`--json`) — *Defer machine-readable JSON output until an external client or dashboard is needed*
 
-- Depends on: F62 -> F71 -> F72
+- Depends on: F62 -> F71 -> F72, F78
 - Add a global `--json` output flag (`HELP_GLOBAL_OPTIONS` in `src/header.py`, extracted in `src/cli.py:main()` and `_parse_quest_log_args()`) to export machine-readable JSON (`json.dumps(..., ensure_ascii=False, indent=2) + "\n"`) across read-only inspection and query commands:
   - Add `serialize_task_dict()` in `src/render.py` producing a stable task object schema: `id`, `prefix`, `project` (when in workspace or cross-project view), `workdir`, `status`, `emoji`, `title` (stripped of heading note), `note` (heading note or `None`), `file`, `line`, `ready` (`bool`), `blocked` (`bool`), `depends_on` (`parse_task_dependencies()`), and `section`.
   - Support `--json` in `cmd_list()` and `cmd_workspace_list()` (`src/render.py`) returning a JSON array of matching task objects honoring `active|archive|all|<STATUS>`, `--prefix`, `--status`, `-r`/`--ready`, `--limit`, and `-w`.
