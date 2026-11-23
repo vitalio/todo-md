@@ -1,3 +1,10 @@
+# 🎯 [NEXT] F83: Format Chain and Sub-chain headers as '<pct>% | <done>/<total> | Chain <N> -> ...' without brackets
+
+- Depends on: F59 -> F60 -> F61 -> B6 -> F72
+- Bump: `PATCH`
+- In `cmd_chain()` (`src/render_chain.py`), format root chain headers as `<pct>% | <done>/<total> | Chain <N> -> <root_ref>: <root_title>:` and nested `--tree` milestone headers as `<m_pct>% | <m_done>/<m_total> | Sub-chain -> <m_ref>: <m_title>:` (replacing the bracketed `[<pct>% | <done>/<total>]` prefix).
+- Update Quest-Log header format references in `README.md` and `AGENTS.md`, rebuild `./todo`, and update tests in `tests/test_chain.py` and `tests/test_parser.py`.
+
 # 🎯 [NEXT] F80: Support <alias>=<path> project mapping in .todo_projects and .todo_projects.local
 
 - Allow entries in `.todo_projects` and `.todo_projects.local` to map a canonical project identifier to a local relative or external directory path (`<project_id>=<path>`), so `Depends on: <project_id>:<ID>` in an orchestrator's `TODO.md` resolves cleanly even when a local checkout directory has a different name or location.
@@ -23,13 +30,13 @@
 
 # ⚪ [NEW] D5: Design cohesive Quest-Log ANSI color palette and typography for RPG perks (FINAL, STAGE, COMBO), stats, prefixes, and statuses
 
-- Depends on: F59 -> F60 -> F61 -> B6 -> F72
-- Inspect `_style_task_row()` (`src/render.py`) and `cmd_chain()` (`src/render_chain.py`) and design a composable ANSI styling scheme for TTY output (`use_color=True`) covering uppercase RPG perks (`FINAL`, `STAGE`, `COMBO`), numeric stats (`chain: N, done: D, ready: +M, unblocks: K` and leading chain/sub-chain header stats `[<pct>% | <done>/<total>]`), task ID prefixes, and status badges.
+- Depends on: F59 -> F60 -> F61 -> B6 -> F72 -> F83
+- Inspect `_style_task_row()` (`src/render.py`) and `cmd_chain()` (`src/render_chain.py`) and design a composable ANSI styling scheme for TTY output (`use_color=True`) covering uppercase RPG perks (`FINAL`, `STAGE`, `COMBO`), numeric stats (`chain: N, done: D, ready: +M, unblocks: K` and leading chain/sub-chain header stats `<pct>% | <done>/<total> |`), task ID prefixes, and status badges.
 - Render live ANSI terminal previews comparing candidate color/bold palettes and verify how token-level styling composes with existing row-level styles (`DONE` dimming, external-project dimming, and `-H` / `--highlight` emphasis) without disturbing `_wrap_table_row()` display-width calculations.
 
 # ⚪ [NEW] D6: Design repo-exclusive parallel execution lanes and critical-path metrics in Quest-Log
 
-- Depends on: F59 -> F60 -> F61 -> B6 -> F72 -> D5
+- Depends on: F59 -> F60 -> F61 -> B6 -> F72 -> F83 -> D5
 - Depends on: B8
 - Model parallel task execution under the repo-exclusivity invariant (at most one active task per repository at a time):
   - Compute parallel wavefront width (`threads: <K>`) across ready tasks by grouping ready tasks by repository and selecting the top-ranked actionable task per repository as a parallel execution lane (`Lane 1..K`).
@@ -37,6 +44,7 @@
 
 # ⚪ [NEW] F82: Restructure README.md to follow CLI progressive disclosure and split Quest-Log, Options, and Environment tables
 
+- Depends on: F83
 - Add a short Quest-Log and dependency (`--depends`, `todo -r`, `todo -t`, `todo -f`) scenario to `Quick Start`.
 - Replace the 3,160-character single-row `todo chain` table cell and leading `git pull --ff-only` edge-case paragraph in `CLI Reference` with a dedicated `Quest-Log Views` overview plus separate `Commands`, `Global & Quest-Log Options` (including `--no-commit`), and `Environment` (`TODO_MD_*`) tables matching `todo --help` and `agents/stack/cli/docs.md`.
 - Replace stale `todo <ID> | agents_bundle | run_block` pipeline example in the `todo show` row with `todo <ID> | context | run`, and format the `License` section link consistently with sibling repositories.
