@@ -13,6 +13,8 @@
   - Replace any existing `todo_md` binary in `$INSTALL_DIR` during `install.sh` / `update`, add `--uninstall` (`todo uninstall` / `todo --uninstall` and `install.sh --uninstall`), rename the GitHub repository `vitalio/todo_md` -> `vitalio/todo-md` and update local `git remote` URL, and run `python3 build.py && ./install.sh --yes` to migrate the local machine.
 - Acceptance criteria: GitHub repo is `vitalio/todo-md`, `build.py` outputs `todo`, `install.sh` installs `todo` and removes legacy `todo_md`, `--uninstall` removes the installed binary, and `python3 -m unittest discover -s tests` passes.
 
+- Trim `agents/todo.md` (and update the string assertions in `tests/test_cli.py` and `tests/test_bundle.py`) so the embedded rule states only the minimal machine-facing `todo` CLI and dependency contract without dumping every `--help` display flag (`--numbered`, `--include-hold`), `Bundle-Name` transport header details, or legacy `agents_bundle | run_block` examples.
+
 # 🎯 [NEXT] D3: Design explicit HOLD task review workflow and reverse dependency visibility
 
 - Specify how `HOLD` tasks expose downstream blocked dependents (`Blocks: ...` in `show` / `list HOLD`, including cross-project references under `-w`) so reviewers see what unblocks when a `HOLD` condition is met.
