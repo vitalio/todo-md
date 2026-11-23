@@ -23,11 +23,11 @@ import unicodedata
 from datetime import date
 from pathlib import Path
 
-VERSION = "0.44.1"
+VERSION = "0.45.0"
 REPO_MARKER = "todo_md-repo: vitalio/todo_md"
 DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/vitalio/todo_md/main/todo_md"
 FENCE = chr(96) * 3
-EMBEDDED_RULE_TODO_MD = '# Description: Structured Markdown task management (TODO.md and TODO_ARCHIVE.md) via todo_md\n- Task management (`todo_md`: `TODO.md`, `TODO_ARCHIVE.md`): Always inspect and\n  modify `TODO.md` and `TODO_ARCHIVE.md` via `todo_md` (never via `cat` or\n  manual file edits). Repository scope only: record each task in the `TODO.md`\n  of the repository it belongs to (run `todo_md -h` for full CLI option lists).\n  - Status lifecycle & task ID prefixes: `TODO.md` orders active tasks as\n    `🔵 [WIP]` -> `🎯 [NEXT]` -> `❓ [QUESTION]` -> `⚪ [NEW]` -> `⏸️ [HOLD]`,\n    and `TODO_ARCHIVE.md` keeps `✅ [DONE]` and `❌ [CANCELED]` newest-first.\n    Task ID prefixes (`A-Z`): `F` is a feature (default on `add`), `B` is a\n    bugfix (ranked ahead in `chain`), `D` is a design task, `L` is a\n    legislative rule task (`agents/`, `AGENTS.md`), and other `A-Z` prefixes\n    are custom domains. `todo_md check` rejects `- Role:` lines in active\n    `TODO.md` tasks, `todo_md next <ID>` strips any existing `- Role:` line,\n    and `todo_md <ID> [role=<role>]` in bundle mode\n    (`todo_md <ID> | agents_bundle | run_block`) is read-only: it emits\n    `Bundle-Name: todo_md`, `Task: <ID>`, `Prefix: <P>`, `Status: <S>`,\n    `Title: <title>`, and `Files: <space-separated specs>` (`--no-files` opts\n    out; `Role: <role>` is emitted only when `role=<role>` is passed); start a\n    task with `todo_md status <ID> WIP` or `todo_md next <ID>`.\n  - Inspect & target selection: pass `-C <dir|project>` or `--project <name>`\n    before subcommands (or `<project>:<ID>` on task refs). Core views:\n    `todo_md [opts] [-w]`, `todo_md overview [--full] [-w]`, `todo_md projects`,\n    `todo_md [show] <ID>...`, `todo_md last[-id] [<STATUS|archive>]`,\n    `todo_md list [active|archive|all|<STATUS>] [<ID>...] [--prefix <P>] [--status <S>] [-r|--ready] [--limit N] [--full]`,\n    `todo_md archive [<ID>...] [-m "<note>"] [--canceled] [-c]`, `todo_md ids`,\n    `todo_md queue <ID>... [--all]` (alias for `todo_md chain <ID>... [--all]`),\n    `todo_md chain [<ID>...] [--all] [--prefix <P>] [--status <S>] [--ready] [-l N|--limit N] [--include-hold] [--tree] [--numbered[=left|right]] [-f <ID>...] [-H] [-s <QUERY>]`,\n    `todo_md next-id [<ID>] [--prefix <P>] [--status <S>]`,\n    `todo_md files [<ID>...] [--max-lines N] [--max-total-lines N] [--max-bytes N] [--max-total-bytes N]`.\n  - Mutate & validate: `todo_md add [<PROJECT>] [<PREFIX>] "<title>" [-p <P>]\n    [--next] [--status <S>] [-m "<note>"] [-b "<body_md>"|-] [--depends <spec>]\n    [-c]`, `todo_md edit <ID>... [-t "<title>"] [-m "<note>"] [-b "<body_md>"|-]\n    [--depends <spec>] [-c]`, `todo_md append <ID>... [-b "<text>"|-] [-c]`,\n    `todo_md rename <OLD> <NEW|PREFIX> | <OLD>=<NEW|PREFIX>... [-c]`,\n    `todo_md next <ID>... [-m "<note>"] [--reopen] [-c]`,\n    `todo_md status <ID>... <STATUS> [-m "<note>"] [--reopen] [-c]`,\n    `todo_md reopen <ID>... [--status <S>] [-m "<note>"] [-c]`,\n    `todo_md done <ID>... [-m "<note>"] [-c]`,\n    `todo_md cancel <ID>... [-m "<reason>"] [-c]`, `todo_md check`.\n  - Dependencies & Chain integration (both directions): in `--depends` and\n    `- Depends on:`, use `,` for parallel items (`A,B`) and `->` for sequential\n    stages (`"A -> B -> C"`, `,` binds tighter than `->`; repeat for AND\n    branches; do not introduce a separate `- Order:` field). Wire new or refined\n    tasks both upstream (`--depends`) and downstream (`todo_md edit <ID>\n    --depends ...` on existing open tasks or waves).\n  - Target files contract: when target files are already known during planning,\n    record them as plain backticked paths on one `- Target files:` bullet\n    (excluding `TODO*.md` and `AGENTS.md`); do not spend extra steps searching\n    for files or computing symbol or line slices.\n'
+EMBEDDED_RULE_TODO_MD = '# Description: Structured Markdown task management (TODO.md and TODO_ARCHIVE.md) via todo_md\n- Task management (`todo_md`: `TODO.md`, `TODO_ARCHIVE.md`): Always inspect and\n  modify `TODO.md` and `TODO_ARCHIVE.md` via `todo_md` (never via `cat` or\n  manual file edits). Repository scope only: record each task in the `TODO.md`\n  of the repository it belongs to (run `todo_md -h` for full CLI option lists).\n  - Status lifecycle & task ID prefixes: `TODO.md` orders active tasks as\n    `🔵 [WIP]` -> `🎯 [NEXT]` -> `❓ [QUESTION]` -> `⚪ [NEW]` -> `⏸️ [HOLD]`,\n    and `TODO_ARCHIVE.md` keeps `✅ [DONE]` and `❌ [CANCELED]` newest-first.\n    Task ID prefixes (`A-Z`): `F` is a feature (default on `add`), `B` is a\n    bugfix (ranked ahead in `chain`), `D` is a design task, `L` is a\n    legislative rule task (`agents/`, `AGENTS.md`), and other `A-Z` prefixes\n    are custom domains. `todo_md check` rejects `- Role:` lines in active\n    `TODO.md` tasks, `todo_md next <ID>` strips any existing `- Role:` line,\n    and `todo_md <ID> [role=<role>]` in bundle mode\n    (`todo_md <ID> | agents_bundle | run_block`) is read-only: it emits\n    `Bundle-Name: todo_md`, `Task: <ID>`, `Prefix: <P>`, `Status: <S>`,\n    `Title: <title>`, and `Workdir: <dir>` (`Role: <role>` is emitted only when\n    `role=<role>` is passed); start a task with `todo_md status <ID> WIP` or\n    `todo_md next <ID>`.\n  - Inspect & target selection: pass `-C <dir|project>` or `--project <name>`\n    before subcommands (or `<project>:<ID>` on task refs). Core views:\n    `todo_md [opts] [-w]`, `todo_md overview [--full] [-w]`, `todo_md projects`,\n    `todo_md [show] <ID>...`, `todo_md last[-id] [<STATUS|archive>]`,\n    `todo_md list [active|archive|all|<STATUS>] [<ID>...] [--prefix <P>] [--status <S>] [-r|--ready] [--limit N] [--full]`,\n    `todo_md archive [<ID>...] [-m "<note>"] [--canceled] [-c]`, `todo_md ids`,\n    `todo_md queue <ID>... [--all]` (alias for `todo_md chain <ID>... [--all]`),\n    `todo_md chain [<ID>...] [--all] [--prefix <P>] [--status <S>] [--ready] [-l N|--limit N] [--include-hold] [--tree] [--numbered[=left|right]] [-f <ID>...] [-H] [-s <QUERY>]`,\n    `todo_md next-id [<ID>] [--prefix <P>] [--status <S>]`.\n  - Mutate & validate: `todo_md add [<PROJECT>] [<PREFIX>] "<title>" [-p <P>]\n    [--next] [--status <S>] [-m "<note>"] [-b "<body_md>"|-] [--depends <spec>]\n    [-c]`, `todo_md edit <ID>... [-t "<title>"] [-m "<note>"] [-b "<body_md>"|-]\n    [--depends <spec>] [-c]`, `todo_md append <ID>... [-b "<text>"|-] [-c]`,\n    `todo_md rename <OLD> <NEW|PREFIX> | <OLD>=<NEW|PREFIX>... [-c]`,\n    `todo_md next <ID>... [-m "<note>"] [--reopen] [-c]`,\n    `todo_md status <ID>... <STATUS> [-m "<note>"] [--reopen] [-c]`,\n    `todo_md reopen <ID>... [--status <S>] [-m "<note>"] [-c]`,\n    `todo_md done <ID>... [-m "<note>"] [-c]`,\n    `todo_md cancel <ID>... [-m "<reason>"] [-c]`, `todo_md check`.\n  - Dependencies & Chain integration (both directions): in `--depends` and\n    `- Depends on:`, use `,` for parallel items (`A,B`) and `->` for sequential\n    stages (`"A -> B -> C"`, `,` binds tighter than `->`; repeat for AND\n    branches; do not introduce a separate `- Order:` field). Wire new or refined\n    tasks both upstream (`--depends`) and downstream (`todo_md edit <ID>\n    --depends ...` on existing open tasks or waves).\n'
 RULE_SOURCE_PATH = Path(__file__).resolve().parent.parent / "agents" / "todo_md.md"
 
 VALID_STATUSES: dict[str, str] = {
@@ -58,18 +58,7 @@ STATUS_TOKEN_PAT = r"(?:(?:🔵|🎯|⚪|⏸️?|❓|✅|❌)\s+)?`?\[(?:WIP|NEX
 ANY_ID_RE = re.compile(
     rf"^(?:#\s+(?:{STATUS_TOKEN_PAT}\s+|[-*o?+c]\s+)?|(?:- \[[ xX~]\]\s+(?:{STATUS_TOKEN_PAT}\s+)?|- |[*o?+c] ))([A-Z]\d+)\b"
 )
-BACKTICK_TOKEN_RE = re.compile(r"`([^`\n]+)`")
-LINE_SLICE_RE = re.compile(
-    r"^(?P<path>.+?)(?::(?P<a>\d+)(?:-(?P<b>\d+))?(?::\d+)?|#L(?P<c>\d+)(?:-L?(?P<d>\d+))?)$"
-)
-FILE_SPEC_RE = re.compile(r"^(?P<path>.+):(?P<start>\d+)-(?P<end>\d+)$")
 PROJECT_TASK_RE = re.compile(r"^(.+?):([A-Za-z]\d+)$")
-TARGET_FILES_LINE_RE = re.compile(r"^\s*[-*]\s*Target files:", re.IGNORECASE)
-BULLET_LINE_RE = re.compile(r"^\s*[-*]\s")
-SYMBOL_SPEC_RE = re.compile(
-    r"^(?P<path>[^:\s]+):(?P<first>[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)"
-    r"(?:\.\.(?P<last>[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*))?\Z"
-)
 DEPENDS_LINE_RE = re.compile(r"^\s*[-*]\s*Depends on:\s*(.+?)\s*$", re.IGNORECASE)
 ROLE_LINE_RE = re.compile(r"^\s*[-*]\s*Role:\s*(.*?)\s*$", re.IGNORECASE)
 ROLE_NAME_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
@@ -162,7 +151,7 @@ HELP_COMMANDS: tuple[tuple[str, str], ...] = (
      "-p PREFIX (default: F), --next, --status STATUS, -m NOTE, -b BODY|-, --depends SPEC"),
     ("{prog} edit <ID>... [opts]",
      "Update task(s) <ID>.... Options: -t TITLE, -m NOTE, -b BODY|-, --depends SPEC. A new body "
-     "keeps existing '- Depends on:' and '- Target files:' lines it omits; --depends '' clears dependencies"),
+     "keeps existing '- Depends on:' lines it omits; --depends '' clears dependencies"),
     ("{prog} append <ID>... [-b TEXT|-]",
      "Append text to the body of task(s) <ID>... (from -b TEXT|- or stdin)"),
     ("{prog} rename <OLD> <NEW|P> | <OLD>=<NEW|P>...",
@@ -186,14 +175,6 @@ HELP_COMMANDS: tuple[tuple[str, str], ...] = (
      "ready tasks (see Quest-Log options)"),
     ("{prog} next-id [<ID>] [--prefix P] [--status S] | --top",
      "Print the top ready WIP/NEXT ID (or matching --status), or the first ready ID in <ID>'s queue"),
-    ("{prog} files [<ID>...] | --files [<ID>...]",
-     "List files named on the '- Target files:' bullet of task(s) <ID>...: paths, glob patterns, "
-     "symbol slices (path:SYMBOL, path:SYM1..SYM2; Python, sh/Bash and brace languages; "
-     "a symbol not found falls back to the whole file with a warning) and line slices "
-     "(path:START-END, path:LINE, "
-     "path#LSTART-LEND), merged per file and printed as path or path:START-END. Options: "
-     "--max-lines N, --max-total-lines N, --max-bytes N, --max-total-bytes N (budgets count "
-     "only the sliced lines)"),
     ("{prog} check", "Validate layout, headings, status badges, and unique IDs"),
     ("{prog} init [TEXT] [--force]",
      "Create starter TODO.md (with optional project idea from TEXT/stdin) and "
@@ -221,7 +202,6 @@ HELP_GLOBAL_OPTIONS: tuple[tuple[str, str], ...] = (
      "overview; auto-enabled when stdout is a pipe other than the run_block step output. "
      "The stream is read-only: it never changes task status"),
     ("--plain", "Disable bundle auto-detection (--bundle takes precedence)"),
-    ("--no-files", "Bundle mode: omit the Files: preamble header for the task"),
     ("role=ROLE",
      "Bundle mode explicit role override for <ID>, show, last, overview, and the default view: "
      "emits Role: ROLE in the bundle preamble"),
@@ -278,14 +258,6 @@ HELP_NOTES = (
     "Mutating commands first run git pull --ff-only when an upstream is configured, then "
     "automatically validate and status-order TODO.md; pass -c / --commit to also "
     "git-commit TODO*.md when inside a Git repository.",
-)
-
-HELP_FILES: tuple[tuple[str, str], ...] = (
-    ("TODO.md",
-     "All open tasks ordered by status (🔵 [WIP], 🎯 [NEXT], ❓ [QUESTION], ⚪ [NEW], "
-     "⏸️ [HOLD])"),
-    ("TODO_ARCHIVE.md",
-     "Completed (✅ [DONE]) and dropped (❌ [CANCELED]) tasks (newest at top)"),
 )
 
 HELP_ENV: tuple[tuple[str, str], ...] = (
@@ -363,7 +335,6 @@ def usage_text() -> str:
         lines += [title, *_help_table(rows, prog), ""]
     for note in HELP_NOTES:
         lines += [*_help_prose(note, prog), ""]
-    lines += ["Files:", *_help_table(HELP_FILES, prog), ""]
     lines += ["Environment variables:", *_help_table(HELP_ENV, prog)]
     return "\n".join(lines) + "\n"
 
@@ -1383,282 +1354,6 @@ def validate_all(base_dir: Path) -> tuple[list[str], int]:
                     )
 
     return errors, len(seen_ids)
-
-def split_line_slice(token: str) -> tuple[str, tuple[int, int] | None]:
-    m = LINE_SLICE_RE.match(token)
-    if not m:
-        return token, None
-    start = int(m.group("a") or m.group("c"))
-    end_raw = m.group("b") or m.group("d")
-    return m.group("path"), (start, int(end_raw) if end_raw else start)
-
-def split_file_spec(spec: str) -> tuple[str, tuple[int, int] | None]:
-    m = FILE_SPEC_RE.match(spec)
-    if not m:
-        return spec, None
-    return m.group("path"), (int(m.group("start")), int(m.group("end")))
-
-def _resolve_repo_file(repo_root: Path, token: str) -> str | None:
-    p_tok = Path(token)
-    target = p_tok.resolve() if p_tok.is_absolute() else (repo_root / token).resolve()
-    try:
-        rel_posix = target.relative_to(repo_root).as_posix()
-    except ValueError:
-        return None
-    if rel_posix == "." or not target.is_file():
-        return None
-    return rel_posix
-
-def _expand_task_glob(repo_root: Path, pattern: str) -> list[str]:
-    if pattern.startswith("/") or ("/" not in pattern and "." not in pattern):
-        return []
-    if ".." in pattern.split("/"):
-        return []
-    try:
-        matches = sorted(repo_root.glob(pattern))
-    except (NotImplementedError, ValueError, OSError):
-        return []
-    out: list[str] = []
-    for m in matches:
-        try:
-            rel = m.resolve().relative_to(repo_root)
-        except (ValueError, OSError):
-            continue
-        if not m.is_file() or {".git", "__pycache__"} & set(rel.parts):
-            continue
-        out.append(rel.as_posix())
-    return out
-
-def _target_file_tokens(section_text: str) -> list[str]:
-    tokens: list[str] = []
-    in_fence = False
-    in_target = False
-    for line in section_text.splitlines():
-        if line.lstrip().startswith(FENCE):
-            in_fence = not in_fence
-            in_target = False
-            continue
-        if in_fence:
-            continue
-        if TARGET_FILES_LINE_RE.match(line):
-            in_target = True
-        elif not (in_target and line[:1].isspace() and line.strip() and not BULLET_LINE_RE.match(line)):
-            in_target = False
-        if in_target:
-            tokens.extend(BACKTICK_TOKEN_RE.findall(line))
-    return tokens
-
-def _line_indent(line: str) -> int:
-    return len(line) - len(line.lstrip())
-
-def _symbol_span_end(lines: list[str], start: int, indent: int) -> int:
-    end = start
-    for idx in range(start + 1, len(lines)):
-        line = lines[idx]
-        if not line.strip():
-            continue
-        line_indent = _line_indent(line)
-        if line_indent == indent and line.lstrip().startswith("}"):
-            end = idx
-            break
-        if line_indent <= indent and not line.lstrip().startswith((")", "]", "}")):
-            break
-        end = idx
-    return end
-
-def _find_symbol_span(lines: list[str], name: str, lo: int, hi: int) -> tuple[int, int] | None:
-    esc = re.escape(name)
-    patterns = (
-        re.compile(
-            rf"^(\s*)(?:async\s+def|def|class|function|fn|func|struct|enum|interface|type)\s+{esc}\b"
-        ),
-        re.compile(rf"^(\s*)(?:function\s+)?{esc}\s*\(\s*\)\s*\{{?"),
-        re.compile(rf"^(\s*){esc}\s*(?::[^=\n]+)?=(?!=)"),
-    )
-    for pat in patterns:
-        best: tuple[int, int] | None = None
-        for idx in range(lo, hi + 1):
-            m = pat.match(lines[idx])
-            if m and (best is None or len(m.group(1)) < best[0]):
-                best = (len(m.group(1)), idx)
-        if best is None:
-            continue
-        indent, idx = best
-        start = idx
-        while (
-            start > lo
-            and lines[start - 1].lstrip().startswith("@")
-            and _line_indent(lines[start - 1]) == indent
-        ):
-            start -= 1
-        return start, min(_symbol_span_end(lines, idx, indent), hi)
-    return None
-
-def _resolve_symbol(lines: list[str], dotted: str) -> tuple[int, int] | None:
-    lo, hi = 0, len(lines) - 1
-    span: tuple[int, int] | None = None
-    for part in dotted.split("."):
-        if lo > hi:
-            return None
-        span = _find_symbol_span(lines, part, lo, hi)
-        if span is None:
-            return None
-        lo, hi = span
-    return span
-
-def _resolve_symbol_range(lines: list[str], first: str, last: str | None) -> tuple[int, int] | None:
-    a = _resolve_symbol(lines, first)
-    if a is None:
-        return None
-    if last is None:
-        return a[0] + 1, a[1] + 1
-    b = _resolve_symbol(lines, last)
-    if b is None or b[1] < a[0]:
-        return None
-    return a[0] + 1, b[1] + 1
-
-def _normalize_file_entries(entries: list[tuple[str, tuple[int, int] | None]]) -> list[str]:
-    order: list[str] = []
-    whole: set[str] = set()
-    spans: dict[str, list[tuple[int, int]]] = {}
-    for rel, span in entries:
-        if rel not in spans:
-            order.append(rel)
-            spans[rel] = []
-        if span is None:
-            whole.add(rel)
-        else:
-            spans[rel].append(span)
-    out: list[str] = []
-    for rel in order:
-        if rel in whole:
-            out.append(rel)
-            continue
-        merged: list[tuple[int, int]] = []
-        for s, e in sorted(spans[rel]):
-            if merged and s <= merged[-1][1]:
-                merged[-1] = (merged[-1][0], max(merged[-1][1], e))
-            else:
-                merged.append((s, e))
-        out.extend(f"{rel}:{s}-{e}" for s, e in merged)
-    return out
-
-def _collect_task_file_entries(
-    base_dir: Path,
-    section_text: str,
-    cache: dict[str, list[str]] | None = None,
-) -> list[tuple[str, tuple[int, int] | None]]:
-    repo_root = base_dir.resolve()
-    entries: list[tuple[str, tuple[int, int] | None]] = []
-    if cache is None:
-        cache = {}
-
-    def file_lines(rel: str) -> list[str]:
-        if rel not in cache:
-            data = (repo_root / rel).read_bytes()
-            cache[rel] = [ln.decode("utf-8", "replace") for ln in data.splitlines()]
-        return cache[rel]
-
-    for raw in _target_file_tokens(section_text):
-        cand = raw.strip()
-        if not cand or any(ch.isspace() for ch in cand) or "://" in cand:
-            continue
-        if cand.startswith("-") or any(ch in cand for ch in "<>{}"):
-            continue
-        path_part, span = split_line_slice(cand)
-        if PROJECT_TASK_RE.match(cand):
-            continue
-        sym = SYMBOL_SPEC_RE.match(cand) if span is None else None
-        if sym is not None:
-            rel_sym = _resolve_repo_file(repo_root, sym.group("path"))
-            if rel_sym is None:
-                continue
-            sym_span = _resolve_symbol_range(file_lines(rel_sym), sym.group("first"), sym.group("last"))
-            if sym_span is None:
-                sys.stderr.write(
-                    f"{prog_name()}: warning: symbol slice {cand!r} not found in {rel_sym}; using whole file\n"
-                )
-                entries.append((rel_sym, None))
-                continue
-            entries.append((rel_sym, sym_span))
-            continue
-        if span is not None and (span[0] < 1 or span[1] < span[0]):
-            continue
-        if any(ch in path_part for ch in "*?["):
-            if span is None:
-                entries.extend((g, None) for g in _expand_task_glob(repo_root, path_part))
-            continue
-        rel = _resolve_repo_file(repo_root, path_part)
-        if rel is None:
-            continue
-        if span is None:
-            entries.append((rel, None))
-            continue
-        n_total = len(file_lines(rel))
-        if span[0] > n_total:
-            continue
-        entries.append((rel, (span[0], min(span[1], n_total))))
-    return entries
-
-def extract_task_files(base_dir: Path, section_text: str) -> list[str]:
-    return _normalize_file_entries(_collect_task_file_entries(base_dir, section_text))
-
-def select_task_files(
-    base_dir: Path,
-    task_id: str | list[str] | None = None,
-    max_lines: int | None = None,
-    max_total_lines: int | None = None,
-    max_bytes: int | None = None,
-    max_total_bytes: int | None = None,
-) -> list[str] | None:
-    if isinstance(task_id, list):
-        targets = [t.strip().upper() for t in task_id if t and t.strip()]
-    elif task_id:
-        targets = [task_id.strip().upper()]
-    else:
-        top_tid = resolve_top_task_id(base_dir)
-        targets = [top_tid] if top_tid else []
-    if not targets:
-        sys.stderr.write(f"{prog_name()}: no active WIP or NEXT task found in TODO.md under {base_dir}\n")
-        return None
-    tasks_by_id = {str(t["id"]).upper(): t for t in collect_all_tasks(base_dir)}
-    entries: list[tuple[str, tuple[int, int] | None]] = []
-    cache: dict[str, list[str]] = {}
-    for target in targets:
-        t = tasks_by_id.get(target)
-        if t is None:
-            sys.stderr.write(f"{prog_name()}: task {target!r} not found in TODO*.md under {base_dir}\n")
-            return None
-        entries.extend(_collect_task_file_entries(base_dir, str(t["section"]), cache=cache))
-    specs = _normalize_file_entries(entries)
-    has_budget = any(
-        cap is not None for cap in (max_lines, max_total_lines, max_bytes, max_total_bytes)
-    )
-    if not has_budget:
-        return specs
-    repo_root = base_dir.resolve()
-    total_lines = 0
-    total_bytes = 0
-    selected: list[str] = []
-    for spec in specs:
-        rel_path, span = split_file_spec(spec)
-        chunks = (repo_root / rel_path).read_bytes().splitlines(keepends=True)
-        if span is not None:
-            chunks = chunks[span[0] - 1 : span[1]]
-        n_bytes = sum(len(c) for c in chunks)
-        n_lines = len(chunks)
-        if max_bytes is not None and n_bytes > max_bytes:
-            continue
-        if max_total_bytes is not None and total_bytes + n_bytes > max_total_bytes:
-            continue
-        if max_lines is not None and n_lines > max_lines:
-            continue
-        if max_total_lines is not None and total_lines + n_lines > max_total_lines:
-            continue
-        total_bytes += n_bytes
-        total_lines += n_lines
-        selected.append(spec)
-    return selected
 
 
 def resolve_dependency_statuses(
@@ -4403,21 +4098,6 @@ def cmd_next_id(
     sys.stdout.write(f"{next_act}\n")
     return 0
 
-def cmd_files(
-    base_dir: Path,
-    task_id: str | list[str] | None = None,
-    max_lines: int | None = None,
-    max_total_lines: int | None = None,
-    max_bytes: int | None = None,
-    max_total_bytes: int | None = None,
-) -> int:
-    specs = select_task_files(base_dir, task_id, max_lines, max_total_lines, max_bytes, max_total_bytes)
-    if specs is None:
-        return 1
-    for spec in specs:
-        sys.stdout.write(f"{spec}\n")
-    return 0
-
 
 def cmd_chain(
     base_dir: Path,
@@ -5711,11 +5391,6 @@ def _preserve_old_body_lines(
         old_depends = _fenced_matches(old_body, lambda l: bool(DEPENDS_LINE_RE.match(l)))
         if old_depends and not has_depends:
             result = [*old_depends, *result]
-    old_targets = _fenced_matches(old_body, lambda l: bool(TARGET_FILES_LINE_RE.match(l)))
-    if old_targets and not _fenced_matches(result, lambda l: bool(TARGET_FILES_LINE_RE.match(l))):
-        if result and not re.match(r"^\s*[-*]\s", result[-1]):
-            result.append("")
-        result.extend(old_targets)
     return result
 
 def cmd_add(
@@ -6328,20 +6003,16 @@ def cmd_rename(
 
 BUNDLE_PROTOCOL_VERSION = "1"
 BUNDLE_NAME = "todo_md"
-BUNDLE_FLAGS = ("--bundle", "--plain", "--no-files")
+BUNDLE_FLAGS = ("--bundle", "--plain")
 BUNDLE_CHAIN = ["todo_md"]
 BUNDLE_RULE_ID = "todo_md:todo_md"
-BUNDLE_MAX_LINES = 400
-BUNDLE_MAX_TOTAL_LINES = 1200
-BUNDLE_MAX_BYTES = 32768
 CONTEXT_HEADER_RE = re.compile(r"^[A-Za-z][A-Za-z-]*: ")
 TASK_SOURCE_RE = re.compile(r"^# (TODO(?:_ARCHIVE)?\.md):\d+", re.MULTILINE)
 
 class BundleOptions:
-    def __init__(self, enabled: bool, no_files: bool = False, role: str | None = None,
+    def __init__(self, enabled: bool, role: str | None = None,
                  argv: list[str] | None = None) -> None:
         self.enabled = enabled
-        self.no_files = no_files
         self.role = role
         self.argv = list(argv or [])
 
@@ -6376,12 +6047,8 @@ def _fragment(nonce: str, meta: dict[str, object], body: str) -> str:
     marker = json.dumps(meta, ensure_ascii=False)
     return f"<!-- bundle:{nonce}:part {marker} -->\n{body.rstrip(chr(10))}\n<!-- bundle:{nonce}:end -->\n"
 
-def _with_task_headers(headers: list[str], files: list[str], role: str | None) -> list[str]:
-    out = [h for h in headers if not h.startswith(("Role: ", "Files: "))]
-    files_line = f"Files: {' '.join(files)}" if files else None
-    if files_line is not None:
-        workdir_idx = next((idx for idx, h in enumerate(out) if h.startswith("Workdir: ")), len(out))
-        out.insert(workdir_idx, files_line)
+def _with_task_headers(headers: list[str], role: str | None) -> list[str]:
+    out = [h for h in headers if not h.startswith("Role: ")]
     if role:
         out.append(f"Role: {role}")
     return out
@@ -6389,12 +6056,11 @@ def _with_task_headers(headers: list[str], files: list[str], role: str | None) -
 def _write_stream(
     opts: BundleOptions,
     headers: list[str],
-    files: list[str],
     prompt_meta: dict[str, object],
     prompt_body: str,
 ) -> None:
     nonce = secrets.token_hex(16)
-    headers = _with_task_headers(headers, files, opts.role)
+    headers = _with_task_headers(headers, opts.role)
     preamble = [
         f"Bundle-Protocol: {BUNDLE_PROTOCOL_VERSION}",
         f"Bundle-Name: {BUNDLE_NAME}",
@@ -6415,7 +6081,7 @@ def emit_context_bundle(opts: BundleOptions, base_dir: Path, render) -> int:
         sys.stdout.write(out)
         return rc
     meta = {"kind": "prompt", "name": "todo_md", "chain": BUNDLE_CHAIN}
-    _write_stream(opts, [f"Workdir: {base_dir.resolve()}"], [], meta, out)
+    _write_stream(opts, [f"Workdir: {base_dir.resolve()}"], meta, out)
     return 0
 
 def emit_task_bundle(opts: BundleOptions, task_dir: Path, task_id: str | None, render) -> int:
@@ -6427,18 +6093,13 @@ def emit_task_bundle(opts: BundleOptions, task_dir: Path, task_id: str | None, r
         return rc
     tid = next((h.split(": ", 1)[1] for h in headers if h.startswith("Task: ")), task_id or "")
     src = TASK_SOURCE_RE.search(body)
-    specs: list[str] = []
-    if not opts.no_files:
-        specs = select_task_files(
-            task_dir, tid, BUNDLE_MAX_LINES, BUNDLE_MAX_TOTAL_LINES, BUNDLE_MAX_BYTES
-        ) or []
     meta = {
         "kind": "prompt",
         "id": tid,
         "name": f"{src.group(1) if src else 'TODO.md'}:{tid}",
         "chain": BUNDLE_CHAIN,
     }
-    _write_stream(opts, headers, specs, meta, body)
+    _write_stream(opts, headers, meta, body)
     return 0
 
 
@@ -6527,7 +6188,6 @@ KNOWN_SUBCOMMANDS = (
     "next-id",
     "last-id",
     "last",
-    "files",
     "ids",
     "check",
     "init",
@@ -6959,7 +6619,6 @@ def main(argv: list[str] | None = None) -> int:
     args = [a for a in args if a not in BUNDLE_FLAGS]
     bundle = BundleOptions(
         bundle_mode_enabled("--bundle" in bundle_flags, "--plain" in bundle_flags),
-        no_files="--no-files" in bundle_flags,
         argv=orig_args,
     )
 
@@ -7137,63 +6796,6 @@ def main(argv: list[str] | None = None) -> int:
         if len(args) > 2:
             raise SystemExit(f"{prog}: usage: {prog} last [<STATUS|archive>]")
         return _last(base_dir, args[1] if len(args) == 2 else None, bundle)
-    if args[0] in ("files", "--files"):
-        budgets: dict[str, int | None] = {
-            "--max-lines": None,
-            "--max-total-lines": None,
-            "--max-bytes": None,
-            "--max-total-bytes": None,
-        }
-        pos: list[str] = []
-        i = 1
-        while i < len(args):
-            a = args[i]
-            matched_flag = None
-            raw_val: str | None = None
-            for flag in budgets:
-                if a == flag:
-                    if i + 1 >= len(args):
-                        raise SystemExit(f"{prog}: {flag} requires a positive integer argument")
-                    matched_flag = flag
-                    raw_val = args[i + 1]
-                    i += 2
-                    break
-                if a.startswith(f"{flag}="):
-                    matched_flag = flag
-                    raw_val = a.split("=", 1)[1]
-                    i += 1
-                    break
-            if matched_flag is not None:
-                assert raw_val is not None
-                if not raw_val.isdigit() or int(raw_val) < 1:
-                    raise SystemExit(f"{prog}: invalid {matched_flag} value {raw_val!r}; expected a positive integer")
-                budgets[matched_flag] = int(raw_val)
-            elif a.startswith("-"):
-                raise SystemExit(f"{prog}: unknown option for files: {a}")
-            else:
-                pos.append(a)
-                i += 1
-        if pos:
-            raw_ids = _expand_task_id_args(pos)
-            if not raw_ids:
-                raise SystemExit(
-                    f"{prog}: usage: {prog} files [<ID>...] [--max-lines N] [--max-total-lines N] [--max-bytes N] [--max-total-bytes N]"
-                )
-            resolved = [resolve_project_task_ref(base_dir, ref, explicit_dir=explicit_dir) for ref in raw_ids]
-            tdir = resolved[0][0]
-            if any(d.resolve() != tdir.resolve() for d, _ in resolved[1:]):
-                raise SystemExit(f"{prog}: files batch task IDs must belong to the same project")
-            tids: str | list[str] | None = [tid for _, tid in resolved]
-        else:
-            tdir, tids = base_dir, None
-        return cmd_files(
-            tdir,
-            tids,
-            max_lines=budgets["--max-lines"],
-            max_total_lines=budgets["--max-total-lines"],
-            max_bytes=budgets["--max-bytes"],
-            max_total_bytes=budgets["--max-total-bytes"],
-        )
     if args[0] in ("next", "top", "--next", "--top"):
         pos, note = _parse_note_arg(args[1:])
         if args[0] == "--top" and not pos and note is None:

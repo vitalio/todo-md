@@ -56,8 +56,7 @@ rules are loaded via `.agents_bundle`.
   `cmd_workspace_*`, `_order_active_tasks`); route new discovery calls through
   the cached wrappers and never mutate task files inside an active session.
 - `src/parser.py` — pure `TODO.md` / `TODO_ARCHIVE.md` parsing: task sections,
-  dependency clause syntax, prefix matching, `- Target files:` extraction
-  (`extract_task_files()`, `select_task_files()`), ID tracking, search, and the
+  dependency clause syntax, prefix matching, ID tracking, search, and the
   structural validator `validate_all()` (`todo_md check`); no terminal output.
 - `src/dag.py` — unified dependency DAG (`build_dependency_dag()`,
   `build_execution_chain_dag()`), blocked-state info, and unblock detection.
@@ -67,7 +66,7 @@ rules are loaded via `.agents_bundle`.
 - `src/render.py` — terminal width, ANSI styling, table wrapping, and the
   read-only view and query renderers (`cmd_list`, `cmd_show`, `cmd_summary`,
   `cmd_ids`, `cmd_last`, `cmd_projects`, `cmd_workspace_*`,
-  `resolve_top_task_id`, `cmd_next_id`, `cmd_files`); `src/render_chain.py`
+  `resolve_top_task_id`, `cmd_next_id`); `src/render_chain.py`
   holds the Quest-Log `cmd_chain()` renderer.
 - `src/commands.py` — backlog sorting, Git auto-commit helpers, and the
   mutating/validation subcommands (`init`, `add`, `edit`, `append`, `rename`,
@@ -82,14 +81,10 @@ rules are loaded via `.agents_bundle`.
 - `src/bundle.py` — `context-bundle-protocol` v1 producer (`BundleOptions`,
   `bundle_mode_enabled()`, `emit_task_bundle()`, `emit_context_bundle()`):
   FIFO auto-detection, `Bundle-Name: todo_md`, native task preamble headers
-  (`Task`, `Prefix`, `Status`, `Title`, `Files`, `Workdir`, plus `Role` only on
+  (`Task`, `Prefix`, `Status`, `Title`, `Workdir`, plus `Role` only on
   explicit `role=<role>` CLI override), and canonical `rule` and `prompt`
   fragments without streaming `include` file contents; it never mutates
-  `TODO.md`. Target file
-  specs come only from `select_task_files()` and `extract_task_files()` in
-  `src/parser.py` (`- Target files:` bullets); keep the stream shape aligned
-  with `todo_flow`
-  `docs/adr/0003-task-targeted-bundle-architecture-and-atomic-rule-taxonomy.md`.
+  `TODO.md`.
 - `src/cli.py` — CLI argument routing and self-update (`update`,
   `check-update`).
 - `tests/helpers.py` & `tests/test_*.py` — shared in-process/subprocess test

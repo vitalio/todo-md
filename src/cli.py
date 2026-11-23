@@ -83,7 +83,6 @@ KNOWN_SUBCOMMANDS = (
     "next-id",
     "last-id",
     "last",
-    "files",
     "ids",
     "check",
     "init",
@@ -515,7 +514,6 @@ def main(argv: list[str] | None = None) -> int:
     args = [a for a in args if a not in BUNDLE_FLAGS]
     bundle = BundleOptions(
         bundle_mode_enabled("--bundle" in bundle_flags, "--plain" in bundle_flags),
-        no_files="--no-files" in bundle_flags,
         argv=orig_args,
     )
 
@@ -693,63 +691,6 @@ def main(argv: list[str] | None = None) -> int:
         if len(args) > 2:
             raise SystemExit(f"{prog}: usage: {prog} last [<STATUS|archive>]")
         return _last(base_dir, args[1] if len(args) == 2 else None, bundle)
-    if args[0] in ("files", "--files"):
-        budgets: dict[str, int | None] = {
-            "--max-lines": None,
-            "--max-total-lines": None,
-            "--max-bytes": None,
-            "--max-total-bytes": None,
-        }
-        pos: list[str] = []
-        i = 1
-        while i < len(args):
-            a = args[i]
-            matched_flag = None
-            raw_val: str | None = None
-            for flag in budgets:
-                if a == flag:
-                    if i + 1 >= len(args):
-                        raise SystemExit(f"{prog}: {flag} requires a positive integer argument")
-                    matched_flag = flag
-                    raw_val = args[i + 1]
-                    i += 2
-                    break
-                if a.startswith(f"{flag}="):
-                    matched_flag = flag
-                    raw_val = a.split("=", 1)[1]
-                    i += 1
-                    break
-            if matched_flag is not None:
-                assert raw_val is not None
-                if not raw_val.isdigit() or int(raw_val) < 1:
-                    raise SystemExit(f"{prog}: invalid {matched_flag} value {raw_val!r}; expected a positive integer")
-                budgets[matched_flag] = int(raw_val)
-            elif a.startswith("-"):
-                raise SystemExit(f"{prog}: unknown option for files: {a}")
-            else:
-                pos.append(a)
-                i += 1
-        if pos:
-            raw_ids = _expand_task_id_args(pos)
-            if not raw_ids:
-                raise SystemExit(
-                    f"{prog}: usage: {prog} files [<ID>...] [--max-lines N] [--max-total-lines N] [--max-bytes N] [--max-total-bytes N]"
-                )
-            resolved = [resolve_project_task_ref(base_dir, ref, explicit_dir=explicit_dir) for ref in raw_ids]
-            tdir = resolved[0][0]
-            if any(d.resolve() != tdir.resolve() for d, _ in resolved[1:]):
-                raise SystemExit(f"{prog}: files batch task IDs must belong to the same project")
-            tids: str | list[str] | None = [tid for _, tid in resolved]
-        else:
-            tdir, tids = base_dir, None
-        return cmd_files(
-            tdir,
-            tids,
-            max_lines=budgets["--max-lines"],
-            max_total_lines=budgets["--max-total-lines"],
-            max_bytes=budgets["--max-bytes"],
-            max_total_bytes=budgets["--max-total-bytes"],
-        )
     if args[0] in ("next", "top", "--next", "--top"):
         pos, note = _parse_note_arg(args[1:])
         if args[0] == "--top" and not pos and note is None:

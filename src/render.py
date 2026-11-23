@@ -874,18 +874,3 @@ def cmd_next_id(
         return 1
     sys.stdout.write(f"{next_act}\n")
     return 0
-
-def cmd_files(
-    base_dir: Path,
-    task_id: str | list[str] | None = None,
-    max_lines: int | None = None,
-    max_total_lines: int | None = None,
-    max_bytes: int | None = None,
-    max_total_bytes: int | None = None,
-) -> int:
-    specs = select_task_files(base_dir, task_id, max_lines, max_total_lines, max_bytes, max_total_bytes)
-    if specs is None:
-        return 1
-    for spec in specs:
-        sys.stdout.write(f"{spec}\n")
-    return 0

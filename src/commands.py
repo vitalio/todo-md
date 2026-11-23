@@ -646,11 +646,6 @@ def _preserve_old_body_lines(
         old_depends = _fenced_matches(old_body, lambda l: bool(DEPENDS_LINE_RE.match(l)))
         if old_depends and not has_depends:
             result = [*old_depends, *result]
-    old_targets = _fenced_matches(old_body, lambda l: bool(TARGET_FILES_LINE_RE.match(l)))
-    if old_targets and not _fenced_matches(result, lambda l: bool(TARGET_FILES_LINE_RE.match(l))):
-        if result and not re.match(r"^\s*[-*]\s", result[-1]):
-            result.append("")
-        result.extend(old_targets)
     return result
 
 def cmd_add(

@@ -14,9 +14,9 @@
     and `todo_md <ID> [role=<role>]` in bundle mode
     (`todo_md <ID> | agents_bundle | run_block`) is read-only: it emits
     `Bundle-Name: todo_md`, `Task: <ID>`, `Prefix: <P>`, `Status: <S>`,
-    `Title: <title>`, and `Files: <space-separated specs>` (`--no-files` opts
-    out; `Role: <role>` is emitted only when `role=<role>` is passed); start a
-    task with `todo_md status <ID> WIP` or `todo_md next <ID>`.
+    `Title: <title>`, and `Workdir: <dir>` (`Role: <role>` is emitted only when
+    `role=<role>` is passed); start a task with `todo_md status <ID> WIP` or
+    `todo_md next <ID>`.
   - Inspect & target selection: pass `-C <dir|project>` or `--project <name>`
     before subcommands (or `<project>:<ID>` on task refs). Core views:
     `todo_md [opts] [-w]`, `todo_md overview [--full] [-w]`, `todo_md projects`,
@@ -25,8 +25,7 @@
     `todo_md archive [<ID>...] [-m "<note>"] [--canceled] [-c]`, `todo_md ids`,
     `todo_md queue <ID>... [--all]` (alias for `todo_md chain <ID>... [--all]`),
     `todo_md chain [<ID>...] [--all] [--prefix <P>] [--status <S>] [--ready] [-l N|--limit N] [--include-hold] [--tree] [--numbered[=left|right]] [-f <ID>...] [-H] [-s <QUERY>]`,
-    `todo_md next-id [<ID>] [--prefix <P>] [--status <S>]`,
-    `todo_md files [<ID>...] [--max-lines N] [--max-total-lines N] [--max-bytes N] [--max-total-bytes N]`.
+    `todo_md next-id [<ID>] [--prefix <P>] [--status <S>]`.
   - Mutate & validate: `todo_md add [<PROJECT>] [<PREFIX>] "<title>" [-p <P>]
     [--next] [--status <S>] [-m "<note>"] [-b "<body_md>"|-] [--depends <spec>]
     [-c]`, `todo_md edit <ID>... [-t "<title>"] [-m "<note>"] [-b "<body_md>"|-]
@@ -43,7 +42,3 @@
     branches; do not introduce a separate `- Order:` field). Wire new or refined
     tasks both upstream (`--depends`) and downstream (`todo_md edit <ID>
     --depends ...` on existing open tasks or waves).
-  - Target files contract: when target files are already known during planning,
-    record them as plain backticked paths on one `- Target files:` bullet
-    (excluding `TODO*.md` and `AGENTS.md`); do not spend extra steps searching
-    for files or computing symbol or line slices.

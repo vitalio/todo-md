@@ -58,18 +58,7 @@ STATUS_TOKEN_PAT = r"(?:(?:🔵|🎯|⚪|⏸️?|❓|✅|❌)\s+)?`?\[(?:WIP|NEX
 ANY_ID_RE = re.compile(
     rf"^(?:#\s+(?:{STATUS_TOKEN_PAT}\s+|[-*o?+c]\s+)?|(?:- \[[ xX~]\]\s+(?:{STATUS_TOKEN_PAT}\s+)?|- |[*o?+c] ))([A-Z]\d+)\b"
 )
-BACKTICK_TOKEN_RE = re.compile(r"`([^`\n]+)`")
-LINE_SLICE_RE = re.compile(
-    r"^(?P<path>.+?)(?::(?P<a>\d+)(?:-(?P<b>\d+))?(?::\d+)?|#L(?P<c>\d+)(?:-L?(?P<d>\d+))?)$"
-)
-FILE_SPEC_RE = re.compile(r"^(?P<path>.+):(?P<start>\d+)-(?P<end>\d+)$")
 PROJECT_TASK_RE = re.compile(r"^(.+?):([A-Za-z]\d+)$")
-TARGET_FILES_LINE_RE = re.compile(r"^\s*[-*]\s*Target files:", re.IGNORECASE)
-BULLET_LINE_RE = re.compile(r"^\s*[-*]\s")
-SYMBOL_SPEC_RE = re.compile(
-    r"^(?P<path>[^:\s]+):(?P<first>[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)"
-    r"(?:\.\.(?P<last>[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*))?\Z"
-)
 DEPENDS_LINE_RE = re.compile(r"^\s*[-*]\s*Depends on:\s*(.+?)\s*$", re.IGNORECASE)
 ROLE_LINE_RE = re.compile(r"^\s*[-*]\s*Role:\s*(.*?)\s*$", re.IGNORECASE)
 ROLE_NAME_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
@@ -162,7 +151,7 @@ HELP_COMMANDS: tuple[tuple[str, str], ...] = (
      "-p PREFIX (default: F), --next, --status STATUS, -m NOTE, -b BODY|-, --depends SPEC"),
     ("{prog} edit <ID>... [opts]",
      "Update task(s) <ID>.... Options: -t TITLE, -m NOTE, -b BODY|-, --depends SPEC. A new body "
-     "keeps existing '- Depends on:' and '- Target files:' lines it omits; --depends '' clears dependencies"),
+     "keeps existing '- Depends on:' lines it omits; --depends '' clears dependencies"),
     ("{prog} append <ID>... [-b TEXT|-]",
      "Append text to the body of task(s) <ID>... (from -b TEXT|- or stdin)"),
     ("{prog} rename <OLD> <NEW|P> | <OLD>=<NEW|P>...",
@@ -186,14 +175,6 @@ HELP_COMMANDS: tuple[tuple[str, str], ...] = (
      "ready tasks (see Quest-Log options)"),
     ("{prog} next-id [<ID>] [--prefix P] [--status S] | --top",
      "Print the top ready WIP/NEXT ID (or matching --status), or the first ready ID in <ID>'s queue"),
-    ("{prog} files [<ID>...] | --files [<ID>...]",
-     "List files named on the '- Target files:' bullet of task(s) <ID>...: paths, glob patterns, "
-     "symbol slices (path:SYMBOL, path:SYM1..SYM2; Python, sh/Bash and brace languages; "
-     "a symbol not found falls back to the whole file with a warning) and line slices "
-     "(path:START-END, path:LINE, "
-     "path#LSTART-LEND), merged per file and printed as path or path:START-END. Options: "
-     "--max-lines N, --max-total-lines N, --max-bytes N, --max-total-bytes N (budgets count "
-     "only the sliced lines)"),
     ("{prog} check", "Validate layout, headings, status badges, and unique IDs"),
     ("{prog} init [TEXT] [--force]",
      "Create starter TODO.md (with optional project idea from TEXT/stdin) and "
@@ -221,7 +202,6 @@ HELP_GLOBAL_OPTIONS: tuple[tuple[str, str], ...] = (
      "overview; auto-enabled when stdout is a pipe other than the run_block step output. "
      "The stream is read-only: it never changes task status"),
     ("--plain", "Disable bundle auto-detection (--bundle takes precedence)"),
-    ("--no-files", "Bundle mode: omit the Files: preamble header for the task"),
     ("role=ROLE",
      "Bundle mode explicit role override for <ID>, show, last, overview, and the default view: "
      "emits Role: ROLE in the bundle preamble"),
@@ -278,14 +258,6 @@ HELP_NOTES = (
     "Mutating commands first run git pull --ff-only when an upstream is configured, then "
     "automatically validate and status-order TODO.md; pass -c / --commit to also "
     "git-commit TODO*.md when inside a Git repository.",
-)
-
-HELP_FILES: tuple[tuple[str, str], ...] = (
-    ("TODO.md",
-     "All open tasks ordered by status (🔵 [WIP], 🎯 [NEXT], ❓ [QUESTION], ⚪ [NEW], "
-     "⏸️ [HOLD])"),
-    ("TODO_ARCHIVE.md",
-     "Completed (✅ [DONE]) and dropped (❌ [CANCELED]) tasks (newest at top)"),
 )
 
 HELP_ENV: tuple[tuple[str, str], ...] = (
@@ -363,6 +335,5 @@ def usage_text() -> str:
         lines += [title, *_help_table(rows, prog), ""]
     for note in HELP_NOTES:
         lines += [*_help_prose(note, prog), ""]
-    lines += ["Files:", *_help_table(HELP_FILES, prog), ""]
     lines += ["Environment variables:", *_help_table(HELP_ENV, prog)]
     return "\n".join(lines) + "\n"

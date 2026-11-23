@@ -42,12 +42,9 @@ class TestCli(TodoMdTestCase):
         self.assertIn("TODO_ARCHIVE.md", rule_txt)
         self.assertIn("reopen <ID>", rule_txt)
         self.assertIn("--reopen", rule_txt)
-        self.assertIn("--max-total-bytes N", rule_txt)
-        self.assertIn("- Target files:", rule_txt)
         self.assertNotIn("Mode: ", rule_txt)
         self.assertIn("-C <dir|project>` or `--project <name>`", rule_txt)
         self.assertIn("list [active|archive|all|<STATUS>] [<ID>...] [--prefix <P>] [--status <S>] [-r|--ready] [--limit N] [--full]", rule_txt)
-        self.assertIn("--max-total-lines N", flat)
         self.assertIn("-r, --ready", rh.stdout)
         self.assertIn("Chain integration (both directions)", rule_txt)
         self.assertNotIn("queue <ID>", rh.stdout)
@@ -73,13 +70,13 @@ class TestCli(TodoMdTestCase):
         self.assertIn("edit <ID>... [opts]", rh.stdout)
         self.assertIn("append <ID>... [-b TEXT|-]", rh.stdout)
         self.assertIn("archive [<ID>...] [-m NOTE] [--canceled]", rh.stdout)
-        self.assertIn("files [<ID>...] | --files [<ID>...]", rh.stdout)
+        self.assertNotIn("files [<ID>...]", rh.stdout)
         self.assertIn("queue <ID>... [--all]", rule_txt)
         self.assertIn("rename <OLD> <NEW|PREFIX> | <OLD>=<NEW|PREFIX>... [-c]", rule_txt)
         self.assertIn("edit <ID>...", rule_txt)
         self.assertIn("append <ID>...", rule_txt)
         self.assertIn("archive [<ID>...]", rule_txt)
-        self.assertIn("files [<ID>...]", rule_txt)
+        self.assertNotIn("files [<ID>...]", rule_txt)
         self.assertIn(
             "chain [<ID>...] [--all] [--prefix <P>] [--status <S>] [--ready] [-l N|--limit N] [--include-hold] [--tree] [--numbered[=left|right]]",
             rule_txt,
@@ -89,7 +86,7 @@ class TestCli(TodoMdTestCase):
         self.assertIn("A -> B -> C", rule_txt)
         self.assertIn("do not introduce a separate `- Order:` field", rule_txt)
         self.assertIn("Bundle-Name: todo_md", rule_txt)
-        self.assertIn("Files: <space-separated specs>", rule_txt)
+        self.assertNotIn("Files:", rule_txt)
         self.assertIn("strips any existing `- Role:` line", rule_txt)
         self.assertIn("agents_bundle | run_block", rule_txt)
         self.assertNotIn("role=work", rule_txt)
@@ -115,7 +112,6 @@ class TestCli(TodoMdTestCase):
             "Global options:",
             "Quest-Log options",
             "Task ID prefixes:",
-            "Files:",
             "Environment variables:",
         )
         for title in titles:
@@ -145,7 +141,7 @@ class TestCli(TodoMdTestCase):
         rh = self._run_subprocess([str(SCRIPT), "--help"], check=True)
         self.assertEqual(rh.stderr, "")
         lines = rh.stdout.splitlines()
-        for section in ("Usage:", "Commands:", "Global options:", "Files:", "Environment variables:"):
+        for section in ("Usage:", "Commands:", "Global options:", "Environment variables:"):
             with self.subTest(section=section):
                 self.assertIn(section, lines)
         self.assertTrue(any(ln.startswith("Quest-Log options") for ln in lines))
@@ -215,7 +211,7 @@ class TestCli(TodoMdTestCase):
 
         # -C <dir> and --project <name> across mutating and read-only subcommands from outside
         self._run(
-            [str(SCRIPT), "-C", str(proj_a), "add", "-p", "B", "Bug from -C", "-b", "- Target files: `mod.py`."],
+            [str(SCRIPT), "-C", str(proj_a), "add", "-p", "B", "Bug from -C", "-b", "Body for B1."],
             cwd=str(outside),
             check=True,
         )
@@ -243,8 +239,6 @@ class TestCli(TodoMdTestCase):
         self.assertIn("B1", r_list.stdout)
         r_show = self._run([str(SCRIPT), "-C", "proj_a", "show", "B1"], cwd=str(outside), env=env_ws, check=True)
         self.assertIn("Bug from -C", r_show.stdout)
-        r_files = self._run([str(SCRIPT), "-C", "proj_a", "files", "B1"], cwd=str(outside), env=env_ws, check=True)
-        self.assertEqual(r_files.stdout.splitlines(), ["mod.py"])
         r_last_id = self._run([str(SCRIPT), "-C", "proj_a", "last-id", "NEW"], cwd=str(outside), env=env_ws, check=True)
         self.assertEqual(r_last_id.stdout.strip(), "B1")
         r_last = self._run([str(SCRIPT), "-C", "proj_a", "last", "NEW"], cwd=str(outside), env=env_ws, check=True)

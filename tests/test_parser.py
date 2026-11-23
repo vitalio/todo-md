@@ -249,56 +249,6 @@ class TestParser(TodoMdTestCase):
         )
         self.assertEqual(len(lines), 2, msg=r_ids.stdout)
 
-    def test_files_budget_options(self):
-        ws = self.tmp / "ws"
-        proj = ws / "proj"
-        proj.mkdir(parents=True)
-        self._run([str(SCRIPT), "init"], cwd=str(proj), check=True)
-
-        (proj / "small_a.py").write_text("\n".join(f"a{i}" for i in range(5)) + "\n", encoding="utf-8")
-        (proj / "big.py").write_text("\n".join(f"b{i}" for i in range(25)) + "\n", encoding="utf-8")
-        (proj / "small_b.py").write_text("\n".join(f"c{i}" for i in range(4)) + "\n", encoding="utf-8")
-        (proj / "wide.txt").write_text("x" * 200 + "\n", encoding="utf-8")
-
-        body = "- Target files: `small_a.py`, `big.py`, `small_b.py`, `wide.txt`."
-        self._run([str(SCRIPT), "add", "Budget test", "--next", "-b", body], cwd=str(proj), check=True)
-
-        # Bare files remains uncapped
-        r_all = self._run([str(SCRIPT), "files", "F1"], cwd=str(proj), check=True)
-        self.assertEqual(r_all.stdout.splitlines(), ["small_a.py", "big.py", "small_b.py", "wide.txt"])
-
-        # Per-file line cap skips big.py while keeping small files
-        r_ml = self._run([str(SCRIPT), "files", "--max-lines", "10", "F1"], cwd=str(proj), check=True)
-        self.assertEqual(r_ml.stdout.splitlines(), ["small_a.py", "small_b.py", "wide.txt"])
-
-        # Per-file byte cap skips big.py and wide.txt
-        r_mb = self._run([str(SCRIPT), "files", "F1", "--max-bytes=50"], cwd=str(proj), check=True)
-        self.assertEqual(r_mb.stdout.splitlines(), ["small_a.py", "small_b.py"])
-
-        # Total line cap skips big.py (5 + 25 > 10) and still fits small_b.py (5 + 4 <= 10) and wide.txt (9 + 1 <= 10)
-        r_mtl = self._run([str(SCRIPT), "files", "--max-total-lines", "10"], cwd=str(proj), check=True)
-        self.assertEqual(r_mtl.stdout.splitlines(), ["small_a.py", "small_b.py", "wide.txt"])
-
-        # Combined total byte cap + project:ID addressing
-        r_mtb = self._run(
-            [str(SCRIPT), "files", "proj:F1", "--max-bytes", "50", "--max-total-bytes", "20"],
-            cwd=str(ws),
-            check=True,
-        )
-        self.assertEqual(r_mtb.stdout.splitlines(), ["small_a.py"])
-
-        # Invalid budget flags fail explicitly
-        for bad_args in (
-            ["files", "F1", "--max-lines", "0"],
-            ["files", "F1", "--max-bytes=abc"],
-            ["files", "F1", "--max-total-lines"],
-            ["files", "F1", "--unknown"],
-            ["files", "F1", "F2"],
-        ):
-            with self.subTest(bad_args=bad_args):
-                proc = self._run([str(SCRIPT), *bad_args], cwd=str(proj))
-                self.assertNotEqual(proc.returncode, 0, msg=proc.stdout)
-
     def test_check_detects_stale_completion_date_note_on_active_tasks(self):
         self._run([str(SCRIPT), "init"], check=True)
         self._run([str(SCRIPT), "add", "Valid priority note", "--next", "-m", "top priority"], check=True)

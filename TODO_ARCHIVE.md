@@ -1,3 +1,13 @@
+# ✅ [DONE] F76: Remove - Target files: extraction, Files: bundle header, todo_md files subcommand, and --no-files — *2026-11-23, v0.45.0*
+
+- Depends on: F74
+- Remove `- Target files:` parsing, file/symbol slice resolution, the `todo_md files` subcommand, `--no-files`, and the `Files:` bundle preamble header so `todo_md` stays a pure task backlog manager without coupling to file preloading:
+  - In `src/parser.py` and `src/header.py`, remove `TARGET_FILES_LINE_RE`, `LINE_SLICE_RE`, `FILE_SPEC_RE`, `SYMBOL_SPEC_RE`, `split_line_slice()`, `split_file_spec()`, `extract_task_files()`, `select_task_files()`, and their internal helper functions (`_resolve_repo_file`, `_expand_task_glob`, `_target_file_tokens`, `_line_indent`, `_symbol_span_end`, `_find_symbol_span`, `_resolve_symbol`, `_resolve_symbol_range`, `_normalize_file_entries`, `_collect_task_file_entries`).
+  - In `src/commands.py` (`_merge_edit_body`), preserve only omitted `- Depends on:` lines when replacing a task body via `todo_md edit -b` (stop preserving `- Target files:` lines).
+  - In `src/render.py`, `src/cli.py`, `src/bundle.py`, and `src/header.py`, remove `cmd_files()`, the `files` subcommand dispatch and `HELP_FILES` help section, `--no-files` from `BUNDLE_FLAGS` and `HELP_GLOBAL_OPTIONS`, and `Files:` header emission from `inject_show_bundle_headers()` and `_show_tasks()`.
+  - In `agents/todo_md.md`, `README.md`, and `AGENTS.md`, remove references to `todo_md files`, `Files:`, `--no-files`, and the `- Target files:` contract.
+  - Update unit tests in `tests/` (removing `todo_md files` and `Files:` tests and verifying clean bundle header output without `Files:`) and bump `VERSION` (`MINOR`).
+
 # ✅ [DONE] F74: Emit canonical kind="prompt" for task and overview fragments in context-bundle-protocol — *2026-11-23*
 
 - Depends on: F72

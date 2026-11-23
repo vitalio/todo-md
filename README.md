@@ -49,7 +49,7 @@ Global options accepted before subcommands:
 - `-w`, `--workspace` — operate across all discovered workspace projects.
 - `--full` — show full task sections without compacting `NEW` / `HOLD` (bare `todo_md --full` prints the expanded Markdown overview; with `--search` it prints full matching sections).
 - `-c`, `--commit` — git-commit `TODO*.md` after mutating commands.
-- `--bundle`, `--plain`, `--no-files`, `role=<role>` — context bundle protocol controls (see Context Bundle Protocol below).
+- `--bundle`, `--plain`, `role=<role>` — context bundle protocol controls (see Context Bundle Protocol below).
 
 | Command | Description |
 | :--- | :--- |
@@ -62,7 +62,7 @@ Global options accepted before subcommands:
 | `todo_md list [filter] [<ID>...] [--prefix P] [--status S] [-r\|--ready] [--limit N] [--full]` | List tasks (`active`, `archive`, `all`, or `<STATUS>`) in dependency order with display-width aligned status badges, terminal-width column wrapping, full `[blocked: ...]` unblock chains, composable TTY target `<ID>...` highlighting and `DONE` dimming, and optional `--prefix` / `--status` / `-r` / `--ready` filters |
 | `todo_md archive [<ID>...] [-m NOTE] [--canceled]` | Print `TODO_ARCHIVE.md`, or archive task(s) `<ID>...` to `TODO_ARCHIVE.md` (as `DONE`, or `CANCELED` with `--canceled`) |
 | `todo_md add [<PROJ>] [<PREFIX>] <TITLE> [opts]` | Add a new task with auto-assigned ID (`-p PREFIX`, `--next`, `--status STATUS`, `-m NOTE`, `-b BODY\|-`, `--depends SPEC`) |
-| `todo_md edit <ID>... [opts]` | Update title, note, body, or dependencies for task(s) `<ID>...` (`-t TITLE`, `-m NOTE`, `-b BODY\|-`, `--depends SPEC`); a new body keeps existing `- Depends on:` and `- Target files:` lines that it omits, and `--depends ""` clears dependencies |
+| `todo_md edit <ID>... [opts]` | Update title, note, body, or dependencies for task(s) `<ID>...` (`-t TITLE`, `-m NOTE`, `-b BODY\|-`, `--depends SPEC`); a new body keeps existing `- Depends on:` lines that it omits, and `--depends ""` clears dependencies |
 | `todo_md append <ID>... [-b TEXT\|-]` | Append progress/notes to task(s) `<ID>...` body (`-b TEXT\|-` or `stdin`) |
 | `todo_md rename <OLD> <NEW\|P> \| <OLD>=<NEW\|P>...` | Atomically rename task ID(s) across `TODO.md` and `TODO_ARCHIVE.md` (target can be an explicit `<NEW_ID>`, allowing swaps/cycles, or a single-letter prefix `A-Z` for the next free ID) and rewrite `- Depends on:` references (including `<project>:<OLD>` in workspace orchestrators) |
 | `todo_md status <ID>... <STATUS> [-m N] [--reopen]` | Update status for one or more tasks (`WIP`, `NEXT`, `NEW`, `HOLD`, `QUESTION`, `DONE`, `CANCELED`; `--reopen` required if archived) |
@@ -75,7 +75,6 @@ Global options accepted before subcommands:
 | `todo_md chain [<ID>...] [opts]` | Show the Quest-Log: root-anchored RPG progress chains (`[<pct>% \| <done>/<total>] Chain <N> -> <root_ref>: <root_title>:`, with ready `WIP`/`NEXT` chain finales `[ready \| FINAL]` ranked first as top `Chain 1..K` entries) rendered as flat priority-topological rows by default (`--tree` / `-t` renders nested `[<pct>% \| <done>/<total>] Sub-chain -> <milestone_ref>: <title>:` milestone trees with 4-char connectors `├── `, `└── `, `└─► `), `[also in: <other_root_ref>, ...]` on shared prerequisites, and standalone tasks across the repository or `.todo_projects` orchestrator DAG (merging orchestrator blockers (including nested `.todo_projects` hierarchies expanded transitively and external project path aliases such as `~/chrome/canary` -> `chrome/canary:<ID>`) into child-project views, formatting task refs relative to `cwd`, and applying composable TTY styling for external-project tasks, `DONE` tasks, and highlighted targets), ranked with monotonic Quest Momentum by ready finale priority, bug priority (`B*`), active quest momentum / started-chain status floor, status tier (`WIP` -> `NEXT` -> `QUESTION` -> `NEW` -> `HOLD`), velocity, whole-cone size, and root tie-breaker. Options: `--all` (include archived `DONE`/`CANCELED` tasks from `TODO_ARCHIVE.md`), `-r` / `--ready` (ready tasks ranked by status tier, finale priority, bug priority, Quest Momentum continuation, best parent chain rank (tasks advancing `Chain 1` first), multi-chain count, completed prerequisite count, and immediate ready unlocks, shown as `[FINAL \| STAGE \| COMBO \| chain: <N>, ready: +<M>, unblocks: <K>]`, with `chain: <N>` shown only when `N > 1` and `ready: +<M>` only when `M > 0`), `--prefix PREFIX`, `-l N` / `--limit N` (`-n N` alias), `--include-hold`, `--numbered[=left\|right]` (period-free row numbers, default side `left`), `--status STATUS` or a bare `WIP\|NEXT\|QUESTION\|NEW\|HOLD\|ACTIVE\|ALL` keyword (`DONE\|CANCELED\|archive` render the list view), `-f` / `--filter <ID>...` (and positional `<ID>...`: bare `<ID>` matches across all projects in view, `<project>:<ID>` matches one project; focuses and highlights by default, and prints `Next actionable: <ref>` for a single ID), `-H` / `--highlight [<ID>...]` (boolean toggle disabling focus to render the full view with matched `-f`/`-s` tasks highlighted; `-H <ID>...` is shorthand for `-f <ID>... -H`), `-s` / `--search <QUERY>` (`-w` for workspace) |
 | `todo_md search <QUERY> [opts]` | Search task IDs (`<ID>` and `<project>:<ID>`), titles, and bodies across all projects in the active view (including `.todo_projects` child projects; case-insensitive regex, falling back to substring; `TODO.md` only unless `--all` or an archive status is set) and focus the Quest-Log on matches (or highlight in full view with `-H`, or print full sections with `--full`; same as `todo_md -s <QUERY>`) |
 | `todo_md next-id [<ID>] [--prefix P] [--status S]` / `--top` | Print the top ready `WIP`/`NEXT` task ID (filtered by optional `--prefix` and `--status`), or first ready task ID in `<ID>`'s queue |
-| `todo_md files [<ID>...] [opts]` | List files named on the `- Target files:` bullet of task(s) `<ID>...` (backticked paths, glob patterns such as `src/*.py`, symbol slices `path:symbol` / `path:sym1..sym2` resolved to current line ranges, and line slices `path:10-20`, `path:10`, `path#L10-L20`), merged and normalized across all specified tasks per file and printed as `path` or `path:start-end`, with shared budgets counting only the sliced lines (`--max-lines N`, `--max-total-lines N`, `--max-bytes N`, `--max-total-bytes N`); backticked mentions elsewhere in the body are ignored |
 | `todo_md check` | Validate task headings, status badges, unique IDs, dependencies, in-body `- Role:` lines in active tasks, and reject stale completion date notes on active tasks across `TODO*.md` |
 | `todo_md init [TEXT] [--force]` | Create starter `TODO.md` (with optional project idea from `TEXT` or `stdin`) and `TODO_ARCHIVE.md` |
 | `todo_md update [--force]` | Self-update `todo_md` from GitHub (`vitalio/todo_md`) |
@@ -94,9 +93,9 @@ Task IDs are a single uppercase letter plus a number (`F1`, `B3`, `D2`, `L1`):
 - Any other `A-Z` letter is a custom domain prefix.
 
 `todo_md` manages only tasks, prefixes (`A-Z`), statuses (`WIP`, `NEXT`,
-`QUESTION`, `NEW`, `HOLD`, `DONE`, `CANCELED`), dependency graphs, and
-`- Target files:`. `todo_md check` rejects `- Role:` lines in active `TODO.md`
-tasks; filter views natively with `--prefix` and `--status`.
+`QUESTION`, `NEW`, `HOLD`, `DONE`, `CANCELED`), and dependency graphs.
+`todo_md check` rejects `- Role:` lines in active `TODO.md` tasks; filter
+views natively with `--prefix` and `--status`.
 
 ## Context Bundle Protocol
 
@@ -105,13 +104,11 @@ agent sessions (`todo_md <ID> | agents_bundle | run_block`). In bundle mode it
 prints `Bundle-*` transport headers (`Bundle-Protocol: 1`,
 `Bundle-Name: todo_md`, `Bundle-Command`, `Bundle-Boundary`), native task
 preamble headers (`Task: <ID>`, `Prefix: <P>`, `Status: <S>`, `Title: <title>`,
-`Files: <space-separated path or path:start-end specs>`, `Workdir: <dir>`, plus
-`Role: <role>` only when an explicit `role=<role>` CLI override is passed),
-the embedded `agents/todo_md.md` rule fragment (`kind: "rule"`,
-`id: "todo_md:todo_md"`), and the task section (or the Quest-Log / overview for
-`todo_md [-w]` and `todo_md overview`) as a prompt fragment (`kind: "prompt"`).
-Target file reading and span deduplication are left to
-`agents_bundle` (`file {todo_md.files:}`).
+`Workdir: <dir>`, plus `Role: <role>` only when an explicit `role=<role>` CLI
+override is passed), the embedded `agents/todo_md.md` rule fragment
+(`kind: "rule"`, `id: "todo_md:todo_md"`), and the task section (or the
+Quest-Log / overview for `todo_md [-w]` and `todo_md overview`) as a prompt
+fragment (`kind: "prompt"`).
 
 - Bundle mode is on with `--bundle` (`TODO_MD_BUNDLE=1`), or automatically when
   stdout is a pipe that is not the `run_block` step output (inside a
@@ -121,15 +118,6 @@ Target file reading and span deduplication are left to
 - Role override: `role=<role>` on `<ID>`, `show`, `last`, `overview`, and the
   default view emits `Role: <role>` in the bundle preamble
   (`todo_md <ID> role=plan | agents_bundle | run_block`).
-- `--no-files` omits the `Files:` preamble header.
-- `- Target files:` accepts backticked paths, globs, line slices
-  (`path:start-end`) and drift-proof symbol slices (`path:symbol`,
-  `path:sym1..sym2`) resolved to current line ranges at run time for Python,
-  POSIX sh / Bash functions, and brace-delimited declarations (`function`,
-  `fn`, `func`, `struct`, `enum`, `interface`, `type`). A symbol that is not
-  found in an existing file prints a warning on `stderr` and falls back to the
-  whole file. Specs for the same file are merged (a whole-file spec absorbs
-  its slices).
 
 ## License
 

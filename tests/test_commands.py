@@ -12,36 +12,32 @@ class TestCommands(TodoMdTestCase):
     def _seed_edit_body_tasks(self):
         self._run([str(SCRIPT), "add", "F", "Base"], check=True)
         self._run(
-            [str(SCRIPT), "add", "F", "Target", "-b", "Old intro.\n- Depends on: F1\n- Target files: `a.py`"],
+            [str(SCRIPT), "add", "F", "Target", "-b", "Old intro.\n- Depends on: F1"],
             check=True,
         )
 
-    def test_edit_body_preserves_depends_and_target_files(self):
+    def test_edit_body_preserves_depends(self):
         self._seed_edit_body_tasks()
         self._run([str(SCRIPT), "edit", "F2", "-b", "New body."], check=True)
         txt = (self.tmp / "TODO.md").read_text(encoding="utf-8")
         self.assertIn("New body.", txt)
         self.assertNotIn("Old intro.", txt)
         self.assertIn("- Depends on: F1", txt)
-        self.assertIn("- Target files: `a.py`", txt)
 
     def test_edit_body_replacement_lines_override_preserved(self):
         self._seed_edit_body_tasks()
         self._run([str(SCRIPT), "add", "F", "Other"], check=True)
-        new_body = "New body.\n- Depends on: F3\n- Target files: `b.py`"
+        new_body = "New body.\n- Depends on: F3"
         self._run([str(SCRIPT), "edit", "F2", "-b", new_body], check=True)
         txt = (self.tmp / "TODO.md").read_text(encoding="utf-8")
         self.assertIn("- Depends on: F3", txt)
-        self.assertIn("- Target files: `b.py`", txt)
         self.assertNotIn("- Depends on: F1", txt)
-        self.assertNotIn("`a.py`", txt)
 
-    def test_edit_body_empty_depends_clears_depends_only(self):
+    def test_edit_body_empty_depends_clears_depends(self):
         self._seed_edit_body_tasks()
         self._run([str(SCRIPT), "edit", "F2", "-b", "New body.", "--depends", ""], check=True)
         txt = (self.tmp / "TODO.md").read_text(encoding="utf-8")
         self.assertNotIn("Depends on", txt)
-        self.assertIn("- Target files: `a.py`", txt)
 
     def test_add_edit_append_cli(self):
         r_idea = self._run(
@@ -227,38 +223,19 @@ class TestCommands(TodoMdTestCase):
         r_skip = tmd(repo_b, "add", "Task G", env=no_pull)
         self.assertEqual(r_skip.returncode, 0, msg=r_skip.stderr)
 
-    def test_next_id_files_and_pipe_output(self):
+    def test_next_id_and_pipe_output(self):
         self._run([str(SCRIPT), "init"], check=True)
         r_empty = self._run([str(SCRIPT), "next-id"])
         self.assertEqual(r_empty.returncode, 1, msg=r_empty.stderr)
         self.assertIn("no active WIP or NEXT task", r_empty.stderr)
 
-        (self.tmp / "src").mkdir()
-        (self.tmp / "src" / "app.py").write_text("".join(f"line{i}\n" for i in range(1, 13)), encoding="utf-8")
-        (self.tmp / "README.md").write_text("# Demo\n", encoding="utf-8")
-        body = (
-            "- Prose mention of `build.py` is ignored.\n"
-            "- Target files: `src/app.py:10`, `README.md`, `src/app.py`, `src/missing.py`, `../outside.py`.\n"
-            "```text\n"
-            "Ignore fenced `build.py`\n"
-            "```\n"
-        )
-        (self.tmp / "build.py").write_text("# fenced\n", encoding="utf-8")
-        self._run([str(SCRIPT), "add", "Next task", "--next", "-b", body], check=True)
-        self._run([str(SCRIPT), "add", "Wip task", "--status", "WIP", "-b", "- Target files: `README.md`."], check=True)
+        self._run([str(SCRIPT), "add", "Next task", "--next", "-b", "Next body."], check=True)
+        self._run([str(SCRIPT), "add", "Wip task", "--status", "WIP", "-b", "Wip body."], check=True)
 
         for flag in ("next-id", "--next-id", "--top"):
             r_tid = self._run([str(SCRIPT), flag])
             self.assertEqual(r_tid.returncode, 0, r_tid.stderr)
             self.assertEqual(r_tid.stdout.strip(), "F2")
-
-        r_files = self._run([str(SCRIPT), "files", "F1"])
-        self.assertEqual(r_files.returncode, 0, r_files.stderr)
-        self.assertEqual(r_files.stdout.splitlines(), ["src/app.py", "README.md"])
-
-        r_files_top = self._run([str(SCRIPT), "--files"])
-        self.assertEqual(r_files_top.returncode, 0, r_files_top.stderr)
-        self.assertEqual(r_files_top.stdout.splitlines(), ["README.md"])
 
         r_pipe = self._run([str(SCRIPT), "F1"], check=True)
         self.assertIn("# 🎯 [NEXT] F1: Next task", r_pipe.stdout)
@@ -512,8 +489,7 @@ class TestCommands(TodoMdTestCase):
         proj = ws / "proj"
         proj.mkdir()
         self._run([str(SCRIPT), "init"], cwd=str(proj), check=True)
-        (proj / "app.py").write_text("print('ok')\n", encoding="utf-8")
-        self._run([str(SCRIPT), "add", "Done task", "-b", "- Target files: `app.py`."], cwd=str(proj), check=True)
+        self._run([str(SCRIPT), "add", "Done task", "-b", "Body 1"], cwd=str(proj), check=True)
         self._run([str(SCRIPT), "add", "Canceled task", "-b", "Body 2"], cwd=str(proj), check=True)
         self._run([str(SCRIPT), "add", "Second done", "-b", "Body 3"], cwd=str(proj), check=True)
         self._run([str(SCRIPT), "add", "Second canceled", "-b", "Body 4"], cwd=str(proj), check=True)
@@ -552,7 +528,7 @@ class TestCommands(TodoMdTestCase):
         self.assertEqual((proj / "TODO_ARCHIVE.md").read_text(encoding="utf-8"), arch_before)
 
         # Read/audit commands continue to work on archived tasks
-        for cmd in ([str(SCRIPT), "F1"], [str(SCRIPT), "show", "F1"], [str(SCRIPT), "files", "F1"]):
+        for cmd in ([str(SCRIPT), "F1"], [str(SCRIPT), "show", "F1"]):
             r_read = self._run(cmd, cwd=str(proj), check=True)
             self.assertTrue(r_read.stdout.strip())
 
@@ -680,105 +656,6 @@ class TestCommands(TodoMdTestCase):
                 proc = self._run([str(SCRIPT), *bad_args], cwd=str(proj_a))
                 self.assertNotEqual(proc.returncode, 0, msg=proc.stdout)
 
-    def test_files_glob_patterns_and_line_slices(self):
-        self._run([str(SCRIPT), "init"], check=True)
-        src = self.tmp / "src"
-        src.mkdir()
-        (src / "big.py").write_text("".join(f"l{i}\n" for i in range(1, 101)), encoding="utf-8")
-        (src / "a.py").write_text("a\n", encoding="utf-8")
-        (src / "b.py").write_text("b\n", encoding="utf-8")
-        cache = src / "__pycache__"
-        cache.mkdir()
-        (cache / "a.pyc").write_text("x\n", encoding="utf-8")
-        docs = self.tmp / "docs"
-        docs.mkdir()
-        (docs / "x.md").write_text("x\n", encoding="utf-8")
-        (docs / "y.md").write_text("y\n", encoding="utf-8")
-        (self.tmp / "todo_md").write_text("compiled\n", encoding="utf-8")
-        body = (
-            "- Target files: slices `src/big.py:10-20`, `src/big.py:50`, `src/big.py#L60-L70`, "
-            "`src/big.py#L80`, `src/big.py:95-200`.\n"
-            "- Target files: globs `src/?.py`, `src/**/*.pyc`, and `docs/*.md`.\n"
-            "- Target files: ignored: cross-project ref `todo_md:D5`, bare `D*` and `*`, `src/*.py:1-2`, "
-            "`../*.py`, `src/big.py:0-5`, `src/big.py:20-10`, `src/big.py:500-600`.\n"
-        )
-        self._run([str(SCRIPT), "add", "Glob task", "--next", "-b", body], check=True)
-        r = self._run([str(SCRIPT), "files", "F1"], check=True)
-        self.assertEqual(
-            r.stdout.splitlines(),
-            [
-                "src/big.py:10-20",
-                "src/big.py:50-50",
-                "src/big.py:60-70",
-                "src/big.py:80-80",
-                "src/big.py:95-100",
-                "src/a.py",
-                "src/b.py",
-                "docs/x.md",
-                "docs/y.md",
-            ],
-        )
-        self.assertNotIn("__pycache__", r.stdout)
-
-    def test_files_line_slice_budgets(self):
-        self._run([str(SCRIPT), "init"], check=True)
-        (self.tmp / "big.py").write_text("".join(f"l{i}\n" for i in range(1, 101)), encoding="utf-8")
-        self._run(
-            [str(SCRIPT), "add", "Slice budgets", "--next", "-b", "- Target files: `big.py:1-5`, `big.py:10-40`, `big.py:60-100`."],
-            check=True,
-        )
-        cases = (
-            ([], ["big.py:1-5", "big.py:10-40", "big.py:60-100"]),
-            (["--max-lines", "10"], ["big.py:1-5"]),
-            (["--max-lines", "40"], ["big.py:1-5", "big.py:10-40"]),
-            (["--max-total-lines", "40"], ["big.py:1-5", "big.py:10-40"]),
-            (["--max-bytes", "20"], ["big.py:1-5"]),
-            (["--max-total-bytes", "15"], ["big.py:1-5"]),
-        )
-        for extra, expected in cases:
-            with self.subTest(extra=extra):
-                r = self._run([str(SCRIPT), "files", "F1", *extra], check=True)
-                self.assertEqual(r.stdout.splitlines(), expected)
-
-    def test_files_symbol_slices_and_range_normalization(self):
-        self._run([str(SCRIPT), "init"], check=True)
-        src_lines = [
-            "X = 1", "", "@deco", "def foo(a):", "    return a", "", "",
-            "class Foo:", "    def bar(self):", "        return 1", "",
-            "    def baz(self):", "        return 2", "", "", "def last():", "    pass",
-        ]
-        (self.tmp / "a.py").write_text("\n".join(src_lines) + "\n", encoding="utf-8")
-        sh_lines = [
-            "#!/bin/sh", "greet() {", "    echo hi", "}", "",
-            "function other() {", "    echo o", "}", "", "main",
-        ]
-        (self.tmp / "b.sh").write_text("\n".join(sh_lines) + "\n", encoding="utf-8")
-        rs_lines = [
-            "struct Point {", "    x: i32,", "}", "",
-            "fn area(p: Point) -> i32 {", "    p.x", "}", "",
-            "enum Color {", "    Red,", "}",
-        ]
-        (self.tmp / "c.rs").write_text("\n".join(rs_lines) + "\n", encoding="utf-8")
-        cases = (
-            ("- Target files: `a.py:foo`.", ["a.py:3-5"]),
-            ("- Target files: `a.py:Foo.bar`, `a.py:last`, `a.py:X`.", ["a.py:1-1", "a.py:9-10", "a.py:16-17"]),
-            ("- Target files: `a.py:foo..Foo`, `a.py:Foo.baz`.", ["a.py:3-13"]),
-            ("- Target files: `a.py:Foo`, `a.py`.", ["a.py"]),
-            ("- Target files: `a.py:2-4`, `a.py:3-6`, `a.py:6-8`, `a.py:20-30`.", ["a.py:2-8"]),
-            ("Mentions `a.py:1-2` in prose only.", []),
-            ("- Target files: `a.py:missing`.", ["a.py"]),
-            ("- Target files: `b.sh:greet`, `b.sh:other`.", ["b.sh:2-4", "b.sh:6-8"]),
-            ("- Target files: `c.rs:Point`, `c.rs:area`, `c.rs:Color`.", ["c.rs:1-3", "c.rs:5-7", "c.rs:9-11"]),
-            ("- Target files: `b.sh:nope`, `c.rs:area`.", ["b.sh", "c.rs:5-7"]),
-        )
-        for n, (body, expected) in enumerate(cases, start=1):
-            self._run([str(SCRIPT), "add", f"Sym {n}", "--next", "-b", body], check=True)
-            with self.subTest(body=body):
-                r = self._run([str(SCRIPT), "files", f"F{n}"], check=True)
-                self.assertEqual(r.stdout.splitlines(), expected, msg=r.stderr)
-        r_missing = self._run([str(SCRIPT), "files", "F7"], check=True)
-        self.assertIn("symbol slice 'a.py:missing' not found in a.py", r_missing.stderr)
-
     def test_list_rejects_retired_tree_flag(self):
         proj = self.tmp / "proj_no_tree"
         proj.mkdir(parents=True)
@@ -866,22 +743,11 @@ class TestCommands(TodoMdTestCase):
         self._run([str(SCRIPT), "check"], cwd=str(child), check=True)
         self._run([str(SCRIPT), "check"], cwd=str(orch), check=True)
 
-    def test_batch_edit_append_and_files_merging(self):
+    def test_batch_edit_and_append(self):
         self._run([str(SCRIPT), "init"], check=True)
-        (self.tmp / "m.py").write_text("".join(f"line{i}\n" for i in range(1, 51)), encoding="utf-8")
-        (self.tmp / "n.py").write_text("".join(f"n{i}\n" for i in range(1, 21)), encoding="utf-8")
-        self._run(
-            [str(SCRIPT), "add", "Task 1", "-b", "- Target files: `m.py:1-10`, `n.py:1-5`."],
-            check=True,
-        )
-        self._run(
-            [str(SCRIPT), "add", "Task 2", "-b", "- Target files: `m.py:8-20`."],
-            check=True,
-        )
-        self._run(
-            [str(SCRIPT), "add", "Task 3", "-b", "- Target files: `n.py`."],
-            check=True,
-        )
+        self._run([str(SCRIPT), "add", "Task 1", "-b", "Body 1."], check=True)
+        self._run([str(SCRIPT), "add", "Task 2", "-b", "Body 2."], check=True)
+        self._run([str(SCRIPT), "add", "Task 3", "-b", "Body 3."], check=True)
 
         # Batch edit across space- and comma-separated IDs
         self._run([str(SCRIPT), "edit", "F1,F2", "F3", "-m", "batch note"], check=True)
@@ -893,18 +759,6 @@ class TestCommands(TodoMdTestCase):
         self._run([str(SCRIPT), "append", "F1", "F2,F3", "-b", "- Batch bullet"], check=True)
         todo_txt = (self.tmp / "TODO.md").read_text(encoding="utf-8")
         self.assertEqual(todo_txt.count("- Batch bullet"), 3)
-
-        # Batch files merges overlapping ranges (m.py:1-10 + m.py:8-20 -> m.py:1-20)
-        # and whole-file absorbs slices (n.py:1-5 + n.py -> n.py)
-        r_f12 = self._run([str(SCRIPT), "files", "F1,F2"], check=True)
-        self.assertEqual(r_f12.stdout.splitlines(), ["m.py:1-20", "n.py:1-5"])
-
-        r_f123 = self._run([str(SCRIPT), "files", "F1", "F2,F3"], check=True)
-        self.assertEqual(r_f123.stdout.splitlines(), ["m.py:1-20", "n.py"])
-
-        # Shared budget across batch files
-        r_budget = self._run([str(SCRIPT), "files", "F1", "F2", "--max-total-lines", "22"], check=True)
-        self.assertEqual(r_budget.stdout.splitlines(), ["m.py:1-20"])
 
 
 if __name__ == "__main__":

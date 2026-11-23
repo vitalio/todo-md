@@ -1,19 +1,15 @@
 BUNDLE_PROTOCOL_VERSION = "1"
 BUNDLE_NAME = "todo_md"
-BUNDLE_FLAGS = ("--bundle", "--plain", "--no-files")
+BUNDLE_FLAGS = ("--bundle", "--plain")
 BUNDLE_CHAIN = ["todo_md"]
 BUNDLE_RULE_ID = "todo_md:todo_md"
-BUNDLE_MAX_LINES = 400
-BUNDLE_MAX_TOTAL_LINES = 1200
-BUNDLE_MAX_BYTES = 32768
 CONTEXT_HEADER_RE = re.compile(r"^[A-Za-z][A-Za-z-]*: ")
 TASK_SOURCE_RE = re.compile(r"^# (TODO(?:_ARCHIVE)?\.md):\d+", re.MULTILINE)
 
 class BundleOptions:
-    def __init__(self, enabled: bool, no_files: bool = False, role: str | None = None,
+    def __init__(self, enabled: bool, role: str | None = None,
                  argv: list[str] | None = None) -> None:
         self.enabled = enabled
-        self.no_files = no_files
         self.role = role
         self.argv = list(argv or [])
 
@@ -48,12 +44,8 @@ def _fragment(nonce: str, meta: dict[str, object], body: str) -> str:
     marker = json.dumps(meta, ensure_ascii=False)
     return f"<!-- bundle:{nonce}:part {marker} -->\n{body.rstrip(chr(10))}\n<!-- bundle:{nonce}:end -->\n"
 
-def _with_task_headers(headers: list[str], files: list[str], role: str | None) -> list[str]:
-    out = [h for h in headers if not h.startswith(("Role: ", "Files: "))]
-    files_line = f"Files: {' '.join(files)}" if files else None
-    if files_line is not None:
-        workdir_idx = next((idx for idx, h in enumerate(out) if h.startswith("Workdir: ")), len(out))
-        out.insert(workdir_idx, files_line)
+def _with_task_headers(headers: list[str], role: str | None) -> list[str]:
+    out = [h for h in headers if not h.startswith("Role: ")]
     if role:
         out.append(f"Role: {role}")
     return out
@@ -61,12 +53,11 @@ def _with_task_headers(headers: list[str], files: list[str], role: str | None) -
 def _write_stream(
     opts: BundleOptions,
     headers: list[str],
-    files: list[str],
     prompt_meta: dict[str, object],
     prompt_body: str,
 ) -> None:
     nonce = secrets.token_hex(16)
-    headers = _with_task_headers(headers, files, opts.role)
+    headers = _with_task_headers(headers, opts.role)
     preamble = [
         f"Bundle-Protocol: {BUNDLE_PROTOCOL_VERSION}",
         f"Bundle-Name: {BUNDLE_NAME}",
@@ -87,7 +78,7 @@ def emit_context_bundle(opts: BundleOptions, base_dir: Path, render) -> int:
         sys.stdout.write(out)
         return rc
     meta = {"kind": "prompt", "name": "todo_md", "chain": BUNDLE_CHAIN}
-    _write_stream(opts, [f"Workdir: {base_dir.resolve()}"], [], meta, out)
+    _write_stream(opts, [f"Workdir: {base_dir.resolve()}"], meta, out)
     return 0
 
 def emit_task_bundle(opts: BundleOptions, task_dir: Path, task_id: str | None, render) -> int:
@@ -99,16 +90,11 @@ def emit_task_bundle(opts: BundleOptions, task_dir: Path, task_id: str | None, r
         return rc
     tid = next((h.split(": ", 1)[1] for h in headers if h.startswith("Task: ")), task_id or "")
     src = TASK_SOURCE_RE.search(body)
-    specs: list[str] = []
-    if not opts.no_files:
-        specs = select_task_files(
-            task_dir, tid, BUNDLE_MAX_LINES, BUNDLE_MAX_TOTAL_LINES, BUNDLE_MAX_BYTES
-        ) or []
     meta = {
         "kind": "prompt",
         "id": tid,
         "name": f"{src.group(1) if src else 'TODO.md'}:{tid}",
         "chain": BUNDLE_CHAIN,
     }
-    _write_stream(opts, headers, specs, meta, body)
+    _write_stream(opts, headers, meta, body)
     return 0
