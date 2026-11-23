@@ -256,6 +256,7 @@ def _task_matches_prefix(task: dict[str, object], wanted_prefix: str) -> bool:
     raw_id = str(task.get("id") or task.get("ref") or "")
     return bool(raw_id) and _task_prefix(raw_id) == wanted_prefix.strip().upper()
 
+@_discovery_scoped
 def validate_all(base_dir: Path) -> tuple[list[str], int]:
     errors: list[str] = []
     seen_ids: dict[str, str] = {}
@@ -328,10 +329,23 @@ def validate_all(base_dir: Path) -> tuple[list[str], int]:
                         "(remove it)"
                     )
 
-    ws_root = resolve_workspace_root(base_dir)
+    ws_root = _workspace_root_cached(base_dir)
     is_orchestrator = has_local_todo_projects_config(base_dir)
     local_ids = set(seen_ids.keys())
-    proj_task_cache: dict[Path, set[str]] = {}
+    shared = _ACTIVE_DISCOVERY
+    task_cache: dict[Path, dict[str, dict[str, object]]] = (
+        shared.task_maps if shared is not None else {}
+    )
+
+    def _proj_task_ids(proj_dir: Path) -> dict[str, dict[str, object]]:
+        p_res = proj_dir.resolve()
+        if p_res not in task_cache:
+            mapping: dict[str, dict[str, object]] = {}
+            if is_todo_project(p_res):
+                for pt in collect_all_tasks(p_res):
+                    mapping[str(pt["id"]).upper()] = pt
+            task_cache[p_res] = mapping
+        return task_cache[p_res]
     todo_path = base_dir / "TODO.md"
     if todo_path.is_file():
         for t in parse_tasks_in_text(read_if_exists(todo_path), "TODO.md"):
@@ -370,11 +384,7 @@ def validate_all(base_dir: Path) -> tuple[list[str], int]:
                             if not is_todo_project(target_dir):
                                 errors.append(f"TODO.md:{lineno}: task {tid} depends on unknown project in {ref!r}")
                                 continue
-                            if target_dir not in proj_task_cache:
-                                proj_task_cache[target_dir] = {
-                                    str(pt["id"]).upper() for pt in collect_all_tasks(target_dir)
-                                }
-                            if target_tid not in proj_task_cache[target_dir]:
+                            if target_tid not in _proj_task_ids(target_dir):
                                 errors.append(f"TODO.md:{lineno}: task {tid} depends on missing task {ref!r}")
                             elif target_dir == base_dir.resolve() and target_tid == tid:
                                 errors.append(f"TODO.md:{lineno}: task {tid} cannot depend on itself")

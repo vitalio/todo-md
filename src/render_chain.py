@@ -1,3 +1,4 @@
+@_discovery_scoped
 def cmd_chain(
     base_dir: Path,
     limit: int | None = None,
@@ -15,7 +16,7 @@ def cmd_chain(
 ) -> int:
     b_res = base_dir.resolve()
     row_scoped = status is not None or bool(focus)
-    ws_root = resolve_workspace_root(b_res, explicit_dir=explicit_dir)
+    ws_root = _workspace_root_cached(b_res, explicit_dir=explicit_dir)
     is_orch = (not workspace) and is_orchestrator_project(b_res, ws_root, explicit_dir=explicit_dir)
     if workspace:
         if not resolve_workspace_chain_projects(b_res, ws_root):

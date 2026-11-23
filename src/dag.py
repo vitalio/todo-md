@@ -72,26 +72,42 @@ def build_dependency_dag(
             task_cache[p_res] = mapping
         return task_cache[p_res]
 
+    ref_dir_cache: dict[tuple[Path, str], Path] = {}
+    fmt_ref_cache: dict[tuple[Path, str], str] = {}
+
     def _resolve_ref(cur_dir: Path, ref: str) -> tuple[Path, str]:
         pm = PROJECT_TASK_RE.match(ref)
         if pm:
+            c_res = cur_dir.resolve()
             proj_name = pm.group(1).strip().replace("\\", "/").strip("/")
-            alias = lookup_external_alias(cur_dir, ws_resolved, proj_name)
-            if alias is not None and is_todo_project(alias):
-                return alias, pm.group(2).upper()
-            cand = (ws_resolved / proj_name).resolve()
-            if not is_todo_project(cand) and ws_resolved.name == ".todo_projects":
-                alt = (ws_resolved.parent / proj_name).resolve()
-                if is_todo_project(alt):
-                    cand = alt
-            return cand, pm.group(2).upper()
+            tid = pm.group(2).upper()
+            r_key = (c_res, proj_name)
+            cand = ref_dir_cache.get(r_key)
+            if cand is None:
+                alias = lookup_external_alias(c_res, ws_resolved, proj_name)
+                if alias is not None and is_todo_project(alias):
+                    cand = alias
+                else:
+                    cand = (ws_resolved / proj_name).resolve()
+                    if not is_todo_project(cand) and ws_resolved.name == ".todo_projects":
+                        alt = (ws_resolved.parent / proj_name).resolve()
+                        if is_todo_project(alt):
+                            cand = alt
+                ref_dir_cache[r_key] = cand
+            return cand, tid
         return cur_dir.resolve(), ref.upper()
 
     def _format_ref(node_key: tuple[Path, str]) -> str:
+        cached = fmt_ref_cache.get(node_key)
+        if cached is not None:
+            return cached
         ndir, ntid = node_key
         if disp_is_proj and ndir == disp_resolved:
-            return ntid
-        return f"{project_display_name(ndir, ws_resolved, disp_resolved)}:{ntid}"
+            res = ntid
+        else:
+            res = f"{project_display_name(ndir, ws_resolved, disp_resolved)}:{ntid}"
+        fmt_ref_cache[node_key] = res
+        return res
 
     root = (target_dir.resolve(), task_id.strip().upper())
     nodes: dict[tuple[Path, str], dict[str, object]] = {}
@@ -426,6 +442,7 @@ def _is_task_blocked(
     root_key: tuple[Path, str] = dag["root"]  # type: ignore[assignment]
     return any(str(nodes[p]["status"]) != "DONE" for p in prereqs.get(root_key, []))
 
+@_discovery_scoped
 def build_execution_chain_dag(
     base_dir: Path,
     workspace: bool = False,
@@ -433,7 +450,7 @@ def build_execution_chain_dag(
     include_done: bool = False,
 ) -> dict[str, object]:
     b_res = base_dir.resolve()
-    ws_root = resolve_workspace_root(b_res, explicit_dir=explicit_dir)
+    ws_root = _workspace_root_cached(b_res, explicit_dir=explicit_dir)
     ws_resolved = ws_root.resolve()
     cwd_resolved = Path.cwd().resolve()
 
@@ -483,7 +500,10 @@ def build_execution_chain_dag(
         for cdir in cfg_dirs:
             _add_seed_dir(cdir)
 
-    task_cache: dict[Path, dict[str, dict[str, object]]] = {}
+    shared = _ACTIVE_DISCOVERY
+    task_cache: dict[Path, dict[str, dict[str, object]]] = (
+        shared.task_maps if shared is not None else {}
+    )
 
     def _task_map(proj_dir: Path) -> dict[str, dict[str, object]]:
         p_res = proj_dir.resolve()
@@ -495,32 +515,51 @@ def build_execution_chain_dag(
             task_cache[p_res] = mapping
         return task_cache[p_res]
 
+    ref_dir_cache: dict[tuple[Path, str], Path] = {}
+    fmt_ref_cache: dict[tuple[Path, str], str] = {}
+
     def _resolve_ref(cur_dir: Path, ref: str) -> tuple[Path, str]:
         pm = PROJECT_TASK_RE.match(ref)
         if pm:
+            c_res = cur_dir.resolve()
             proj_name = pm.group(1).strip().replace("\\", "/").strip("/")
-            if proj_name in alias_lookup:
-                return alias_lookup[proj_name], pm.group(2).upper()
-            ext_alias = lookup_external_alias(cur_dir, ws_resolved, proj_name)
-            if ext_alias is not None and is_todo_project(ext_alias):
-                return ext_alias, pm.group(2).upper()
-            cand = (ws_resolved / proj_name).resolve()
-            if is_todo_project(cand):
-                return cand, pm.group(2).upper()
-            if ws_resolved.name == ".todo_projects":
-                alt = (ws_resolved.parent / proj_name).resolve()
-                if is_todo_project(alt):
-                    return alt, pm.group(2).upper()
-            if proj_name in project_lookup:
-                return project_lookup[proj_name], pm.group(2).upper()
-            return cand, pm.group(2).upper()
+            tid = pm.group(2).upper()
+            r_key = (c_res, proj_name)
+            cand = ref_dir_cache.get(r_key)
+            if cand is None:
+                if proj_name in alias_lookup:
+                    cand = alias_lookup[proj_name]
+                else:
+                    ext_alias = lookup_external_alias(c_res, ws_resolved, proj_name)
+                    if ext_alias is not None and is_todo_project(ext_alias):
+                        cand = ext_alias
+                    else:
+                        cand_ws = (ws_resolved / proj_name).resolve()
+                        if is_todo_project(cand_ws):
+                            cand = cand_ws
+                        elif ws_resolved.name == ".todo_projects" and is_todo_project(
+                            (ws_resolved.parent / proj_name).resolve()
+                        ):
+                            cand = (ws_resolved.parent / proj_name).resolve()
+                        elif proj_name in project_lookup:
+                            cand = project_lookup[proj_name]
+                        else:
+                            cand = cand_ws
+                ref_dir_cache[r_key] = cand
+            return cand, tid
         return cur_dir.resolve(), ref.upper()
 
     def _format_ref(node_key: tuple[Path, str]) -> str:
+        cached = fmt_ref_cache.get(node_key)
+        if cached is not None:
+            return cached
         ndir, ntid = node_key
         if disp_is_proj and ndir == disp_resolved:
-            return ntid
-        return f"{project_display_name(ndir, ws_resolved, b_res)}:{ntid}"
+            res = ntid
+        else:
+            res = f"{project_display_name(ndir, ws_resolved, b_res)}:{ntid}"
+        fmt_ref_cache[node_key] = res
+        return res
 
     seeds: list[tuple[Path, str]] = []
     for p_res in seed_dirs:
@@ -907,6 +946,7 @@ def _is_ready_in_dag(
         return False
     return not any(str(nodes[p]["status"]) != "DONE" for p in prereqs.get(u, []))
 
+@_discovery_scoped
 def find_newly_unblocked_tasks(
     completed_dir: Path,
     completed_id: str,
@@ -914,7 +954,7 @@ def find_newly_unblocked_tasks(
     comp_res = completed_dir.resolve()
     comp_tid = completed_id.strip().upper()
     cwd_res = Path.cwd().resolve()
-    ws_root = resolve_workspace_root(cwd_res if is_todo_project(cwd_res) else comp_res)
+    ws_root = _workspace_root_cached(cwd_res if is_todo_project(cwd_res) else comp_res)
     ws_res = ws_root.resolve()
 
     candidate_dirs: list[Path] = []
@@ -931,7 +971,7 @@ def find_newly_unblocked_tasks(
     _add_project(ws_res)
     for _, proj_dir in discover_projects(ws_res):
         _add_project(proj_dir)
-    comp_ws = resolve_workspace_root(comp_res).resolve()
+    comp_ws = _workspace_root_cached(comp_res).resolve()
     if comp_ws != ws_res:
         _add_project(comp_ws)
         for _, proj_dir in discover_projects(comp_ws):
@@ -968,7 +1008,7 @@ def find_newly_unblocked_tasks(
         todo_path = proj_dir / "TODO.md"
         if not todo_path.is_file():
             continue
-        proj_ws = resolve_workspace_root(proj_dir).resolve()
+        proj_ws = _workspace_root_cached(proj_dir).resolve()
         for t in parse_tasks_in_text(read_if_exists(todo_path), "TODO.md"):
             tid = str(t["id"]).upper()
             if proj_dir == comp_res and tid == comp_tid:

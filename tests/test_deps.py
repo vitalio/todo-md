@@ -722,6 +722,187 @@ class TestDeps(TodoMdTestCase):
         r_done_2 = self._run([str(SCRIPT), "done", "run-block:B1"], cwd=str(orch), check=True)
         self.assertIn("Unblocked: todo-flow:F1", r_done_2.stdout)
 
+    def test_discovery_and_alias_caching_scan_budgets_and_hard_timeouts(self):
+        import signal
+        import time
+        from unittest import mock
+
+        mod = self.todo_md_mod
+        ws = (self.tmp / "ws_perf_budget").resolve()
+        ext_root = (self.tmp / "ext_perf_budget").resolve()
+        orch = ws / "todo-flow"
+        proj_a = ws / "proj_a_checkout"
+        proj_b = ws / "proj_b_checkout"
+        proj_c = ext_root / "proj_c_external"
+        for d in (orch, proj_a, proj_b, proj_c):
+            d.mkdir(parents=True)
+            self._run([str(SCRIPT), "init"], cwd=str(d), check=True)
+
+        (orch / ".todo_projects").write_text(
+            "proj-a=../proj_a_checkout\nproj-b=../proj_b_checkout\n",
+            encoding="utf-8",
+        )
+        (orch / ".todo_projects.local").write_text(
+            f"proj-c={proj_c}\n",
+            encoding="utf-8",
+        )
+
+        def _populate_tasks(p_dir, count: int) -> None:
+            blocks = []
+            for idx in range(1, count + 1):
+                dep_line = f"\n- Depends on: F{idx - 1}" if idx > 1 else ""
+                blocks.append(f"# 🎯 [NEXT] F{idx}: Task {idx} in {p_dir.name}{dep_line}\n\n- Detail {idx}.")
+            (p_dir / "TODO.md").write_text("\n\n".join(blocks) + "\n", encoding="utf-8")
+
+        _populate_tasks(proj_a, 12)
+        _populate_tasks(proj_b, 12)
+        _populate_tasks(proj_c, 12)
+
+        orch_blocks = []
+        for idx in range(1, 13):
+            prev_chain = f"F{idx - 1} -> " if idx > 1 else ""
+            dep_spec = f"{prev_chain}proj-a:F{idx} -> proj-b:F{idx} -> proj-c:F{idx}"
+            orch_blocks.append(
+                f"# 🎯 [NEXT] F{idx}: Orchestrator wave {idx}\n- Depends on: {dep_spec}\n\n- Wave {idx}."
+            )
+        (orch / "TODO.md").write_text("\n\n".join(orch_blocks) + "\n", encoding="utf-8")
+
+        @contextlib.contextmanager
+        def _hard_timeout(seconds: float, label: str):
+            has_itimer = hasattr(signal, "setitimer") and hasattr(signal, "ITIMER_REAL")
+            old_handler = None
+            if has_itimer:
+                def _on_alarm(signum, frame):
+                    raise TimeoutError(f"{label} exceeded hard timeout of {seconds:.1f}s")
+                old_handler = signal.signal(signal.SIGALRM, _on_alarm)
+                signal.setitimer(signal.ITIMER_REAL, seconds)
+            t0 = time.monotonic()
+            try:
+                yield
+            finally:
+                elapsed = time.monotonic() - t0
+                if has_itimer:
+                    signal.setitimer(signal.ITIMER_REAL, 0.0)
+                    signal.signal(signal.SIGALRM, old_handler)
+                self.assertLess(
+                    elapsed,
+                    seconds,
+                    msg=f"{label} took {elapsed:.3f}s (limit {seconds:.1f}s)",
+                )
+
+        with mock.patch.dict(
+            os.environ,
+            {"TODO_MD_WORKSPACE": str(ws), "TODO_MD_CWD": str(orch)},
+            clear=False,
+        ):
+            # 1. Verify alias_maps caching when `discovered` is passed and O(1) alias/display lookups
+            with (
+                mock.patch.object(mod, "_scan_projects", wraps=mod._scan_projects) as m_scan_proj,
+                mock.patch.object(
+                    mod, "_scan_orchestrators_for_project", wraps=mod._scan_orchestrators_for_project
+                ) as m_scan_orch,
+                mock.patch.object(
+                    mod,
+                    "read_configured_todo_project_entries",
+                    wraps=mod.read_configured_todo_project_entries,
+                ) as m_read_cfg,
+                mock.patch.object(mod, "collect_all_tasks", wraps=mod.collect_all_tasks) as m_collect,
+            ):
+                with mod.discovery_session() as cache:
+                    discovered = mod.discover_projects(ws)
+                    alias_map = mod.configured_project_alias_map(orch, ws, discovered=discovered)
+                    self.assertIn((orch.resolve(), ws.resolve()), cache.alias_maps)
+                    self.assertEqual(alias_map["proj-a"], proj_a.resolve())
+                    self.assertEqual(alias_map["proj-c"], proj_c.resolve())
+
+                    # Prime lookup_external_alias and project_display_name once
+                    self.assertEqual(mod.lookup_external_alias(orch, ws, "proj-a"), proj_a.resolve())
+                    self.assertEqual(mod.lookup_external_alias(orch, ws, "proj-c"), proj_c.resolve())
+                    self.assertEqual(mod.project_display_name(proj_a, ws, orch), "proj-a")
+                    self.assertEqual(mod.project_display_name(proj_c, ws, orch), "proj-c")
+
+                    cfg_calls_after_prime = m_read_cfg.call_count
+                    proj_scans_after_prime = m_scan_proj.call_count
+                    orch_scans_after_prime = m_scan_orch.call_count
+
+                    for _ in range(50):
+                        self.assertEqual(
+                            mod.configured_project_alias_map(orch, ws, discovered=discovered)["proj-b"],
+                            proj_b.resolve(),
+                        )
+                        self.assertEqual(mod.lookup_external_alias(orch, ws, "proj-a"), proj_a.resolve())
+                        self.assertEqual(mod.lookup_external_alias(orch, ws, "proj-b"), proj_b.resolve())
+                        self.assertEqual(mod.lookup_external_alias(orch, ws, "proj-c"), proj_c.resolve())
+                        self.assertIsNone(mod.lookup_external_alias(orch, ws, "nonexistent-proj"))
+                        self.assertEqual(mod.project_display_name(proj_a, ws, orch), "proj-a")
+                        self.assertEqual(mod.project_display_name(proj_b, ws, orch), "proj-b")
+                        self.assertEqual(mod.project_display_name(proj_c, ws, orch), "proj-c")
+
+                    self.assertEqual(m_read_cfg.call_count, cfg_calls_after_prime)
+                    self.assertEqual(m_scan_proj.call_count, proj_scans_after_prime)
+                    self.assertEqual(m_scan_orch.call_count, orch_scans_after_prime)
+
+                    # Verify build_execution_chain_dag shares cache.task_maps
+                    mod.build_execution_chain_dag(orch)
+                    self.assertGreaterEqual(len(cache.task_maps), 4)
+                    collect_after_first_dag = m_collect.call_count
+                    mod.build_execution_chain_dag(orch)
+                    self.assertEqual(m_collect.call_count, collect_after_first_dag)
+
+            # 2. Verify hard timeouts and strict scan budgets across commands
+            cases = [
+                ("cmd_check(orch)", lambda: mod.cmd_check(orch), 1, 4),
+                ("cmd_check(proj_a)", lambda: mod.cmd_check(proj_a), 1, 4),
+                ("cmd_workspace_check(ws)", lambda: mod.cmd_workspace_check(ws), 1, 4),
+                ("cmd_chain(orch)", lambda: mod.cmd_chain(orch), 1, 4),
+                ("cmd_chain(proj_a)", lambda: mod.cmd_chain(proj_a), 1, 4),
+                ("cmd_list(orch)", lambda: mod.cmd_list(orch), 1, 4),
+                ("cmd_list(proj_a)", lambda: mod.cmd_list(proj_a), 1, 4),
+                ("cmd_projects(orch)", lambda: mod.cmd_projects(orch), 1, 1),
+                (
+                    "find_newly_unblocked_tasks(proj_a, F1)",
+                    lambda: mod.find_newly_unblocked_tasks(proj_a, "F1"),
+                    1,
+                    4,
+                ),
+            ]
+            for label, fn, max_proj_scans, max_orch_scans in cases:
+                with self.subTest(case=label):
+                    with (
+                        mock.patch.object(mod, "_scan_projects", wraps=mod._scan_projects) as m_sp,
+                        mock.patch.object(
+                            mod,
+                            "_scan_orchestrators_for_project",
+                            wraps=mod._scan_orchestrators_for_project,
+                        ) as m_so,
+                    ):
+                        out_buf = io.StringIO()
+                        err_buf = io.StringIO()
+                        with (
+                            contextlib.redirect_stdout(out_buf),
+                            contextlib.redirect_stderr(err_buf),
+                            _hard_timeout(2.0, label),
+                        ):
+                            res = fn()
+                        if isinstance(res, int):
+                            self.assertEqual(res, 0, msg=err_buf.getvalue())
+                        self.assertLessEqual(
+                            m_sp.call_count,
+                            max_proj_scans,
+                            msg=f"{label}: _scan_projects called {m_sp.call_count} times",
+                        )
+                        self.assertLessEqual(
+                            m_so.call_count,
+                            max_orch_scans,
+                            msg=f"{label}: _scan_orchestrators_for_project called {m_so.call_count} times",
+                        )
+                        unique_orch_targets = {c.args[0].resolve() for c in m_so.call_args_list}
+                        self.assertEqual(
+                            m_so.call_count,
+                            len(unique_orch_targets),
+                            msg=f"{label}: redundant _scan_orchestrators_for_project calls: {m_so.call_args_list}",
+                        )
+
 
 if __name__ == "__main__":
     unittest.main()

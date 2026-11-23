@@ -1,3 +1,4 @@
+@_discovery_scoped
 def cmd_check(base_dir: Path) -> int:
     if not (base_dir / "TODO.md").is_file():
         sys.stderr.write(f"{prog_name()}: no TODO.md found in {base_dir} (run '{prog_name()} init' to create one)\n")

@@ -741,9 +741,10 @@ def cmd_list(
             )
     return 0
 
+@_discovery_scoped
 def cmd_projects(base_dir: Path, explicit_dir: str | None = None) -> int:
     b_res = base_dir.resolve()
-    ws_root = resolve_workspace_root(b_res, explicit_dir=explicit_dir)
+    ws_root = _workspace_root_cached(b_res, explicit_dir=explicit_dir)
     ws_res = ws_root.resolve()
     all_projs = discover_projects(ws_res)
     if has_local_todo_projects_config(b_res) or (
@@ -968,6 +969,7 @@ def cmd_workspace_list(
         )
     return 0
 
+@_discovery_scoped
 def cmd_workspace_check(workspace_root: Path) -> int:
     projects = discover_projects(workspace_root)
     if not projects:

@@ -1,3 +1,10 @@
+# ✅ [DONE] B9: Cache discovery and alias resolution across cmd_check, cmd_chain, and DAG builders and add hard-timeout performance tests — *2026-11-23, Cached discovery and alias resolution across cmd_check, cmd_chain, and DAG builders and added hard-timeout performance tests*
+
+- Wrap `validate_all` (`cmd_check`, `cmd_workspace_check`, and post-mutation validation), `cmd_chain`, `build_execution_chain_dag`, `cmd_projects`, and `find_newly_unblocked_tasks` in `discovery_session()` (`@_discovery_scoped`), and share `_ACTIVE_DISCOVERY.task_maps` inside `build_execution_chain_dag`.
+- Cache `configured_project_alias_map` in `_DiscoveryCache.alias_maps` even when `discovered` is passed, and cache `lookup_external_alias` / reverse display-name lookups per `(base_dir, ws_root)` so `_resolve_ref` and `_format_ref` resolve in O(1) without rescanning `.todo_projects` or walking the workspace tree.
+- Add performance and scan-budget regression tests in `tests/test_deps.py` with a hard execution timeout (failing immediately if `cmd_check`, `cmd_chain`, `cmd_list`, `cmd_projects`, or `find_newly_unblocked_tasks` exceeds a couple of seconds or triggers redundant `_scan_projects` / `_scan_orchestrators_for_project` passes).
+- Version bump: `PATCH`.
+
 # ✅ [DONE] F80: Support <alias>=<path> project mapping in .todo_projects and .todo_projects.local — *2026-11-23*
 
 - Allow entries in `.todo_projects` and `.todo_projects.local` to map a canonical project identifier to a local relative or external directory path (`<project_id>=<path>`), so `Depends on: <project_id>:<ID>` in an orchestrator's `TODO.md` resolves cleanly even when a local checkout directory has a different name or location.

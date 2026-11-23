@@ -57,9 +57,11 @@ rules are loaded via `.context.bundle`.
 - `src/workspace.py` — project and workspace root resolution, `.todo_projects` /
   `.todo_projects.local` (including `<project_id>=<path>` alias mappings) and
   orchestrator discovery, and the per-render `discovery_session()` cache
-  (`_discovery_scoped` on `cmd_list`, `cmd_show`, `cmd_summary`,
-  `cmd_workspace_*`, `_order_active_tasks`); route new discovery calls through
-  the cached wrappers and never mutate task files inside an active session.
+  (`_discovery_scoped` on `validate_all`, `cmd_check`, `cmd_chain`,
+  `build_execution_chain_dag`, `cmd_projects`, `find_newly_unblocked_tasks`,
+  `cmd_list`, `cmd_show`, `cmd_summary`, `cmd_workspace_*`,
+  `_order_active_tasks`); route new discovery calls through the cached wrappers
+  and never mutate task files inside an active session.
 - `src/parser.py` — pure `TODO.md` / `TODO_ARCHIVE.md` parsing: task sections,
   dependency clause syntax, prefix matching, ID tracking, search, and the
   structural validator `validate_all()` (`todo check`); no terminal output.

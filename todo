@@ -23,7 +23,7 @@ import unicodedata
 from datetime import date
 from pathlib import Path
 
-VERSION = "0.50.0"
+VERSION = "0.50.1"
 REPO_MARKER = "todo-md-repo: vitalio/todo-md"
 LEGACY_REPO_MARKER = "todo_md-repo: vitalio/todo_md"
 DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/vitalio/todo-md/main/todo"
@@ -401,6 +401,10 @@ class _DiscoveryCache:
         self.projects = {}
         self.orchestrators = {}
         self.alias_maps = {}
+        self.reverse_alias_maps = {}
+        self.external_aliases = {}
+        self.display_names = {}
+        self.configured_entries = {}
         self.task_maps = {}
         self.stage_edges = {}
         self.scans = {"projects": 0, "orchestrators": 0}
@@ -523,7 +527,7 @@ def configured_project_alias_map(
     ws_res = (ws_root or _workspace_root_cached(b_res)).resolve()
     cache = _ACTIVE_DISCOVERY
     key = (b_res, ws_res)
-    if cache is not None and discovered is None and key in cache.alias_maps:
+    if cache is not None and key in cache.alias_maps:
         return dict(cache.alias_maps[key])
     projs = discovered if discovered is not None else discover_projects(ws_res)
     mapping: dict[str, Path] = {}
@@ -549,9 +553,28 @@ def configured_project_alias_map(
         for _, pdir in projs:
             if has_local_todo_projects_config(pdir):
                 _collect_from(pdir, include_env=False)
-    if cache is not None and discovered is None:
+    if cache is not None:
         cache.alias_maps[key] = dict(mapping)
     return mapping
+
+def _reverse_project_alias_map(
+    base_dir: Path,
+    ws_root: Path,
+    discovered: list[tuple[str, Path]] | None = None,
+) -> dict[Path, str]:
+    b_res = base_dir.resolve()
+    ws_res = ws_root.resolve()
+    cache = _ACTIVE_DISCOVERY
+    key = (b_res, ws_res)
+    if cache is not None and key in cache.reverse_alias_maps:
+        return cache.reverse_alias_maps[key]
+    alias_map = configured_project_alias_map(b_res, ws_res, discovered=discovered)
+    rev: dict[Path, str] = {}
+    for alias, target in alias_map.items():
+        rev.setdefault(target, alias)
+    if cache is not None:
+        cache.reverse_alias_maps[key] = rev
+    return rev
 
 def project_display_name(
     proj_dir: Path,
@@ -560,36 +583,62 @@ def project_display_name(
 ) -> str:
     p_res = proj_dir.resolve()
     ws_res = ws_root.resolve()
-    if base_dir is not None:
-        for alias, target in configured_project_alias_map(base_dir, ws_res).items():
-            if target == p_res:
-                return alias
-    return project_label(p_res, ws_res)
+    b_res = base_dir.resolve() if base_dir is not None else None
+    cache = _ACTIVE_DISCOVERY
+    if cache is not None:
+        d_key = (b_res, ws_res)
+        d_map = cache.display_names.get(d_key)
+        if d_map is not None and p_res in d_map:
+            return d_map[p_res]
+    if b_res is not None:
+        alias = _reverse_project_alias_map(b_res, ws_res).get(p_res)
+        if alias is not None:
+            if cache is not None:
+                cache.display_names.setdefault((b_res, ws_res), {})[p_res] = alias
+            return alias
+    label = project_label(p_res, ws_res)
+    if cache is not None:
+        cache.display_names.setdefault((b_res, ws_res), {})[p_res] = label
+    return label
+
+def _external_alias_lookup_map(base_dir: Path, ws_root: Path) -> dict[str, Path]:
+    b_res = base_dir.resolve()
+    ws_res = ws_root.resolve()
+    cache = _ACTIVE_DISCOVERY
+    key = (b_res, ws_res)
+    if cache is not None and key in cache.external_aliases:
+        return cache.external_aliases[key]
+    projs = discover_projects(ws_res)
+    alias_map = configured_project_alias_map(b_res, ws_res, discovered=projs)
+    configured: list[Path] = []
+    for cfg_dir in ((b_res, ws_res) if ws_res != b_res else (b_res,)):
+        configured.extend(
+            read_configured_todo_projects(cfg_dir, ws_res, include_env=True, discovered=projs)
+        )
+    configured.extend(discover_orchestrators_for_project(b_res, ws_res)[1])
+    by_key: dict[str, list[Path]] = {}
+    seen_projs: set[Path] = set()
+    for proj in configured:
+        p_res = proj.resolve()
+        if p_res in seen_projs:
+            continue
+        seen_projs.add(p_res)
+        for k in (p_res.name, project_label(p_res, ws_res)):
+            if k and p_res not in by_key.setdefault(k, []):
+                by_key[k].append(p_res)
+    lookup: dict[str, Path] = {
+        k: matches[0] for k, matches in by_key.items() if len(matches) == 1
+    }
+    lookup.update(alias_map)
+    if cache is not None:
+        cache.external_aliases[key] = lookup
+    return lookup
 
 def lookup_external_alias(base_dir: Path, ws_root: Path, name: str) -> Path | None:
     norm = name.strip().replace("\\", "/").strip("/")
     if not norm or ".." in norm.split("/"):
         return None
-    ws_res = ws_root.resolve()
-    b_res = base_dir.resolve()
-    projs = discover_projects(ws_res)
-    alias_map = configured_project_alias_map(b_res, ws_res, discovered=projs)
-    if norm in alias_map:
-        return alias_map[norm]
-    configured: list[Path] = []
-    for cfg_dir in (b_res, ws_res):
-        configured.extend(
-            read_configured_todo_projects(cfg_dir, ws_res, include_env=True, discovered=projs)
-        )
-    configured.extend(discover_orchestrators_for_project(b_res, ws_res)[1])
-    matches: list[Path] = []
-    for proj in configured:
-        p_res = proj.resolve()
-        if p_res in matches:
-            continue
-        if p_res.name == norm or project_label(p_res, ws_res) == norm:
-            matches.append(p_res)
-    return matches[0] if len(matches) == 1 else None
+    return _external_alias_lookup_map(base_dir, ws_root).get(norm)
 
 def resolve_project_dir(
     base_dir: Path,
@@ -836,11 +885,15 @@ def read_configured_todo_project_entries(
     _visited: set[Path] | None = None,
 ) -> list[tuple[str | None, Path]]:
     cfg_res = config_dir.resolve()
+    ws_res = (ws_root or _workspace_root_cached(cfg_res)).resolve()
+    cache = _ACTIVE_DISCOVERY
+    cache_key = (cfg_res, ws_res, bool(include_env))
+    if cache is not None and _visited is None and cache_key in cache.configured_entries:
+        return list(cache.configured_entries[cache_key])
     visited = _visited if _visited is not None else set()
     if cfg_res in visited:
         return []
     visited.add(cfg_res)
-    ws_res = (ws_root or resolve_workspace_root(cfg_res)).resolve()
     raw_entries: list[tuple[Path, str]] = []
     has_config_source = False
 
@@ -882,6 +935,8 @@ def read_configured_todo_project_entries(
                         raw_entries.append((cfg_res, tok))
 
     if not has_config_source:
+        if cache is not None and _visited is None:
+            cache.configured_entries[cache_key] = []
         return []
 
     projs = discovered if discovered is not None else discover_projects(ws_res)
@@ -916,6 +971,8 @@ def read_configured_todo_project_entries(
                 child, ws_res, include_env=False, discovered=projs, _visited=visited
             ):
                 _add(grand_alias, grand)
+    if cache is not None and _visited is None:
+        cache.configured_entries[cache_key] = list(resolved)
     return resolved
 
 def read_configured_todo_projects(
@@ -1018,7 +1075,7 @@ def _scan_orchestrators_for_project(
     ws_root: Path | None = None,
 ) -> tuple[list[Path], list[Path]]:
     t_res = target_dir.resolve()
-    ws_res = (ws_root or resolve_workspace_root(t_res)).resolve()
+    ws_res = (ws_root or _workspace_root_cached(t_res)).resolve()
     projs = discover_projects(ws_res)
 
     probe_dirs: list[Path] = []
@@ -1381,6 +1438,7 @@ def _task_matches_prefix(task: dict[str, object], wanted_prefix: str) -> bool:
     raw_id = str(task.get("id") or task.get("ref") or "")
     return bool(raw_id) and _task_prefix(raw_id) == wanted_prefix.strip().upper()
 
+@_discovery_scoped
 def validate_all(base_dir: Path) -> tuple[list[str], int]:
     errors: list[str] = []
     seen_ids: dict[str, str] = {}
@@ -1453,10 +1511,23 @@ def validate_all(base_dir: Path) -> tuple[list[str], int]:
                         "(remove it)"
                     )
 
-    ws_root = resolve_workspace_root(base_dir)
+    ws_root = _workspace_root_cached(base_dir)
     is_orchestrator = has_local_todo_projects_config(base_dir)
     local_ids = set(seen_ids.keys())
-    proj_task_cache: dict[Path, set[str]] = {}
+    shared = _ACTIVE_DISCOVERY
+    task_cache: dict[Path, dict[str, dict[str, object]]] = (
+        shared.task_maps if shared is not None else {}
+    )
+
+    def _proj_task_ids(proj_dir: Path) -> dict[str, dict[str, object]]:
+        p_res = proj_dir.resolve()
+        if p_res not in task_cache:
+            mapping: dict[str, dict[str, object]] = {}
+            if is_todo_project(p_res):
+                for pt in collect_all_tasks(p_res):
+                    mapping[str(pt["id"]).upper()] = pt
+            task_cache[p_res] = mapping
+        return task_cache[p_res]
     todo_path = base_dir / "TODO.md"
     if todo_path.is_file():
         for t in parse_tasks_in_text(read_if_exists(todo_path), "TODO.md"):
@@ -1495,11 +1566,7 @@ def validate_all(base_dir: Path) -> tuple[list[str], int]:
                             if not is_todo_project(target_dir):
                                 errors.append(f"TODO.md:{lineno}: task {tid} depends on unknown project in {ref!r}")
                                 continue
-                            if target_dir not in proj_task_cache:
-                                proj_task_cache[target_dir] = {
-                                    str(pt["id"]).upper() for pt in collect_all_tasks(target_dir)
-                                }
-                            if target_tid not in proj_task_cache[target_dir]:
+                            if target_tid not in _proj_task_ids(target_dir):
                                 errors.append(f"TODO.md:{lineno}: task {tid} depends on missing task {ref!r}")
                             elif target_dir == base_dir.resolve() and target_tid == tid:
                                 errors.append(f"TODO.md:{lineno}: task {tid} cannot depend on itself")
@@ -1595,26 +1662,42 @@ def build_dependency_dag(
             task_cache[p_res] = mapping
         return task_cache[p_res]
 
+    ref_dir_cache: dict[tuple[Path, str], Path] = {}
+    fmt_ref_cache: dict[tuple[Path, str], str] = {}
+
     def _resolve_ref(cur_dir: Path, ref: str) -> tuple[Path, str]:
         pm = PROJECT_TASK_RE.match(ref)
         if pm:
+            c_res = cur_dir.resolve()
             proj_name = pm.group(1).strip().replace("\\", "/").strip("/")
-            alias = lookup_external_alias(cur_dir, ws_resolved, proj_name)
-            if alias is not None and is_todo_project(alias):
-                return alias, pm.group(2).upper()
-            cand = (ws_resolved / proj_name).resolve()
-            if not is_todo_project(cand) and ws_resolved.name == ".todo_projects":
-                alt = (ws_resolved.parent / proj_name).resolve()
-                if is_todo_project(alt):
-                    cand = alt
-            return cand, pm.group(2).upper()
+            tid = pm.group(2).upper()
+            r_key = (c_res, proj_name)
+            cand = ref_dir_cache.get(r_key)
+            if cand is None:
+                alias = lookup_external_alias(c_res, ws_resolved, proj_name)
+                if alias is not None and is_todo_project(alias):
+                    cand = alias
+                else:
+                    cand = (ws_resolved / proj_name).resolve()
+                    if not is_todo_project(cand) and ws_resolved.name == ".todo_projects":
+                        alt = (ws_resolved.parent / proj_name).resolve()
+                        if is_todo_project(alt):
+                            cand = alt
+                ref_dir_cache[r_key] = cand
+            return cand, tid
         return cur_dir.resolve(), ref.upper()
 
     def _format_ref(node_key: tuple[Path, str]) -> str:
+        cached = fmt_ref_cache.get(node_key)
+        if cached is not None:
+            return cached
         ndir, ntid = node_key
         if disp_is_proj and ndir == disp_resolved:
-            return ntid
-        return f"{project_display_name(ndir, ws_resolved, disp_resolved)}:{ntid}"
+            res = ntid
+        else:
+            res = f"{project_display_name(ndir, ws_resolved, disp_resolved)}:{ntid}"
+        fmt_ref_cache[node_key] = res
+        return res
 
     root = (target_dir.resolve(), task_id.strip().upper())
     nodes: dict[tuple[Path, str], dict[str, object]] = {}
@@ -1949,6 +2032,7 @@ def _is_task_blocked(
     root_key: tuple[Path, str] = dag["root"]  # type: ignore[assignment]
     return any(str(nodes[p]["status"]) != "DONE" for p in prereqs.get(root_key, []))
 
+@_discovery_scoped
 def build_execution_chain_dag(
     base_dir: Path,
     workspace: bool = False,
@@ -1956,7 +2040,7 @@ def build_execution_chain_dag(
     include_done: bool = False,
 ) -> dict[str, object]:
     b_res = base_dir.resolve()
-    ws_root = resolve_workspace_root(b_res, explicit_dir=explicit_dir)
+    ws_root = _workspace_root_cached(b_res, explicit_dir=explicit_dir)
     ws_resolved = ws_root.resolve()
     cwd_resolved = Path.cwd().resolve()
 
@@ -2006,7 +2090,10 @@ def build_execution_chain_dag(
         for cdir in cfg_dirs:
             _add_seed_dir(cdir)
 
-    task_cache: dict[Path, dict[str, dict[str, object]]] = {}
+    shared = _ACTIVE_DISCOVERY
+    task_cache: dict[Path, dict[str, dict[str, object]]] = (
+        shared.task_maps if shared is not None else {}
+    )
 
     def _task_map(proj_dir: Path) -> dict[str, dict[str, object]]:
         p_res = proj_dir.resolve()
@@ -2018,32 +2105,51 @@ def build_execution_chain_dag(
             task_cache[p_res] = mapping
         return task_cache[p_res]
 
+    ref_dir_cache: dict[tuple[Path, str], Path] = {}
+    fmt_ref_cache: dict[tuple[Path, str], str] = {}
+
     def _resolve_ref(cur_dir: Path, ref: str) -> tuple[Path, str]:
         pm = PROJECT_TASK_RE.match(ref)
         if pm:
+            c_res = cur_dir.resolve()
             proj_name = pm.group(1).strip().replace("\\", "/").strip("/")
-            if proj_name in alias_lookup:
-                return alias_lookup[proj_name], pm.group(2).upper()
-            ext_alias = lookup_external_alias(cur_dir, ws_resolved, proj_name)
-            if ext_alias is not None and is_todo_project(ext_alias):
-                return ext_alias, pm.group(2).upper()
-            cand = (ws_resolved / proj_name).resolve()
-            if is_todo_project(cand):
-                return cand, pm.group(2).upper()
-            if ws_resolved.name == ".todo_projects":
-                alt = (ws_resolved.parent / proj_name).resolve()
-                if is_todo_project(alt):
-                    return alt, pm.group(2).upper()
-            if proj_name in project_lookup:
-                return project_lookup[proj_name], pm.group(2).upper()
-            return cand, pm.group(2).upper()
+            tid = pm.group(2).upper()
+            r_key = (c_res, proj_name)
+            cand = ref_dir_cache.get(r_key)
+            if cand is None:
+                if proj_name in alias_lookup:
+                    cand = alias_lookup[proj_name]
+                else:
+                    ext_alias = lookup_external_alias(c_res, ws_resolved, proj_name)
+                    if ext_alias is not None and is_todo_project(ext_alias):
+                        cand = ext_alias
+                    else:
+                        cand_ws = (ws_resolved / proj_name).resolve()
+                        if is_todo_project(cand_ws):
+                            cand = cand_ws
+                        elif ws_resolved.name == ".todo_projects" and is_todo_project(
+                            (ws_resolved.parent / proj_name).resolve()
+                        ):
+                            cand = (ws_resolved.parent / proj_name).resolve()
+                        elif proj_name in project_lookup:
+                            cand = project_lookup[proj_name]
+                        else:
+                            cand = cand_ws
+                ref_dir_cache[r_key] = cand
+            return cand, tid
         return cur_dir.resolve(), ref.upper()
 
     def _format_ref(node_key: tuple[Path, str]) -> str:
+        cached = fmt_ref_cache.get(node_key)
+        if cached is not None:
+            return cached
         ndir, ntid = node_key
         if disp_is_proj and ndir == disp_resolved:
-            return ntid
-        return f"{project_display_name(ndir, ws_resolved, b_res)}:{ntid}"
+            res = ntid
+        else:
+            res = f"{project_display_name(ndir, ws_resolved, b_res)}:{ntid}"
+        fmt_ref_cache[node_key] = res
+        return res
 
     seeds: list[tuple[Path, str]] = []
     for p_res in seed_dirs:
@@ -2430,6 +2536,7 @@ def _is_ready_in_dag(
         return False
     return not any(str(nodes[p]["status"]) != "DONE" for p in prereqs.get(u, []))
 
+@_discovery_scoped
 def find_newly_unblocked_tasks(
     completed_dir: Path,
     completed_id: str,
@@ -2437,7 +2544,7 @@ def find_newly_unblocked_tasks(
     comp_res = completed_dir.resolve()
     comp_tid = completed_id.strip().upper()
     cwd_res = Path.cwd().resolve()
-    ws_root = resolve_workspace_root(cwd_res if is_todo_project(cwd_res) else comp_res)
+    ws_root = _workspace_root_cached(cwd_res if is_todo_project(cwd_res) else comp_res)
     ws_res = ws_root.resolve()
 
     candidate_dirs: list[Path] = []
@@ -2454,7 +2561,7 @@ def find_newly_unblocked_tasks(
     _add_project(ws_res)
     for _, proj_dir in discover_projects(ws_res):
         _add_project(proj_dir)
-    comp_ws = resolve_workspace_root(comp_res).resolve()
+    comp_ws = _workspace_root_cached(comp_res).resolve()
     if comp_ws != ws_res:
         _add_project(comp_ws)
         for _, proj_dir in discover_projects(comp_ws):
@@ -2491,7 +2598,7 @@ def find_newly_unblocked_tasks(
         todo_path = proj_dir / "TODO.md"
         if not todo_path.is_file():
             continue
-        proj_ws = resolve_workspace_root(proj_dir).resolve()
+        proj_ws = _workspace_root_cached(proj_dir).resolve()
         for t in parse_tasks_in_text(read_if_exists(todo_path), "TODO.md"):
             tid = str(t["id"]).upper()
             if proj_dir == comp_res and tid == comp_tid:
@@ -4155,9 +4262,10 @@ def cmd_list(
             )
     return 0
 
+@_discovery_scoped
 def cmd_projects(base_dir: Path, explicit_dir: str | None = None) -> int:
     b_res = base_dir.resolve()
-    ws_root = resolve_workspace_root(b_res, explicit_dir=explicit_dir)
+    ws_root = _workspace_root_cached(b_res, explicit_dir=explicit_dir)
     ws_res = ws_root.resolve()
     all_projs = discover_projects(ws_res)
     if has_local_todo_projects_config(b_res) or (
@@ -4382,6 +4490,7 @@ def cmd_workspace_list(
         )
     return 0
 
+@_discovery_scoped
 def cmd_workspace_check(workspace_root: Path) -> int:
     projects = discover_projects(workspace_root)
     if not projects:
@@ -4518,6 +4627,7 @@ def cmd_next_id(
     return 0
 
 
+@_discovery_scoped
 def cmd_chain(
     base_dir: Path,
     limit: int | None = None,
@@ -4535,7 +4645,7 @@ def cmd_chain(
 ) -> int:
     b_res = base_dir.resolve()
     row_scoped = status is not None or bool(focus)
-    ws_root = resolve_workspace_root(b_res, explicit_dir=explicit_dir)
+    ws_root = _workspace_root_cached(b_res, explicit_dir=explicit_dir)
     is_orch = (not workspace) and is_orchestrator_project(b_res, ws_root, explicit_dir=explicit_dir)
     if workspace:
         if not resolve_workspace_chain_projects(b_res, ws_root):
@@ -5261,6 +5371,7 @@ def cmd_chain(
     return 1 if had_blocker_error else 0
 
 
+@_discovery_scoped
 def cmd_check(base_dir: Path) -> int:
     if not (base_dir / "TODO.md").is_file():
         sys.stderr.write(f"{prog_name()}: no TODO.md found in {base_dir} (run '{prog_name()} init' to create one)\n")
