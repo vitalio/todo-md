@@ -5,7 +5,6 @@
 - Extend `todo_md check` in `src/parser.py` to reject legacy in-body `- Role:` and `- Target files:` lines across both `TODO.md` and `TODO_ARCHIVE.md`.
 - Strip historical `- Role:` and `- Target files:` lines from `TODO_ARCHIVE.md`.
 - Acceptance criteria: `todo_md next` no longer contains legacy `- Role:` stripping code, `todo_md check` validates both `TODO.md` and `TODO_ARCHIVE.md` against `- Role:` and `- Target files:` lines, `TODO_ARCHIVE.md` is clean, and `./build.py` and `python3 -m unittest discover -s tests` pass.
-__RB_STEP__:5
 
 # 🎯 [NEXT] F73: Forbid cross-project Depends on references in non-orchestrator repositories in todo_md check
 
