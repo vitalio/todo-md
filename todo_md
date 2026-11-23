@@ -23,11 +23,11 @@ import unicodedata
 from datetime import date
 from pathlib import Path
 
-VERSION = "0.45.1"
+VERSION = "0.46.0"
 REPO_MARKER = "todo_md-repo: vitalio/todo_md"
 DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/vitalio/todo_md/main/todo_md"
 FENCE = chr(96) * 3
-EMBEDDED_RULE_TODO_MD = '# Description: Structured Markdown task management (TODO.md and TODO_ARCHIVE.md) via todo_md\n- Task management (`todo_md`: `TODO.md`, `TODO_ARCHIVE.md`): Always inspect and\n  modify `TODO.md` and `TODO_ARCHIVE.md` via `todo_md` (never via `cat` or\n  manual file edits). Repository scope only: record each task in the `TODO.md`\n  of the repository it belongs to (run `todo_md -h` for full CLI option lists).\n  - Status lifecycle & task ID prefixes: `TODO.md` orders active tasks as\n    `🔵 [WIP]` -> `🎯 [NEXT]` -> `❓ [QUESTION]` -> `⚪ [NEW]` -> `⏸️ [HOLD]`,\n    and `TODO_ARCHIVE.md` keeps `✅ [DONE]` and `❌ [CANCELED]` newest-first.\n    Task ID prefixes (`A-Z`): `F` is a feature (default on `add`), `B` is a\n    bugfix (ranked ahead in `chain`), `D` is a design task, `L` is a\n    legislative rule task (`agents/`, `AGENTS.md`), and other `A-Z` prefixes\n    are custom domains. `todo_md check` rejects `- Role:` and `- Target files:`\n    lines across `TODO*.md`, and `todo_md <ID> [role=<role>]` in bundle mode\n    (`todo_md <ID> | agents_bundle | run_block`) is read-only: it emits\n    `Bundle-Name: todo_md`, `Task: <ID>`, `Prefix: <P>`, `Status: <S>`,\n    `Title: <title>`, and `Workdir: <dir>` (`Role: <role>` is emitted only when\n    `role=<role>` is passed); start a task with `todo_md status <ID> WIP` or\n    `todo_md next <ID>`.\n  - Inspect & target selection: pass `-C <dir|project>` or `--project <name>`\n    before subcommands (or `<project>:<ID>` on task refs). Core views:\n    `todo_md [opts] [-w]`, `todo_md overview [--full] [-w]`, `todo_md projects`,\n    `todo_md [show] <ID>...`, `todo_md last[-id] [<STATUS|archive>]`,\n    `todo_md list [active|archive|all|<STATUS>] [<ID>...] [--prefix <P>] [--status <S>] [-r|--ready] [--limit N] [--full]`,\n    `todo_md archive [<ID>...] [-m "<note>"] [--canceled] [-c]`, `todo_md ids`,\n    `todo_md queue <ID>... [--all]` (alias for `todo_md chain <ID>... [--all]`),\n    `todo_md chain [<ID>...] [--all] [--prefix <P>] [--status <S>] [--ready] [-l N|--limit N] [--include-hold] [--tree] [--numbered[=left|right]] [-f <ID>...] [-H] [-s <QUERY>]`,\n    `todo_md next-id [<ID>] [--prefix <P>] [--status <S>]`.\n  - Mutate & validate: `todo_md add [<PROJECT>] [<PREFIX>] "<title>" [-p <P>]\n    [--next] [--status <S>] [-m "<note>"] [-b "<body_md>"|-] [--depends <spec>]\n    [-c]`, `todo_md edit <ID>... [-t "<title>"] [-m "<note>"] [-b "<body_md>"|-]\n    [--depends <spec>] [-c]`, `todo_md append <ID>... [-b "<text>"|-] [-c]`,\n    `todo_md rename <OLD> <NEW|PREFIX> | <OLD>=<NEW|PREFIX>... [-c]`,\n    `todo_md next <ID>... [-m "<note>"] [--reopen] [-c]`,\n    `todo_md status <ID>... <STATUS> [-m "<note>"] [--reopen] [-c]`,\n    `todo_md reopen <ID>... [--status <S>] [-m "<note>"] [-c]`,\n    `todo_md done <ID>... [-m "<note>"] [-c]`,\n    `todo_md cancel <ID>... [-m "<reason>"] [-c]`, `todo_md check`.\n  - Dependencies & Chain integration (both directions): in `--depends` and\n    `- Depends on:`, use `,` for parallel items (`A,B`) and `->` for sequential\n    stages (`"A -> B -> C"`, `,` binds tighter than `->`; repeat for AND\n    branches; do not introduce a separate `- Order:` field). Wire new or refined\n    tasks both upstream (`--depends`) and downstream (`todo_md edit <ID>\n    --depends ...` on existing open tasks or waves).\n'
+EMBEDDED_RULE_TODO_MD = '# Description: Structured Markdown task management (TODO.md and TODO_ARCHIVE.md) via todo_md\n- Task management (`todo_md`: `TODO.md`, `TODO_ARCHIVE.md`): Always inspect and\n  modify `TODO.md` and `TODO_ARCHIVE.md` via `todo_md` (never via `cat` or\n  manual file edits). Repository scope only: record each task in the `TODO.md`\n  of the repository it belongs to (run `todo_md -h` for full CLI option lists).\n  - Status lifecycle & task ID prefixes: `TODO.md` orders active tasks as\n    `🔵 [WIP]` -> `🎯 [NEXT]` -> `❓ [QUESTION]` -> `⚪ [NEW]` -> `⏸️ [HOLD]`,\n    and `TODO_ARCHIVE.md` keeps `✅ [DONE]` and `❌ [CANCELED]` newest-first.\n    Task ID prefixes (`A-Z`): `F` is a feature (default on `add`), `B` is a\n    bugfix (ranked ahead in `chain`), `D` is a design task, `L` is a\n    legislative rule task (`agents/`, `AGENTS.md`), and other `A-Z` prefixes\n    are custom domains. `todo_md check` rejects `- Role:` and `- Target files:`\n    lines across `TODO*.md`, and `todo_md <ID> [role=<role>]` in bundle mode\n    (`todo_md <ID> | agents_bundle | run_block`) is read-only: it emits\n    `Bundle-Name: todo_md`, `Task: <ID>`, `Prefix: <P>`, `Status: <S>`,\n    `Title: <title>`, and `Workdir: <dir>` (`Role: <role>` is emitted only when\n    `role=<role>` is passed); start a task with `todo_md status <ID> WIP` or\n    `todo_md next <ID>`.\n  - Inspect & target selection: pass `-C <dir|project>` or `--project <name>`\n    before subcommands (or `<project>:<ID>` on task refs). Core views:\n    `todo_md [opts] [-w]`, `todo_md overview [--full] [-w]`, `todo_md projects`,\n    `todo_md [show] <ID>...`, `todo_md last[-id] [<STATUS|archive>]`,\n    `todo_md list [active|archive|all|<STATUS>] [<ID>...] [--prefix <P>] [--status <S>] [-r|--ready] [-s <QUERY>] [-H] [-l N|--limit N] [--full]`,\n    `todo_md archive [<ID>...] [-m "<note>"] [--canceled] [-c]`, `todo_md ids`,\n    `todo_md queue <ID>... [--all]` (alias for `todo_md chain <ID>... [--all]`),\n    `todo_md chain [<ID>...] [--all] [--prefix <P>] [--status <S>] [--ready] [-l N|--limit N] [--include-hold] [--tree] [--numbered[=left|right]] [-f <ID>...] [-H] [-s <QUERY>]`,\n    `todo_md next-id [<ID>] [--prefix <P>] [--status <S>]`.\n  - Mutate & validate: `todo_md add [<PROJECT>] [<PREFIX>] "<title>" [-p <P>]\n    [--next] [--status <S>] [-m "<note>"] [-b "<body_md>"|-] [--depends <spec>]\n    [-c]`, `todo_md edit <ID>... [-t "<title>"] [-m "<note>"] [-b "<body_md>"|-]\n    [--depends <spec>] [-c]`, `todo_md append <ID>... [-b "<text>"|-] [-c]`,\n    `todo_md rename <OLD> <NEW|PREFIX> | <OLD>=<NEW|PREFIX>... [-c]`,\n    `todo_md next <ID>... [-m "<note>"] [--reopen] [-c]`,\n    `todo_md status <ID>... <STATUS> [-m "<note>"] [--reopen] [-c]`,\n    `todo_md reopen <ID>... [--status <S>] [-m "<note>"] [-c]`,\n    `todo_md done <ID>... [-m "<note>"] [-c]`,\n    `todo_md cancel <ID>... [-m "<reason>"] [-c]`, `todo_md check`.\n  - Dependencies & Chain integration (both directions): in `--depends` and\n    `- Depends on:`, use `,` for parallel items (`A,B`), `->` for sequential\n    stages (`"A -> B -> C"`, `,` binds tighter than `->`), and `;` (or repeated\n    `--depends` / `- Depends on:` lines) for independent AND branches (`"A -> B;\n    C -> D"`; do not introduce a separate `- Order:` field). Wire new or refined\n    tasks both upstream (`--depends`) and downstream (`todo_md edit <ID>\n    --depends ...` on existing open tasks or waves).\n'
 RULE_SOURCE_PATH = Path(__file__).resolve().parent.parent / "agents" / "todo_md.md"
 
 VALID_STATUSES: dict[str, str] = {
@@ -144,7 +144,8 @@ HELP_COMMANDS: tuple[tuple[str, str], ...] = (
      "Print ID of the last task in a status or the archive (default: NEW)"),
     ("{prog} list [filter] [<ID>...] [opts]",
      "List tasks; filter is active | archive | all | <STATUS>; <ID>... are highlighted. "
-     "Options: --prefix PREFIX, --status STATUS, -r/--ready, --limit N, --full"),
+     "Options: --prefix PREFIX, --status STATUS, -r/--ready, -s/--search QUERY, "
+     "-H/--highlight, -l N/--limit N, --full"),
     ("{prog} archive [<ID>...] [-m NOTE] [--canceled]",
      "Print TODO_ARCHIVE.md, or archive task(s) <ID>... (as DONE, or CANCELED with --canceled)"),
     ("{prog} add [<PROJ>] [<PREFIX>] <TITLE>",
@@ -1018,6 +1019,7 @@ def parse_depends_clause(raw_clause: str) -> tuple[list[list[str]], str | None]:
     if not raw_clause.strip():
         return [], "empty Depends on: clause"
     stages: list[list[str]] = []
+    seen_prior_stages: set[str] = set()
     for raw_stage in raw_clause.split("->"):
         if not raw_stage.strip():
             return [], f"empty stage in dependency clause {raw_clause.strip()!r}"
@@ -1030,9 +1032,16 @@ def parse_depends_clause(raw_clause: str) -> tuple[list[list[str]], str | None]:
             norm, err = normalize_dep_ref_token(tok)
             if err or norm is None:
                 return [], err or f"invalid dependency reference {tok!r}"
+            if norm in seen_prior_stages:
+                return [], (
+                    f"duplicate task {norm} across '->' stages in {raw_clause.strip()!r} "
+                    "(',' groups parallel items within a stage and binds tighter than '->'; "
+                    "use ';' or repeat --depends to separate independent chains)"
+                )
             if norm not in seen_stage:
                 seen_stage.add(norm)
                 stage_refs.append(norm)
+        seen_prior_stages.update(seen_stage)
         stages.append(stage_refs)
     return stages, None
 
@@ -1052,11 +1061,12 @@ def parse_dependency_clauses(section_text: str) -> tuple[list[list[list[str]]], 
         m = DEPENDS_LINE_RE.match(line)
         if not m:
             continue
-        stages, err = parse_depends_clause(m.group(1))
-        if err:
-            errors.append(err)
-        elif stages:
-            clauses.append(stages)
+        for sub_clause in m.group(1).split(";"):
+            stages, err = parse_depends_clause(sub_clause)
+            if err:
+                errors.append(err)
+            elif stages:
+                clauses.append(stages)
     return clauses, errors
 
 def parse_task_dependencies(section_text: str) -> list[str]:
@@ -1072,16 +1082,17 @@ def parse_task_dependencies(section_text: str) -> list[str]:
         m = DEPENDS_LINE_RE.match(line)
         if not m:
             continue
-        for raw_stage in m.group(1).split("->"):
-            for raw in raw_stage.split(","):
-                tok = raw.strip()
-                if not tok:
-                    continue
-                norm, _ = normalize_dep_ref_token(tok)
-                val = norm if norm is not None else tok
-                if val not in seen:
-                    seen.add(val)
-                    refs.append(val)
+        for sub_clause in m.group(1).split(";"):
+            for raw_stage in sub_clause.split("->"):
+                for raw in raw_stage.split(","):
+                    tok = raw.strip()
+                    if not tok:
+                        continue
+                    norm, _ = normalize_dep_ref_token(tok)
+                    val = norm if norm is not None else tok
+                    if val not in seen:
+                        seen.add(val)
+                        refs.append(val)
     return refs
 
 
@@ -1146,6 +1157,20 @@ def compile_search_pattern(query: str) -> re.Pattern[str]:
     except re.error:
         return re.compile(re.escape(query), re.IGNORECASE)
 
+def task_matches_pattern(
+    t: dict[str, object],
+    pat: re.Pattern[str],
+    base_dir: Path,
+    project_label: str | None = None,
+) -> bool:
+    tid = str(t["id"])
+    b_name = base_dir.resolve().name
+    id_tokens = [tid, f"{b_name}:{tid}"]
+    if project_label and project_label != b_name:
+        id_tokens.append(f"{project_label}:{tid}")
+    haystack = "\n".join([*id_tokens, str(t["title"]), str(t.get("section", ""))])
+    return bool(pat.search(haystack))
+
 def search_tasks(
     base_dir: Path,
     query: str,
@@ -1154,19 +1179,13 @@ def search_tasks(
 ) -> list[dict[str, object]]:
     pat = compile_search_pattern(query)
     fnames = TASK_FILES if include_archive else TASK_FILES[:1]
-    b_name = base_dir.resolve().name
     matches: list[dict[str, object]] = []
     for fname in fnames:
         path = base_dir / fname
         if not path.is_file():
             continue
         for t in parse_tasks_in_text(read_if_exists(path), fname):
-            tid = str(t["id"])
-            id_tokens = [tid, f"{b_name}:{tid}"]
-            if project_label and project_label != b_name:
-                id_tokens.append(f"{project_label}:{tid}")
-            haystack = "\n".join([*id_tokens, str(t["title"]), str(t.get("section", ""))])
-            if pat.search(haystack):
+            if task_matches_pattern(t, pat, base_dir, project_label=project_label):
                 matches.append(t)
     return matches
 
@@ -3664,6 +3683,8 @@ def cmd_list(
     ready: bool = False,
     targets: list[tuple[Path, str]] | None = None,
     focus: list[tuple[Path, str]] | None = None,
+    search: str | None = None,
+    highlight_only: bool = False,
 ) -> int:
     mode = (filt or "active").strip().lower()
     tasks = collect_all_tasks(base_dir)
@@ -3734,6 +3755,15 @@ def cmd_list(
                 if (b_res_f, str(t["id"]).upper()) in focus_set or str(t["id"]).upper() in focus_unscoped
             ]
 
+    active_targets = list(targets or [])
+    if search is not None:
+        pat = compile_search_pattern(search)
+        b_res_s = base_dir.resolve()
+        matched_shown = [t for t in shown if task_matches_pattern(t, pat, base_dir)]
+        active_targets.extend((b_res_s, f".:{str(t['id']).upper()}") for t in matched_shown)
+        if not highlight_only:
+            shown = matched_shown
+
     if limit is not None:
         shown = shown[:limit]
 
@@ -3745,6 +3775,8 @@ def cmd_list(
             notes.append(f"status={status.strip().upper()}")
         if ready:
             notes.append("ready")
+        if search is not None:
+            notes.append(f"search={search!r}")
         extra = f", {', '.join(notes)}" if notes else ""
         sys.stdout.write(f"No matching tasks ({mode}{extra}) in {base_dir}\n")
     elif full:
@@ -3754,7 +3786,7 @@ def cmd_list(
         term_width = _get_terminal_columns()
         use_color = _use_ansi_color()
         b_res = base_dir.resolve()
-        target_set, unscoped_ids = _normalize_target_refs(base_dir, targets)
+        target_set, unscoped_ids = _normalize_target_refs(base_dir, active_targets)
         for t in shown:
             is_blocked, dep_suffix = _dep_info(t)
             st_str = str(t["status"])
@@ -3858,6 +3890,8 @@ def cmd_workspace_list(
     ready: bool = False,
     targets: list[tuple[Path, str]] | None = None,
     focus: list[tuple[Path, str]] | None = None,
+    search: str | None = None,
+    highlight_only: bool = False,
 ) -> int:
     projects = discover_projects(workspace_root)
     if not projects:
@@ -3928,6 +3962,21 @@ def cmd_workspace_list(
                 if (proj_dir.resolve(), str(t["id"]).upper()) in focus_set or str(t["id"]).upper() in focus_unscoped
             ]
 
+    active_targets = list(targets or [])
+    if search is not None:
+        pat = compile_search_pattern(search)
+        matched_items = [
+            (name, proj_dir, t)
+            for name, proj_dir, t in items
+            if task_matches_pattern(t, pat, proj_dir, project_label=name)
+        ]
+        active_targets.extend(
+            (proj_dir.resolve(), f".:{str(t['id']).upper()}")
+            for _, proj_dir, t in matched_items
+        )
+        if not highlight_only:
+            items = matched_items
+
     if limit is not None:
         items = items[:limit]
     if not items:
@@ -3938,6 +3987,8 @@ def cmd_workspace_list(
             notes.append(f"status={status.strip().upper()}")
         if ready:
             notes.append("ready")
+        if search is not None:
+            notes.append(f"search={search!r}")
         extra = f", {', '.join(notes)}" if notes else ""
         sys.stdout.write(f"No matching tasks ({mode}{extra}) across workspace {workspace_root}\n")
         return 0
@@ -3952,7 +4003,7 @@ def cmd_workspace_list(
         return 0
     term_width = _get_terminal_columns()
     use_color = _use_ansi_color()
-    target_set, unscoped_ids = _normalize_target_refs(workspace_root, targets)
+    target_set, unscoped_ids = _normalize_target_refs(workspace_root, active_targets)
     for name, proj_dir, t in items:
         is_blocked, dep_suffix = _ws_dep_info(proj_dir, t)
         st_str = str(t["status"])
@@ -5290,12 +5341,14 @@ def _normalize_depends_clauses(raw_items: list[str]) -> list[str]:
     for item in raw_items:
         if not item.strip():
             continue
-        stages, err = parse_depends_clause(item)
-        if err:
-            raise SystemExit(
-                f"{prog_name()}: invalid --depends value {item!r}: {err}; expected <ID> or <project>:<ID> separated by ',' and '->'"
-            )
-        clauses.append(" -> ".join(", ".join(stage) for stage in stages))
+        for sub_item in re.split(r"[;\r\n]+", item):
+            stages, err = parse_depends_clause(sub_item)
+            if err:
+                raise SystemExit(
+                    f"{prog_name()}: invalid --depends value {item!r}: {err}; "
+                    "expected <ID> or <project>:<ID> separated by ',', '->', and ';'"
+                )
+            clauses.append(" -> ".join(", ".join(stage) for stage in stages))
     return clauses
 
 def _normalize_role_override(raw_role: str) -> str:
@@ -5768,33 +5821,44 @@ def _rewrite_depends_text(
         m = DEPENDS_LINE_RE.match(line)
         if not m:
             continue
-        stages, err = parse_depends_clause(m.group(1))
-        if err or not stages:
+        sub_clauses = m.group(1).split(";")
+        parsed_branches: list[list[list[str]]] = []
+        valid_line = True
+        for sub_c in sub_clauses:
+            stages, err = parse_depends_clause(sub_c)
+            if err or not stages:
+                valid_line = False
+                break
+            parsed_branches.append(stages)
+        if not valid_line or not parsed_branches:
             continue
         line_changed = False
-        new_stages: list[list[str]] = []
-        for stage in stages:
-            new_stage: list[str] = []
-            seen: set[str] = set()
-            for ref in stage:
-                new_ref = ref
-                pm = PROJECT_TASK_RE.match(ref)
-                if pm:
-                    if qualified_checker is not None:
-                        mapped = qualified_checker(pm.group(1), pm.group(2).upper())
-                        if mapped is not None:
-                            new_ref = f"{pm.group(1)}:{mapped}"
-                elif local_map and ref.upper() in local_map:
-                    new_ref = local_map[ref.upper()]
-                if new_ref != ref:
-                    line_changed = True
-                if new_ref not in seen:
-                    seen.add(new_ref)
-                    new_stage.append(new_ref)
-            new_stages.append(new_stage)
+        branch_strs: list[str] = []
+        for stages in parsed_branches:
+            new_stages: list[list[str]] = []
+            for stage in stages:
+                new_stage: list[str] = []
+                seen: set[str] = set()
+                for ref in stage:
+                    new_ref = ref
+                    pm = PROJECT_TASK_RE.match(ref)
+                    if pm:
+                        if qualified_checker is not None:
+                            mapped = qualified_checker(pm.group(1), pm.group(2).upper())
+                            if mapped is not None:
+                                new_ref = f"{pm.group(1)}:{mapped}"
+                    elif local_map and ref.upper() in local_map:
+                        new_ref = local_map[ref.upper()]
+                    if new_ref != ref:
+                        line_changed = True
+                    if new_ref not in seen:
+                        seen.add(new_ref)
+                        new_stage.append(new_ref)
+                new_stages.append(new_stage)
+            branch_strs.append(" -> ".join(", ".join(st) for st in new_stages))
         if line_changed:
             prefix_part = line[:line.lower().index("depends on:") + len("depends on:")]
-            clause_str = " -> ".join(", ".join(st) for st in new_stages)
+            clause_str = "; ".join(branch_strs)
             lines[idx] = f"{prefix_part} {clause_str}"
             changed = True
     if not changed:
@@ -6799,23 +6863,19 @@ def main(argv: list[str] | None = None) -> int:
         prefix_filter: str | None = None
         status_filter: str | None = None
         ready = False
+        highlight_only = False
+        search_query: str | None = None
         raw_target_refs: list[str] = []
         i = 1
         while i < len(args):
             a = args[i]
-            if a in ("--limit", "-n"):
+            if a in ("--limit", "-n", "-l"):
                 if i + 1 >= len(args):
                     raise SystemExit(f"{prog}: {a} requires an integer argument")
-                raw_lim = args[i + 1]
-                if not raw_lim.isdigit() or int(raw_lim) < 1:
-                    raise SystemExit(f"{prog}: invalid limit {raw_lim!r}; expected a positive integer")
-                limit = int(raw_lim)
+                limit = _parse_limit(prog, args[i + 1])
                 i += 2
             elif a.startswith("--limit="):
-                raw_lim = a.split("=", 1)[1]
-                if not raw_lim.isdigit() or int(raw_lim) < 1:
-                    raise SystemExit(f"{prog}: invalid limit {raw_lim!r}; expected a positive integer")
-                limit = int(raw_lim)
+                limit = _parse_limit(prog, a.split("=", 1)[1])
                 i += 1
             elif a == "--prefix":
                 if i + 1 >= len(args):
@@ -6832,6 +6892,20 @@ def main(argv: list[str] | None = None) -> int:
                 i += 2
             elif a.startswith("--status="):
                 status_filter = _validate_status_filter(prog, a.split("=", 1)[1])
+                i += 1
+            elif a in ("--search", "-s"):
+                if i + 1 >= len(args) or not args[i + 1].strip():
+                    raise SystemExit(f"{prog}: {a} requires a non-empty query argument")
+                search_query = args[i + 1]
+                i += 2
+            elif a.startswith("--search="):
+                raw_sq = a.split("=", 1)[1]
+                if not raw_sq.strip():
+                    raise SystemExit(f"{prog}: --search requires a non-empty query argument")
+                search_query = raw_sq
+                i += 1
+            elif a in ("--highlight", "-H"):
+                highlight_only = True
                 i += 1
             elif a in ("--ready", "-r"):
                 ready = True
@@ -6851,7 +6925,8 @@ def main(argv: list[str] | None = None) -> int:
                     i += 1
                 else:
                     raise SystemExit(
-                        f"{prog}: usage: {prog} list [filter] [<ID>...] [--prefix PREFIX] [--status STATUS] [-r|--ready] [--limit N] [--full]"
+                        f"{prog}: usage: {prog} list [filter] [<ID>...] [--prefix PREFIX] [--status STATUS] "
+                        "[-r|--ready] [-s|--search QUERY] [-H|--highlight] [-l N|--limit N] [--full]"
                     )
         target_refs: list[tuple[Path, str]] = [
             resolve_filter_task_ref(base_dir, ref, explicit_dir=explicit_dir)
@@ -6869,6 +6944,8 @@ def main(argv: list[str] | None = None) -> int:
                     status=status_filter,
                     ready=ready,
                     targets=target_refs,
+                    search=search_query,
+                    highlight_only=highlight_only,
                 )
         return cmd_list(
             base_dir,
@@ -6879,6 +6956,8 @@ def main(argv: list[str] | None = None) -> int:
             status=status_filter,
             ready=ready,
             targets=target_refs,
+            search=search_query,
+            highlight_only=highlight_only,
         )
     show_usage = f"{prog}: usage: {prog} show <ID>[,<ID>...] [<ID>...] | show last [<STATUS|archive>]"
     if args[0] in ("show", "--show"):

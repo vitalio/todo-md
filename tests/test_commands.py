@@ -643,18 +643,77 @@ class TestCommands(TodoMdTestCase):
         r_ws_none = self._run([str(SCRIPT), "list", "-w", "--prefix", "Z"], cwd=str(proj_a), check=True)
         self.assertIn("No matching tasks (active, prefix=Z)", r_ws_none.stdout)
 
-        for bad_args in (
-            ["list", "--prefix"],
-            ["list", "--prefix", ""],
-            ["list", "--prefix="],
-            ["list", "--prefix", "AB"],
-            ["list", "--status"],
-            ["list", "--status=UNKNOWN"],
-            ["list", "--role", "work"],
+        # list -s / --search (ID, <project>:<ID>, title, body), -H / --highlight, and -l N
+        r_s_body = self._run([str(SCRIPT), "list", "-s", "law body"], cwd=str(proj_a), check=True)
+        self.assertIn("L1", r_s_body.stdout)
+        self.assertNotIn("F1", r_s_body.stdout)
+        self.assertNotIn("D1", r_s_body.stdout)
+
+        r_s_id = self._run([str(SCRIPT), "list", "--search=proj_a:b1"], cwd=str(proj_a), check=True)
+        self.assertIn("B1", r_s_id.stdout)
+        self.assertNotIn("F1", r_s_id.stdout)
+
+        r_s_arch = self._run([str(SCRIPT), "list", "archive", "--search", "Done body"], cwd=str(proj_a), check=True)
+        self.assertIn("D2", r_s_arch.stdout)
+
+        r_s_lim = self._run([str(SCRIPT), "list", "-s", "body", "-l", "2"], cwd=str(proj_a), check=True)
+        s_lim_rows = [ln for ln in r_s_lim.stdout.splitlines() if ln.startswith("  ")]
+        self.assertEqual(len(s_lim_rows), 2)
+
+        color_env = {**os.environ, "FORCE_COLOR": "1"}
+        r_s_hl = self._run([str(SCRIPT), "list", "-s", "Bug body", "-H"], cwd=str(proj_a), env=color_env, check=True)
+        hl_lines = r_s_hl.stdout.splitlines()
+        self.assertTrue(any(ln.startswith("\033[1;93m") and "  B1 " in ln for ln in hl_lines), msg=r_s_hl.stdout)
+        self.assertTrue(
+            any(ln.startswith("  ") and not ln.startswith("\033[") and "  F1 " in ln for ln in hl_lines),
+            msg=r_s_hl.stdout,
+        )
+
+        r_s_none = self._run([str(SCRIPT), "list", "--prefix", "D", "-s", "no-such-needle"], cwd=str(proj_a), check=True)
+        self.assertIn("No matching tasks (active, prefix=D, search='no-such-needle')", r_s_none.stdout)
+
+        r_ws_s = self._run([str(SCRIPT), "-w", "list", "-s", "proj_b:L1"], cwd=str(proj_a), check=True)
+        self.assertIn("proj_b:L1", r_ws_s.stdout)
+        self.assertNotIn("proj_a:L1", r_ws_s.stdout)
+
+        r_ws_s_hl = self._run(
+            [str(SCRIPT), "-w", "list", "--search", "B rule", "--highlight"],
+            cwd=str(proj_a),
+            env=color_env,
+            check=True,
+        )
+        ws_hl_lines = r_ws_s_hl.stdout.splitlines()
+        self.assertTrue(
+            any(ln.startswith("\033[1;93m") and "proj_b:L1 " in ln for ln in ws_hl_lines),
+            msg=r_ws_s_hl.stdout,
+        )
+        self.assertTrue(
+            any(ln.startswith("  ") and not ln.startswith("\033[") and "proj_a:F1 " in ln for ln in ws_hl_lines),
+            msg=r_ws_s_hl.stdout,
+        )
+
+        r_ws_s_none = self._run([str(SCRIPT), "-w", "list", "-s", "missing-ws-query"], cwd=str(proj_a), check=True)
+        self.assertIn("No matching tasks (active, search='missing-ws-query') across workspace", r_ws_s_none.stdout)
+
+        for bad_args, exp_err in (
+            (["list", "--prefix"], "requires a prefix argument"),
+            (["list", "--prefix", ""], "invalid --prefix"),
+            (["list", "--prefix="], "invalid --prefix"),
+            (["list", "--prefix", "AB"], "invalid --prefix"),
+            (["list", "--status"], "requires a status argument"),
+            (["list", "--status=UNKNOWN"], "invalid status"),
+            (["list", "--role", "work"], "unknown option"),
+            (["list", "-s"], "-s requires a non-empty query argument"),
+            (["list", "--search"], "--search requires a non-empty query argument"),
+            (["list", "--search", "   "], "--search requires a non-empty query argument"),
+            (["list", "--search="], "--search requires a non-empty query argument"),
+            (["list", "-l"], "-l requires an integer argument"),
+            (["list", "-l", "0"], "invalid limit"),
         ):
             with self.subTest(bad_args=bad_args):
                 proc = self._run([str(SCRIPT), *bad_args], cwd=str(proj_a))
                 self.assertNotEqual(proc.returncode, 0, msg=proc.stdout)
+                self.assertIn(exp_err, proc.stderr)
 
     def test_list_rejects_retired_tree_flag(self):
         proj = self.tmp / "proj_no_tree"

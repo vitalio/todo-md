@@ -427,6 +427,8 @@ def cmd_list(
     ready: bool = False,
     targets: list[tuple[Path, str]] | None = None,
     focus: list[tuple[Path, str]] | None = None,
+    search: str | None = None,
+    highlight_only: bool = False,
 ) -> int:
     mode = (filt or "active").strip().lower()
     tasks = collect_all_tasks(base_dir)
@@ -497,6 +499,15 @@ def cmd_list(
                 if (b_res_f, str(t["id"]).upper()) in focus_set or str(t["id"]).upper() in focus_unscoped
             ]
 
+    active_targets = list(targets or [])
+    if search is not None:
+        pat = compile_search_pattern(search)
+        b_res_s = base_dir.resolve()
+        matched_shown = [t for t in shown if task_matches_pattern(t, pat, base_dir)]
+        active_targets.extend((b_res_s, f".:{str(t['id']).upper()}") for t in matched_shown)
+        if not highlight_only:
+            shown = matched_shown
+
     if limit is not None:
         shown = shown[:limit]
 
@@ -508,6 +519,8 @@ def cmd_list(
             notes.append(f"status={status.strip().upper()}")
         if ready:
             notes.append("ready")
+        if search is not None:
+            notes.append(f"search={search!r}")
         extra = f", {', '.join(notes)}" if notes else ""
         sys.stdout.write(f"No matching tasks ({mode}{extra}) in {base_dir}\n")
     elif full:
@@ -517,7 +530,7 @@ def cmd_list(
         term_width = _get_terminal_columns()
         use_color = _use_ansi_color()
         b_res = base_dir.resolve()
-        target_set, unscoped_ids = _normalize_target_refs(base_dir, targets)
+        target_set, unscoped_ids = _normalize_target_refs(base_dir, active_targets)
         for t in shown:
             is_blocked, dep_suffix = _dep_info(t)
             st_str = str(t["status"])
@@ -621,6 +634,8 @@ def cmd_workspace_list(
     ready: bool = False,
     targets: list[tuple[Path, str]] | None = None,
     focus: list[tuple[Path, str]] | None = None,
+    search: str | None = None,
+    highlight_only: bool = False,
 ) -> int:
     projects = discover_projects(workspace_root)
     if not projects:
@@ -691,6 +706,21 @@ def cmd_workspace_list(
                 if (proj_dir.resolve(), str(t["id"]).upper()) in focus_set or str(t["id"]).upper() in focus_unscoped
             ]
 
+    active_targets = list(targets or [])
+    if search is not None:
+        pat = compile_search_pattern(search)
+        matched_items = [
+            (name, proj_dir, t)
+            for name, proj_dir, t in items
+            if task_matches_pattern(t, pat, proj_dir, project_label=name)
+        ]
+        active_targets.extend(
+            (proj_dir.resolve(), f".:{str(t['id']).upper()}")
+            for _, proj_dir, t in matched_items
+        )
+        if not highlight_only:
+            items = matched_items
+
     if limit is not None:
         items = items[:limit]
     if not items:
@@ -701,6 +731,8 @@ def cmd_workspace_list(
             notes.append(f"status={status.strip().upper()}")
         if ready:
             notes.append("ready")
+        if search is not None:
+            notes.append(f"search={search!r}")
         extra = f", {', '.join(notes)}" if notes else ""
         sys.stdout.write(f"No matching tasks ({mode}{extra}) across workspace {workspace_root}\n")
         return 0
@@ -715,7 +747,7 @@ def cmd_workspace_list(
         return 0
     term_width = _get_terminal_columns()
     use_color = _use_ansi_color()
-    target_set, unscoped_ids = _normalize_target_refs(workspace_root, targets)
+    target_set, unscoped_ids = _normalize_target_refs(workspace_root, active_targets)
     for name, proj_dir, t in items:
         is_blocked, dep_suffix = _ws_dep_info(proj_dir, t)
         st_str = str(t["status"])

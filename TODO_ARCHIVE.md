@@ -1,3 +1,13 @@
+# ✅ [DONE] F78: Support -s/-H/-l in todo_md list and ';' branch separator with multi-stage duplicate hint in --depends — *2026-11-23*
+
+- Depends on: F77
+- In `src/cli.py` (`list` parser in `main()`), accept `-s <QUERY>` / `--search <QUERY>` / `--search=<QUERY>` (failing with `<flag> requires a non-empty query argument` when missing or blank), `-H` / `--highlight` (disabling search focus to render the full list with search matches highlighted), and `-l N` alongside `--limit N` and `-n N`.
+- Add `task_matches_pattern(t, pat, base_dir, project_label=None) -> bool` in `src/parser.py` (used by both `search_tasks()` and `cmd_list()` / `cmd_workspace_list()`) matching case-insensitively against `<ID>`, `<project>:<ID>`, task title, and full section text.
+- In `cmd_list()` and `cmd_workspace_list()` (`src/render.py`), accept `search: str | None = None` and `highlight_only: bool = False`: when `search` is set, filter `shown` / `items` to matching tasks by default (and highlight them via `targets`) or keep all tasks with matches highlighted when `highlight_only=True` (`-H`), and append `search=<query!r>` to the `No matching tasks (...)` message when no tasks match.
+- Support `;` (and newlines) as an independent branch separator in `--depends` and `- Depends on:` (`_normalize_depends_clauses()` in `src/commands.py` and `parse_dependency_clauses()` / `parse_task_dependencies()` in `src/parser.py`) so `--depends "A -> B; C -> D"` emits separate `- Depends on:` lines matching `show`/`overview` output (`','` parallel items in stage > `'->'` sequential stages > `';'` independent branches).
+- In `parse_depends_clause()` (`src/parser.py`), reject a task reference that appears in multiple `'->'` stages within the same clause with a clear hint explaining operator precedence: `duplicate task <ref> across '->' stages in <clause!r> (',' groups parallel items within a stage and binds tighter than '->'; use ';' or repeat --depends to separate independent chains)`.
+- Update `HELP_COMMANDS` in `src/header.py` (keeping `--help` lines within 100 columns/bytes), `agents/todo_md.md`, `README.md`, and unit tests in `tests/test_commands.py`, `tests/test_deps.py`, and `tests/test_cli.py`, rebuild `./todo_md` via `python3 build.py`, reinstall locally, and bump `VERSION` (`MINOR`).
+
 # ✅ [DONE] F77: Remove legacy - Role: stripping on next and clean - Role: / - Target files: from TODO_ARCHIVE.md — *2026-11-23*
 
 - Depends on: F72, F74, F76

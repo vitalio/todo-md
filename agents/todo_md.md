@@ -20,7 +20,7 @@
     before subcommands (or `<project>:<ID>` on task refs). Core views:
     `todo_md [opts] [-w]`, `todo_md overview [--full] [-w]`, `todo_md projects`,
     `todo_md [show] <ID>...`, `todo_md last[-id] [<STATUS|archive>]`,
-    `todo_md list [active|archive|all|<STATUS>] [<ID>...] [--prefix <P>] [--status <S>] [-r|--ready] [--limit N] [--full]`,
+    `todo_md list [active|archive|all|<STATUS>] [<ID>...] [--prefix <P>] [--status <S>] [-r|--ready] [-s <QUERY>] [-H] [-l N|--limit N] [--full]`,
     `todo_md archive [<ID>...] [-m "<note>"] [--canceled] [-c]`, `todo_md ids`,
     `todo_md queue <ID>... [--all]` (alias for `todo_md chain <ID>... [--all]`),
     `todo_md chain [<ID>...] [--all] [--prefix <P>] [--status <S>] [--ready] [-l N|--limit N] [--include-hold] [--tree] [--numbered[=left|right]] [-f <ID>...] [-H] [-s <QUERY>]`,
@@ -36,8 +36,9 @@
     `todo_md done <ID>... [-m "<note>"] [-c]`,
     `todo_md cancel <ID>... [-m "<reason>"] [-c]`, `todo_md check`.
   - Dependencies & Chain integration (both directions): in `--depends` and
-    `- Depends on:`, use `,` for parallel items (`A,B`) and `->` for sequential
-    stages (`"A -> B -> C"`, `,` binds tighter than `->`; repeat for AND
-    branches; do not introduce a separate `- Order:` field). Wire new or refined
+    `- Depends on:`, use `,` for parallel items (`A,B`), `->` for sequential
+    stages (`"A -> B -> C"`, `,` binds tighter than `->`), and `;` (or repeated
+    `--depends` / `- Depends on:` lines) for independent AND branches (`"A -> B;
+    C -> D"`; do not introduce a separate `- Order:` field). Wire new or refined
     tasks both upstream (`--depends`) and downstream (`todo_md edit <ID>
     --depends ...` on existing open tasks or waves).

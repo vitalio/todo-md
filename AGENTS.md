@@ -109,8 +109,9 @@ rules are loaded via `.agents_bundle`.
   `- Depends on:` lines (and `--depends`); do not duplicate order in a
   separate `- Order:` field.
 - Syntax: `,` separates parallel items within a stage, `->` separates sequential
-  stages (`,` binds tighter than `->`, e.g. `A, B -> C`), and multiple
-  `- Depends on:` lines represent independent branches combined with AND.
+  stages (`,` binds tighter than `->`, e.g. `A, B -> C`), and `;` (or multiple
+  `--depends` / `- Depends on:` lines) separates independent branches combined
+  with AND.
 - Unified DAG: dependency resolution merges explicit `->` stage edges on the
   target task with transitive `- Depends on:` edges inside referenced tasks
   (preserving one-way cross-repo boundaries when orchestrators sequence child

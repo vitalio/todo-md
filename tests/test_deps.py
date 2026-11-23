@@ -195,8 +195,52 @@ class TestDeps(TodoMdTestCase):
         self.assertNotEqual(r_nid_done.returncode, 0, msg=r_nid_done.stderr)
         self.assertIn("already closed", r_nid_done.stderr)
 
+        # ';' and newline branch separators in --depends emit separate '- Depends on:' lines,
+        # and ';' in an existing '- Depends on:' line is parsed as independent branches
+        semi_dir = ws / "semi_proj"
+        semi_dir.mkdir()
+        self._run([str(SCRIPT), "init"], cwd=str(semi_dir), check=True)
+        for idx in range(1, 5):
+            self._run([str(SCRIPT), "add", f"Node {idx}"], cwd=str(semi_dir), check=True)
+        self._run(
+            [str(SCRIPT), "add", "Diamond target", "--depends", "F1 -> F2; F1 -> F3\nF4"],
+            cwd=str(semi_dir),
+            check=True,
+        )
+        semi_todo = (semi_dir / "TODO.md").read_text(encoding="utf-8")
+        self.assertIn("- Depends on: F1 -> F2\n- Depends on: F1 -> F3\n- Depends on: F4", semi_todo)
+        r_semi_show = self._run([str(SCRIPT), "F5"], cwd=str(semi_dir), check=True)
+        self.assertIn(
+            "Dependencies (blocked): F1 ⚪ [NEW] -> F2 ⚪ [NEW]; F1 ⚪ [NEW] -> F3 ⚪ [NEW]; F4 ⚪ [NEW]",
+            r_semi_show.stdout,
+        )
+        # In-file ';' on a single Depends on: line also validates and rewrites on rename
+        (semi_dir / "TODO.md").write_text(
+            semi_todo.replace(
+                "- Depends on: F1 -> F2\n- Depends on: F1 -> F3",
+                "- Depends on: F1 -> F2; F1 -> F3",
+            ),
+            encoding="utf-8",
+        )
+        self._run([str(SCRIPT), "check"], cwd=str(semi_dir), check=True)
+        self._run([str(SCRIPT), "rename", "F1", "F9"], cwd=str(semi_dir), check=True)
+        self.assertIn("- Depends on: F9 -> F2; F9 -> F3", (semi_dir / "TODO.md").read_text(encoding="utf-8"))
+
+        # Multi-stage duplicate task reference within the same '->' clause is rejected with precedence hint
+        r_dup_stage = self._run(
+            [str(SCRIPT), "add", "Ambiguous comma", "--depends", "F9 -> F2, F9 -> F3"],
+            cwd=str(semi_dir),
+        )
+        self.assertNotEqual(r_dup_stage.returncode, 0, msg=r_dup_stage.stdout)
+        self.assertIn(
+            "duplicate task F9 across '->' stages in 'F9 -> F2, F9 -> F3' "
+            "(',' groups parallel items within a stage and binds tighter than '->'; "
+            "use ';' or repeat --depends to separate independent chains)",
+            r_dup_stage.stderr,
+        )
+
         # Syntax errors rejected by --depends
-        for bad_dep in ("F1 ->", "-> F1", "F1, -> F2", "badref"):
+        for bad_dep in ("F1 ->", "-> F1", "F1, -> F2", "badref", "F1 -> F2; ", "; F1", "F1 -> F1"):
             with self.subTest(bad_dep=bad_dep):
                 r_bad = self._run([str(SCRIPT), "add", "Bad dep", "--depends", bad_dep], cwd=str(proj_a))
                 self.assertNotEqual(r_bad.returncode, 0, msg=r_bad.stderr)

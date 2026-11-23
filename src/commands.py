@@ -531,12 +531,14 @@ def _normalize_depends_clauses(raw_items: list[str]) -> list[str]:
     for item in raw_items:
         if not item.strip():
             continue
-        stages, err = parse_depends_clause(item)
-        if err:
-            raise SystemExit(
-                f"{prog_name()}: invalid --depends value {item!r}: {err}; expected <ID> or <project>:<ID> separated by ',' and '->'"
-            )
-        clauses.append(" -> ".join(", ".join(stage) for stage in stages))
+        for sub_item in re.split(r"[;\r\n]+", item):
+            stages, err = parse_depends_clause(sub_item)
+            if err:
+                raise SystemExit(
+                    f"{prog_name()}: invalid --depends value {item!r}: {err}; "
+                    "expected <ID> or <project>:<ID> separated by ',', '->', and ';'"
+                )
+            clauses.append(" -> ".join(", ".join(stage) for stage in stages))
     return clauses
 
 def _normalize_role_override(raw_role: str) -> str:
@@ -1009,33 +1011,44 @@ def _rewrite_depends_text(
         m = DEPENDS_LINE_RE.match(line)
         if not m:
             continue
-        stages, err = parse_depends_clause(m.group(1))
-        if err or not stages:
+        sub_clauses = m.group(1).split(";")
+        parsed_branches: list[list[list[str]]] = []
+        valid_line = True
+        for sub_c in sub_clauses:
+            stages, err = parse_depends_clause(sub_c)
+            if err or not stages:
+                valid_line = False
+                break
+            parsed_branches.append(stages)
+        if not valid_line or not parsed_branches:
             continue
         line_changed = False
-        new_stages: list[list[str]] = []
-        for stage in stages:
-            new_stage: list[str] = []
-            seen: set[str] = set()
-            for ref in stage:
-                new_ref = ref
-                pm = PROJECT_TASK_RE.match(ref)
-                if pm:
-                    if qualified_checker is not None:
-                        mapped = qualified_checker(pm.group(1), pm.group(2).upper())
-                        if mapped is not None:
-                            new_ref = f"{pm.group(1)}:{mapped}"
-                elif local_map and ref.upper() in local_map:
-                    new_ref = local_map[ref.upper()]
-                if new_ref != ref:
-                    line_changed = True
-                if new_ref not in seen:
-                    seen.add(new_ref)
-                    new_stage.append(new_ref)
-            new_stages.append(new_stage)
+        branch_strs: list[str] = []
+        for stages in parsed_branches:
+            new_stages: list[list[str]] = []
+            for stage in stages:
+                new_stage: list[str] = []
+                seen: set[str] = set()
+                for ref in stage:
+                    new_ref = ref
+                    pm = PROJECT_TASK_RE.match(ref)
+                    if pm:
+                        if qualified_checker is not None:
+                            mapped = qualified_checker(pm.group(1), pm.group(2).upper())
+                            if mapped is not None:
+                                new_ref = f"{pm.group(1)}:{mapped}"
+                    elif local_map and ref.upper() in local_map:
+                        new_ref = local_map[ref.upper()]
+                    if new_ref != ref:
+                        line_changed = True
+                    if new_ref not in seen:
+                        seen.add(new_ref)
+                        new_stage.append(new_ref)
+                new_stages.append(new_stage)
+            branch_strs.append(" -> ".join(", ".join(st) for st in new_stages))
         if line_changed:
             prefix_part = line[:line.lower().index("depends on:") + len("depends on:")]
-            clause_str = " -> ".join(", ".join(st) for st in new_stages)
+            clause_str = "; ".join(branch_strs)
             lines[idx] = f"{prefix_part} {clause_str}"
             changed = True
     if not changed:

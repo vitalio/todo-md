@@ -18,6 +18,7 @@ def parse_depends_clause(raw_clause: str) -> tuple[list[list[str]], str | None]:
     if not raw_clause.strip():
         return [], "empty Depends on: clause"
     stages: list[list[str]] = []
+    seen_prior_stages: set[str] = set()
     for raw_stage in raw_clause.split("->"):
         if not raw_stage.strip():
             return [], f"empty stage in dependency clause {raw_clause.strip()!r}"
@@ -30,9 +31,16 @@ def parse_depends_clause(raw_clause: str) -> tuple[list[list[str]], str | None]:
             norm, err = normalize_dep_ref_token(tok)
             if err or norm is None:
                 return [], err or f"invalid dependency reference {tok!r}"
+            if norm in seen_prior_stages:
+                return [], (
+                    f"duplicate task {norm} across '->' stages in {raw_clause.strip()!r} "
+                    "(',' groups parallel items within a stage and binds tighter than '->'; "
+                    "use ';' or repeat --depends to separate independent chains)"
+                )
             if norm not in seen_stage:
                 seen_stage.add(norm)
                 stage_refs.append(norm)
+        seen_prior_stages.update(seen_stage)
         stages.append(stage_refs)
     return stages, None
 
@@ -52,11 +60,12 @@ def parse_dependency_clauses(section_text: str) -> tuple[list[list[list[str]]], 
         m = DEPENDS_LINE_RE.match(line)
         if not m:
             continue
-        stages, err = parse_depends_clause(m.group(1))
-        if err:
-            errors.append(err)
-        elif stages:
-            clauses.append(stages)
+        for sub_clause in m.group(1).split(";"):
+            stages, err = parse_depends_clause(sub_clause)
+            if err:
+                errors.append(err)
+            elif stages:
+                clauses.append(stages)
     return clauses, errors
 
 def parse_task_dependencies(section_text: str) -> list[str]:
@@ -72,16 +81,17 @@ def parse_task_dependencies(section_text: str) -> list[str]:
         m = DEPENDS_LINE_RE.match(line)
         if not m:
             continue
-        for raw_stage in m.group(1).split("->"):
-            for raw in raw_stage.split(","):
-                tok = raw.strip()
-                if not tok:
-                    continue
-                norm, _ = normalize_dep_ref_token(tok)
-                val = norm if norm is not None else tok
-                if val not in seen:
-                    seen.add(val)
-                    refs.append(val)
+        for sub_clause in m.group(1).split(";"):
+            for raw_stage in sub_clause.split("->"):
+                for raw in raw_stage.split(","):
+                    tok = raw.strip()
+                    if not tok:
+                        continue
+                    norm, _ = normalize_dep_ref_token(tok)
+                    val = norm if norm is not None else tok
+                    if val not in seen:
+                        seen.add(val)
+                        refs.append(val)
     return refs
 
 
@@ -146,6 +156,20 @@ def compile_search_pattern(query: str) -> re.Pattern[str]:
     except re.error:
         return re.compile(re.escape(query), re.IGNORECASE)
 
+def task_matches_pattern(
+    t: dict[str, object],
+    pat: re.Pattern[str],
+    base_dir: Path,
+    project_label: str | None = None,
+) -> bool:
+    tid = str(t["id"])
+    b_name = base_dir.resolve().name
+    id_tokens = [tid, f"{b_name}:{tid}"]
+    if project_label and project_label != b_name:
+        id_tokens.append(f"{project_label}:{tid}")
+    haystack = "\n".join([*id_tokens, str(t["title"]), str(t.get("section", ""))])
+    return bool(pat.search(haystack))
+
 def search_tasks(
     base_dir: Path,
     query: str,
@@ -154,19 +178,13 @@ def search_tasks(
 ) -> list[dict[str, object]]:
     pat = compile_search_pattern(query)
     fnames = TASK_FILES if include_archive else TASK_FILES[:1]
-    b_name = base_dir.resolve().name
     matches: list[dict[str, object]] = []
     for fname in fnames:
         path = base_dir / fname
         if not path.is_file():
             continue
         for t in parse_tasks_in_text(read_if_exists(path), fname):
-            tid = str(t["id"])
-            id_tokens = [tid, f"{b_name}:{tid}"]
-            if project_label and project_label != b_name:
-                id_tokens.append(f"{project_label}:{tid}")
-            haystack = "\n".join([*id_tokens, str(t["title"]), str(t.get("section", ""))])
-            if pat.search(haystack):
+            if task_matches_pattern(t, pat, base_dir, project_label=project_label):
                 matches.append(t)
     return matches
 

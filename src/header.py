@@ -144,7 +144,8 @@ HELP_COMMANDS: tuple[tuple[str, str], ...] = (
      "Print ID of the last task in a status or the archive (default: NEW)"),
     ("{prog} list [filter] [<ID>...] [opts]",
      "List tasks; filter is active | archive | all | <STATUS>; <ID>... are highlighted. "
-     "Options: --prefix PREFIX, --status STATUS, -r/--ready, --limit N, --full"),
+     "Options: --prefix PREFIX, --status STATUS, -r/--ready, -s/--search QUERY, "
+     "-H/--highlight, -l N/--limit N, --full"),
     ("{prog} archive [<ID>...] [-m NOTE] [--canceled]",
      "Print TODO_ARCHIVE.md, or archive task(s) <ID>... (as DONE, or CANCELED with --canceled)"),
     ("{prog} add [<PROJ>] [<PREFIX>] <TITLE>",

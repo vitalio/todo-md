@@ -721,23 +721,19 @@ def main(argv: list[str] | None = None) -> int:
         prefix_filter: str | None = None
         status_filter: str | None = None
         ready = False
+        highlight_only = False
+        search_query: str | None = None
         raw_target_refs: list[str] = []
         i = 1
         while i < len(args):
             a = args[i]
-            if a in ("--limit", "-n"):
+            if a in ("--limit", "-n", "-l"):
                 if i + 1 >= len(args):
                     raise SystemExit(f"{prog}: {a} requires an integer argument")
-                raw_lim = args[i + 1]
-                if not raw_lim.isdigit() or int(raw_lim) < 1:
-                    raise SystemExit(f"{prog}: invalid limit {raw_lim!r}; expected a positive integer")
-                limit = int(raw_lim)
+                limit = _parse_limit(prog, args[i + 1])
                 i += 2
             elif a.startswith("--limit="):
-                raw_lim = a.split("=", 1)[1]
-                if not raw_lim.isdigit() or int(raw_lim) < 1:
-                    raise SystemExit(f"{prog}: invalid limit {raw_lim!r}; expected a positive integer")
-                limit = int(raw_lim)
+                limit = _parse_limit(prog, a.split("=", 1)[1])
                 i += 1
             elif a == "--prefix":
                 if i + 1 >= len(args):
@@ -754,6 +750,20 @@ def main(argv: list[str] | None = None) -> int:
                 i += 2
             elif a.startswith("--status="):
                 status_filter = _validate_status_filter(prog, a.split("=", 1)[1])
+                i += 1
+            elif a in ("--search", "-s"):
+                if i + 1 >= len(args) or not args[i + 1].strip():
+                    raise SystemExit(f"{prog}: {a} requires a non-empty query argument")
+                search_query = args[i + 1]
+                i += 2
+            elif a.startswith("--search="):
+                raw_sq = a.split("=", 1)[1]
+                if not raw_sq.strip():
+                    raise SystemExit(f"{prog}: --search requires a non-empty query argument")
+                search_query = raw_sq
+                i += 1
+            elif a in ("--highlight", "-H"):
+                highlight_only = True
                 i += 1
             elif a in ("--ready", "-r"):
                 ready = True
@@ -773,7 +783,8 @@ def main(argv: list[str] | None = None) -> int:
                     i += 1
                 else:
                     raise SystemExit(
-                        f"{prog}: usage: {prog} list [filter] [<ID>...] [--prefix PREFIX] [--status STATUS] [-r|--ready] [--limit N] [--full]"
+                        f"{prog}: usage: {prog} list [filter] [<ID>...] [--prefix PREFIX] [--status STATUS] "
+                        "[-r|--ready] [-s|--search QUERY] [-H|--highlight] [-l N|--limit N] [--full]"
                     )
         target_refs: list[tuple[Path, str]] = [
             resolve_filter_task_ref(base_dir, ref, explicit_dir=explicit_dir)
@@ -791,6 +802,8 @@ def main(argv: list[str] | None = None) -> int:
                     status=status_filter,
                     ready=ready,
                     targets=target_refs,
+                    search=search_query,
+                    highlight_only=highlight_only,
                 )
         return cmd_list(
             base_dir,
@@ -801,6 +814,8 @@ def main(argv: list[str] | None = None) -> int:
             status=status_filter,
             ready=ready,
             targets=target_refs,
+            search=search_query,
+            highlight_only=highlight_only,
         )
     show_usage = f"{prog}: usage: {prog} show <ID>[,<ID>...] [<ID>...] | show last [<STATUS|archive>]"
     if args[0] in ("show", "--show"):

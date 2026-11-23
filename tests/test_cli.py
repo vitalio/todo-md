@@ -27,7 +27,10 @@ class TestCli(TodoMdTestCase):
         self.assertIn("-C DIR|PROJ, --project NAME", rh.stdout)
         self.assertIn("add", rh.stdout)
         self.assertIn("--prefix PREFIX", rh.stdout)
-        self.assertIn("Options: --prefix PREFIX, --status STATUS, -r/--ready, --limit N, --full", flat)
+        self.assertIn(
+            "Options: --prefix PREFIX, --status STATUS, -r/--ready, -s/--search QUERY, -H/--highlight, -l N/--limit N, --full",
+            flat,
+        )
         self.assertIn("edit", rh.stdout)
         self.assertIn("append", rh.stdout)
 
@@ -44,7 +47,7 @@ class TestCli(TodoMdTestCase):
         self.assertIn("--reopen", rule_txt)
         self.assertNotIn("Mode: ", rule_txt)
         self.assertIn("-C <dir|project>` or `--project <name>`", rule_txt)
-        self.assertIn("list [active|archive|all|<STATUS>] [<ID>...] [--prefix <P>] [--status <S>] [-r|--ready] [--limit N] [--full]", rule_txt)
+        self.assertIn("list [active|archive|all|<STATUS>] [<ID>...] [--prefix <P>] [--status <S>] [-r|--ready] [-s <QUERY>] [-H] [-l N|--limit N] [--full]", rule_txt)
         self.assertIn("-r, --ready", rh.stdout)
         self.assertIn("Chain integration (both directions)", rule_txt)
         self.assertNotIn("queue <ID>", rh.stdout)
