@@ -37,10 +37,10 @@ class TestCli(TodoMdTestCase):
 
         rv = self._run_subprocess([str(SCRIPT), "--version"], check=True)
         ver = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
-        self.assertEqual(rv.stdout.strip(), f"todo_md {ver}")
+        self.assertEqual(rv.stdout.strip(), f"todo {ver}")
 
         self.assertNotIn("--agents", rh.stdout)
-        rule_txt = (ROOT / "agents/todo_md.md").read_text(encoding="utf-8")
+        rule_txt = (ROOT / "agents/todo.md").read_text(encoding="utf-8")
         self.assertIn("Repository scope only", rule_txt)
         self.assertIn("🎯 [NEXT]", rule_txt)
         self.assertIn("TODO_ARCHIVE.md", rule_txt)
@@ -49,7 +49,7 @@ class TestCli(TodoMdTestCase):
         self.assertNotIn("Mode: ", rule_txt)
         self.assertIn("-C <dir>", rule_txt)
         self.assertIn("-p <project>` / `--project", rule_txt)
-        self.assertIn("do not run `todo_md chain --all", rule_txt)
+        self.assertIn("do not run `{cmd:todo} chain --all", rule_txt)
         self.assertIn("list [active|archive|all|<STATUS>] [<ID>...] [--prefix <P>] [--status <S>] [-r|--ready] [-s <QUERY>] [-H] [-l N|--limit N] [--full]", rule_txt)
         self.assertIn("-r, --ready", rh.stdout)
         self.assertIn("Chain integration (both directions)", rule_txt)
@@ -84,17 +84,19 @@ class TestCli(TodoMdTestCase):
         self.assertIn("archive [<ID>...]", rule_txt)
         self.assertNotIn("files [<ID>...]", rule_txt)
         self.assertIn(
-            "chain [<ID>...] [--all] [--prefix <P>] [--status <S>] [--ready] [-l N|--limit N] [--include-hold] [--tree] [--numbered[=left|right]]",
+            "chain [<ID>...] [--all] [--prefix <P>] [--status <S>] [--ready] [-l N|--limit N] [--tree] [-f <ID>...] [-H] [-s <QUERY>]",
             rule_txt,
         )
-        self.assertIn("alias for `todo_md chain <ID>... [--all]`", rule_txt)
+        self.assertNotIn("--numbered", rule_txt)
+        self.assertNotIn("--include-hold", rule_txt)
+        self.assertIn("alias for `{cmd:todo} chain <ID>... [--all]`", rule_txt)
         self.assertIn("next-id [<ID>] [--prefix <P>] [--status <S>]", rule_txt)
         self.assertIn("A -> B -> C", rule_txt)
         self.assertIn("do not introduce a separate `- Order:` field", rule_txt)
-        self.assertIn("Bundle-Name: todo_md", rule_txt)
+        self.assertNotIn("Bundle-Name", rule_txt)
         self.assertNotIn("Files:", rule_txt)
         self.assertNotIn("strips any existing `- Role:` line", rule_txt)
-        self.assertIn("agents_bundle | run_block", rule_txt)
+        self.assertNotIn("agents_bundle | run_block", rule_txt)
         self.assertNotIn("role=work", rule_txt)
         self.assertNotIn("role=plan", rule_txt)
         self.assertNotIn("role=review", rule_txt)
@@ -178,7 +180,7 @@ class TestCli(TodoMdTestCase):
         remote_file = self.tmp / "remote_todo_md"
         remote_payload = (
             "#!/usr/bin/env python3\n"
-            "# todo_md-repo: vitalio/todo_md\n"
+            "# todo-md-repo: vitalio/todo-md\n"
             "VERSION = '99.0.0'\n"
         )
         remote_file.write_text(remote_payload, encoding="utf-8")
@@ -329,10 +331,24 @@ class TestCli(TodoMdTestCase):
     def test_install_sh(self):
         bin_dir = self.tmp / "bin"
         bin_dir.mkdir()
+        legacy_bin = bin_dir / "todo_md"
+        legacy_bin.write_text("#!/usr/bin/env python3\n# todo_md-repo: vitalio/todo_md\n", encoding="utf-8")
+        legacy_bin.chmod(0o755)
         env = {**os.environ, "PATH": f"{bin_dir}:/usr/bin:/bin"}
         r = self._run_subprocess(["sh", str(INSTALL_SH), "--dir", str(bin_dir), "--yes"], env=env)
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertTrue((bin_dir / "todo_md").is_file())
+        self.assertTrue((bin_dir / "todo").is_file())
+        self.assertFalse(legacy_bin.exists())
+        r_un = self._run_subprocess(["sh", str(INSTALL_SH), "--dir", str(bin_dir), "--uninstall"], env=env)
+        self.assertEqual(r_un.returncode, 0, r_un.stderr)
+        self.assertFalse((bin_dir / "todo").exists())
+        # Built-in CLI uninstall / --uninstall also removes installed binary and legacy todo_md
+        self._run_subprocess(["sh", str(INSTALL_SH), "--dir", str(bin_dir), "--yes"], env=env, check=True)
+        legacy_bin.write_text("#!/usr/bin/env python3\n# todo_md-repo: vitalio/todo_md\n", encoding="utf-8")
+        r_cli_un = self._run([str(SCRIPT), "--uninstall"], env={**env, "TODO_MD_INSTALL_DIR": str(bin_dir)}, check=True)
+        self.assertIn("uninstalled", r_cli_un.stdout)
+        self.assertFalse((bin_dir / "todo").exists())
+        self.assertFalse(legacy_bin.exists())
 
 
     def test_default_quest_log_overview_multi_show_focus_highlight_and_status_filters(self):

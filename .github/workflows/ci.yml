@@ -36,6 +36,6 @@ jobs:
         with:
           generate_release_notes: true
           files: |
-            todo_md
+            todo
             install.sh
             LICENSE

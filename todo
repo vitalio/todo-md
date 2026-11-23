@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# todo_md-repo: vitalio/todo_md
-"""todo_md CLI. Help text is rendered by usage_text() from the help tables below."""
+# todo-md-repo: vitalio/todo-md
+"""todo CLI. Help text is rendered by usage_text() from the help tables below."""
 from __future__ import annotations
 
 if __doc__ is None:
@@ -23,12 +23,13 @@ import unicodedata
 from datetime import date
 from pathlib import Path
 
-VERSION = "0.48.0"
-REPO_MARKER = "todo_md-repo: vitalio/todo_md"
-DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/vitalio/todo_md/main/todo_md"
+VERSION = "0.49.0"
+REPO_MARKER = "todo-md-repo: vitalio/todo-md"
+LEGACY_REPO_MARKER = "todo_md-repo: vitalio/todo_md"
+DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/vitalio/todo-md/main/todo"
 FENCE = chr(96) * 3
-EMBEDDED_RULE_TODO_MD = '# Description: Structured Markdown task management (TODO.md and TODO_ARCHIVE.md) via todo_md\n- Task management (`todo_md`: `TODO.md`, `TODO_ARCHIVE.md`): Always inspect and\n  modify `TODO.md` and `TODO_ARCHIVE.md` via `todo_md` (never via `cat` or\n  manual file edits). Repository scope only: record each task in the `TODO.md`\n  of the repository it belongs to (run `todo_md -h` for full CLI option lists).\n  - Status lifecycle & task ID prefixes: `TODO.md` orders active tasks as\n    `🔵 [WIP]` -> `🎯 [NEXT]` -> `❓ [QUESTION]` -> `⚪ [NEW]` -> `⏸️ [HOLD]`,\n    and `TODO_ARCHIVE.md` keeps `✅ [DONE]` and `❌ [CANCELED]` newest-first.\n    Task ID prefixes (`A-Z`): `F` is a feature (default on `add`), `B` is a\n    bugfix (ranked ahead in `chain`), `D` is a design task, `L` is a\n    legislative rule task (`agents/`, `AGENTS.md`), and other `A-Z` prefixes\n    are custom domains. `todo_md check` rejects `- Role:` and `- Target files:`\n    lines across `TODO*.md`, and `todo_md <ID> [role=<role>]` in bundle mode\n    (`todo_md <ID> | agents_bundle | run_block`) is read-only: it emits\n    `Bundle-Name: todo_md`, `Task: <ID>`, `Prefix: <P>`, `Status: <S>`,\n    `Title: <title>`, and `Workdir: <dir>` (`Role: <role>` is emitted only when\n    `role=<role>` is passed); start a task with `todo_md status <ID> WIP` or\n    `todo_md next <ID>`.\n  - Inspect & target selection: pass `-C <dir>` (filesystem directory relative\n    to current `PWD`, matching `git -C <dir>`) or `-p <project>` / `--project\n    <name>` (workspace / `.todo_projects` project name or alias) before\n    subcommands (keeping `-p <P>` inside `todo_md add` for ID prefix, or\n    `<project>:<ID>` on task refs). Core views:\n    `todo_md [opts] [-w]`, `todo_md overview [--full] [-w]`, `todo_md projects`,\n    `todo_md [show] <ID>...`, `todo_md last[-id] [<STATUS|archive>]`,\n    `todo_md list [active|archive|all|<STATUS>] [<ID>...] [--prefix <P>] [--status <S>] [-r|--ready] [-s <QUERY>] [-H] [-l N|--limit N] [--full]`,\n    `todo_md archive [<ID>...] [-m "<note>"] [--canceled] [-c]`, `todo_md ids`,\n    `todo_md queue <ID>... [--all]` (alias for `todo_md chain <ID>... [--all]`),\n    `todo_md chain [<ID>...] [--all] [--prefix <P>] [--status <S>] [--ready] [-l N|--limit N] [--include-hold] [--tree] [--numbered[=left|right]] [-f <ID>...] [-H] [-s <QUERY>]`,\n    `todo_md next-id [<ID>] [--prefix <P>] [--status <S>]`. Do not re-run broad\n    workspace views (`todo_md`, `overview`, `chain`) when the Quest-Log is\n    already present in `===== Prompt =====`, and do not run `todo_md chain --all\n    --tree` across the entire backlog without a target `<ID>` or `-l N`.\n  - Mutate & validate: `todo_md add [<PROJECT>] [<PREFIX>] "<title>" [-p <P>]\n    [--next] [--status <S>] [-m "<note>"] [-b "<body_md>"|-] [--depends <spec>]\n    [-c]`, `todo_md edit <ID>... [--next] [--status <S>] [-t "<title>"]\n    [-m "<note>"] [-b "<body_md>"|-] [--depends <spec>] [-c]`, `todo_md append <ID>... [-b "<text>"|-] [-c]`,\n    `todo_md rename <OLD> <NEW|PREFIX> | <OLD>=<NEW|PREFIX>... [-c]`,\n    `todo_md next <ID>... [-m "<note>"] [--reopen] [-c]`,\n    `todo_md status <ID>... <STATUS> [-m "<note>"] [--reopen] [-c]`,\n    `todo_md reopen <ID>... [--status <S>] [-m "<note>"] [-c]`,\n    `todo_md done <ID>... [-m "<note>"] [-c]`,\n    `todo_md cancel <ID>... [-m "<reason>"] [-c]`, `todo_md check`.\n  - Dependencies & Chain integration (both directions): in `--depends` and\n    `- Depends on:`, use `,` for parallel items (`A,B`), `->` for sequential\n    stages (`"A -> B -> C"`, `,` binds tighter than `->`), and `;` (or repeated\n    `--depends` / `- Depends on:` lines) for independent AND branches (`"A -> B;\n    C -> D"`; do not introduce a separate `- Order:` field). Wire new or refined\n    tasks both upstream (`--depends`) and downstream (`todo_md edit <ID>\n    --depends ...` on existing open tasks or waves).\n'
-RULE_SOURCE_PATH = Path(__file__).resolve().parent.parent / "agents" / "todo_md.md"
+EMBEDDED_RULE_TODO = '# Description: Structured Markdown task management (TODO.md and TODO_ARCHIVE.md) via todo\n- Task management (`{cmd:todo}`: `TODO.md`, `TODO_ARCHIVE.md`): Always inspect and\n  modify `TODO.md` and `TODO_ARCHIVE.md` via `{cmd:todo}` (never via `cat` or\n  manual file edits). Repository scope only: record each task in the `TODO.md`\n  of the repository it belongs to (run `{cmd:todo} -h` for full CLI option lists).\n  - Status lifecycle & task ID prefixes: `TODO.md` orders active tasks as\n    `🔵 [WIP]` -> `🎯 [NEXT]` -> `❓ [QUESTION]` -> `⚪ [NEW]` -> `⏸️ [HOLD]`,\n    and `TODO_ARCHIVE.md` keeps `✅ [DONE]` and `❌ [CANCELED]` newest-first.\n    Task ID prefixes (`A-Z`): `F` is a feature (default on `add`), `B` is a\n    bugfix (ranked ahead in `chain`), `D` is a design task, `L` is a\n    legislative rule task (`agents/`, `AGENTS.md`), and other `A-Z` prefixes\n    are custom domains. `{cmd:todo} check` rejects `- Role:` and `- Target files:`\n    lines across `TODO*.md`, and `{cmd:todo} <ID> [role=<role>]` is read-only;\n    start a task with `{cmd:todo} status <ID> WIP` or `{cmd:todo} next <ID>`.\n  - Inspect & target selection: pass `-C <dir>` (filesystem directory relative\n    to current `PWD`, matching `git -C <dir>`) or `-p <project>` / `--project\n    <name>` (workspace / `.todo_projects` project name or alias) before\n    subcommands (keeping `-p <P>` inside `{cmd:todo} add` for ID prefix, or\n    `<project>:<ID>` on task refs). Core views:\n    `{cmd:todo} [opts] [-w]`, `{cmd:todo} overview [--full] [-w]`, `{cmd:todo} projects`,\n    `{cmd:todo} [show] <ID>...`, `{cmd:todo} last[-id] [<STATUS|archive>]`,\n    `{cmd:todo} list [active|archive|all|<STATUS>] [<ID>...] [--prefix <P>] [--status <S>] [-r|--ready] [-s <QUERY>] [-H] [-l N|--limit N] [--full]`,\n    `{cmd:todo} archive [<ID>...] [-m "<note>"] [--canceled] [-c]`, `{cmd:todo} ids`,\n    `{cmd:todo} queue <ID>... [--all]` (alias for `{cmd:todo} chain <ID>... [--all]`),\n    `{cmd:todo} chain [<ID>...] [--all] [--prefix <P>] [--status <S>] [--ready] [-l N|--limit N] [--tree] [-f <ID>...] [-H] [-s <QUERY>]`,\n    `{cmd:todo} next-id [<ID>] [--prefix <P>] [--status <S>]`. Do not re-run broad\n    workspace views (`{cmd:todo}`, `overview`, `chain`) when the Quest-Log is\n    already present in `===== Prompt =====`, and do not run `{cmd:todo} chain --all\n    --tree` across the entire backlog without a target `<ID>` or `-l N`.\n  - Mutate & validate: `{cmd:todo} add [<PROJECT>] [<PREFIX>] "<title>" [-p <P>]\n    [--next] [--status <S>] [-m "<note>"] [-b "<body_md>"|-] [--depends <spec>]\n    [-c]`, `{cmd:todo} edit <ID>... [--next] [--status <S>] [-t "<title>"]\n    [-m "<note>"] [-b "<body_md>"|-] [--depends <spec>] [-c]`, `{cmd:todo} append <ID>... [-b "<text>"|-] [-c]`,\n    `{cmd:todo} rename <OLD> <NEW|PREFIX> | <OLD>=<NEW|PREFIX>... [-c]`,\n    `{cmd:todo} next <ID>... [-m "<note>"] [--reopen] [-c]`,\n    `{cmd:todo} status <ID>... <STATUS> [-m "<note>"] [--reopen] [-c]`,\n    `{cmd:todo} reopen <ID>... [--status <S>] [-m "<note>"] [-c]`,\n    `{cmd:todo} done <ID>... [-m "<note>"] [-c]`,\n    `{cmd:todo} cancel <ID>... [-m "<reason>"] [-c]`, `{cmd:todo} check`.\n  - Dependencies & Chain integration (both directions): in `--depends` and\n    `- Depends on:`, use `,` for parallel items (`A,B`), `->` for sequential\n    stages (`"A -> B -> C"`, `,` binds tighter than `->`), and `;` (or repeated\n    `--depends` / `- Depends on:` lines) for independent AND branches (`"A -> B;\n    C -> D"`; do not introduce a separate `- Order:` field). Wire new or refined\n    tasks both upstream (`--depends`) and downstream (`{cmd:todo} edit <ID>\n    --depends ...` on existing open tasks or waves).\n'
+RULE_SOURCE_PATH = Path(__file__).resolve().parent.parent / "agents" / "todo.md"
 
 VALID_STATUSES: dict[str, str] = {
     "WIP": "🔵",
@@ -95,20 +96,21 @@ WORKSPACE_MAX_DEPTH = 3
 
 
 def get_embedded_todo_rule() -> str:
-    if EMBEDDED_RULE_TODO_MD != "__EMBEDDED_RULE_" + "TODO_MD__":
-        raw = EMBEDDED_RULE_TODO_MD
+    if EMBEDDED_RULE_TODO != "__EMBEDDED_RULE_" + "TODO__":
+        raw = EMBEDDED_RULE_TODO
     else:
         raw = RULE_SOURCE_PATH.read_text(encoding="utf-8")
     lines = [line for line in raw.splitlines() if not line.startswith("# Description:")]
-    return "\n".join(lines).strip("\n") + "\n"
+    body = "\n".join(lines).strip("\n") + "\n"
+    return body.replace("{cmd:todo}", prog_name())
 
 def prog_name() -> str:
-    raw = Path(sys.argv[0]).name if sys.argv and sys.argv[0] else "todo_md"
+    raw = Path(sys.argv[0]).name if sys.argv and sys.argv[0] else "todo"
     for suf in (".py", ".cmd", ".bat", ".exe"):
         if raw.lower().endswith(suf) and len(raw) > len(suf):
             raw = raw[:-len(suf)]
             break
-    return raw or "todo_md"
+    return raw or "todo"
 
 
 HELP_MAX_WIDTH = 100
@@ -182,9 +184,11 @@ HELP_COMMANDS: tuple[tuple[str, str], ...] = (
      "Create starter TODO.md (with optional project idea from TEXT/stdin) and "
      "TODO_ARCHIVE.md"),
     ("{prog} update [--force]",
-     "Self-update {prog} from GitHub (vitalio/todo_md); makes a network call"),
+     "Self-update {prog} from GitHub (vitalio/todo-md); makes a network call"),
     ("{prog} check-update",
      "Check if a newer version is available on GitHub; makes a network call"),
+    ("{prog} uninstall",
+     "Remove the installed {prog} binary (also --uninstall)"),
     ("{prog} -V | --version", "Print version and exit 0"),
     ("{prog} -h | --help", "Print this usage and exit 0"),
 )
@@ -6140,10 +6144,10 @@ def cmd_rename(
 
 
 BUNDLE_PROTOCOL_VERSION = "1"
-BUNDLE_NAME = "todo_md"
+BUNDLE_NAME = "vitalio/todo-md"
 BUNDLE_FLAGS = ("--bundle", "--plain")
-BUNDLE_CHAIN = ["todo_md"]
-BUNDLE_RULE_ID = "todo_md:todo_md"
+BUNDLE_CHAIN = ["vitalio/todo-md"]
+BUNDLE_RULE_ID = "vitalio/todo-md:todo"
 CONTEXT_HEADER_RE = re.compile(r"^[A-Za-z][A-Za-z-]*: ")
 TASK_SOURCE_RE = re.compile(r"^# (TODO(?:_ARCHIVE)?\.md):\d+", re.MULTILINE)
 
@@ -6218,7 +6222,7 @@ def emit_context_bundle(opts: BundleOptions, base_dir: Path, render) -> int:
     if rc != 0 or not out.strip():
         sys.stdout.write(out)
         return rc
-    meta = {"kind": "prompt", "name": "todo_md", "chain": BUNDLE_CHAIN}
+    meta = {"kind": "prompt", "name": "todo", "chain": BUNDLE_CHAIN}
     _write_stream(opts, [f"Workdir: {base_dir.resolve()}"], meta, out)
     return 0
 
@@ -6250,15 +6254,36 @@ def version_tuple(v: str) -> tuple[int, ...]:
     return tuple(int(p) for p in re.split(r"[^0-9]+", v) if p)
 
 
+def _is_our_binary(path: Path) -> bool:
+    if not path.is_file():
+        return False
+    try:
+        head = path.read_text(encoding="utf-8", errors="ignore")[:2048]
+    except OSError:
+        return False
+    return REPO_MARKER in head or LEGACY_REPO_MARKER in head
+
+
+def _remove_legacy_binary(install_dir: Path, keep_path: Path | None = None) -> None:
+    legacy = install_dir / "todo_md"
+    if keep_path is not None and legacy.resolve() == keep_path.resolve():
+        return
+    if _is_our_binary(legacy):
+        try:
+            legacy.unlink()
+        except OSError:
+            pass
+
+
 def fetch_remote_script(url: str | None = None) -> str:
     import urllib.request
 
     target_url = url or os.environ.get("TODO_MD_UPDATE_URL") or DEFAULT_UPDATE_URL
-    req = urllib.request.Request(target_url, headers={"User-Agent": f"todo_md/{VERSION}"})
+    req = urllib.request.Request(target_url, headers={"User-Agent": f"todo-md/{VERSION}"})
     with urllib.request.urlopen(req, timeout=15) as resp:
         data = resp.read().decode("utf-8")
-    if REPO_MARKER not in data:
-        raise ValueError(f"remote file at {target_url} is not a valid vitalio/todo_md script")
+    if REPO_MARKER not in data and LEGACY_REPO_MARKER not in data:
+        raise ValueError(f"remote file at {target_url} is not a valid vitalio/todo-md script")
     return data
 
 
@@ -6279,14 +6304,22 @@ def cmd_check_update(url: str | None = None) -> int:
 
 def cmd_update(force: bool = False, url: str | None = None, target_path: Path | None = None) -> int:
     prog = prog_name()
-    dest = target_path or Path(__file__).resolve()
+    if target_path is not None:
+        self_file = target_path
+        dest = target_path
+    else:
+        self_file = Path(sys.argv[0]).resolve() if sys.argv and sys.argv[0] else Path(__file__).resolve()
+        if not self_file.is_file():
+            self_file = Path(__file__).resolve()
+        dest = (self_file.parent / "todo") if self_file.name == "todo_md" else self_file
     try:
         remote_src = fetch_remote_script(url)
     except Exception as exc:
         sys.stderr.write(f"{prog}: update failed: {exc}\n")
         return 1
     remote_ver = parse_version_from_source(remote_src) or "unknown"
-    if not force and version_tuple(remote_ver) <= version_tuple(VERSION):
+    if not force and dest == self_file and version_tuple(remote_ver) <= version_tuple(VERSION):
+        _remove_legacy_binary(dest.parent, keep_path=dest)
         sys.stdout.write(f"{prog} {VERSION} is already up to date.\n")
         return 0
     try:
@@ -6303,7 +6336,62 @@ def cmd_update(force: bool = False, url: str | None = None, target_path: Path | 
     except Exception as exc:
         sys.stderr.write(f"{prog}: could not write updated binary to {dest}: {exc}\n")
         return 1
+    _remove_legacy_binary(dest.parent, keep_path=dest)
     sys.stdout.write(f"{prog}: updated {VERSION} -> {remote_ver} ({dest})\n")
+    return 0
+
+
+def cmd_uninstall(target_dir: Path | None = None) -> int:
+    prog = prog_name()
+    removed_bins: list[str] = []
+    candidate_dirs: list[Path] = []
+    env_dir = os.environ.get("TODO_MD_INSTALL_DIR")
+    if target_dir is not None:
+        candidate_dirs.append(target_dir)
+    elif env_dir:
+        candidate_dirs.append(Path(env_dir).expanduser())
+    self_path = Path(sys.argv[0]).resolve() if sys.argv and sys.argv[0] else Path(__file__).resolve()
+    is_repo_checkout = (self_path.parent / "build.py").is_file() and (self_path.parent / "src").is_dir()
+    if not is_repo_checkout and self_path.parent.is_dir():
+        if self_path.parent not in candidate_dirs:
+            candidate_dirs.append(self_path.parent)
+    elif not candidate_dirs:
+        candidate_dirs.append(Path.home() / ".local" / "bin")
+
+    cmd_name = os.environ.get("TODO_MD_NAME") or "todo"
+    names: list[str] = []
+    for n in (cmd_name, self_path.name if not is_repo_checkout else "", "todo", "todo_md"):
+        if n and n not in names:
+            names.append(n)
+
+    seen_targets: set[Path] = set()
+    for d in candidate_dirs:
+        for n in names:
+            target = d / n
+            try:
+                resolved = target.resolve()
+            except OSError:
+                continue
+            if resolved in seen_targets:
+                continue
+            seen_targets.add(resolved)
+            if (resolved.parent / "build.py").is_file() and (resolved.parent / "src").is_dir():
+                continue
+            if target.is_file():
+                if not _is_our_binary(target):
+                    if n == cmd_name and (env_dir or target_dir is not None):
+                        sys.stderr.write(f"{prog}: {target} is not a vitalio/todo-md script\n")
+                        return 1
+                    continue
+                try:
+                    target.unlink()
+                    removed_bins.append(str(target))
+                except OSError as exc:
+                    sys.stderr.write(f"{prog}: could not remove {target}: {exc}\n")
+                    return 1
+
+    details = ", ".join(removed_bins) or "nothing to remove"
+    sys.stdout.write(f"{prog}: uninstalled ({details})\n")
     return 0
 
 
@@ -6333,6 +6421,7 @@ KNOWN_SUBCOMMANDS = (
     "show",
     "update",
     "check-update",
+    "uninstall",
     "help",
     "version",
     "overview",
@@ -6541,7 +6630,7 @@ def _quest_log(
     workspace: bool,
     full: bool,
     argv: list[str],
-    cmd: str = "todo_md",
+    cmd: str = "todo",
     positional_focus: bool = False,
 ) -> int:
     o = _parse_quest_log_args(prog, argv, cmd, positional_focus)
@@ -6701,6 +6790,8 @@ def main(argv: list[str] | None = None) -> int:
     if args and args[0] in ("update", "--update", "--self-update"):
         force = "--force" in args[1:]
         return cmd_update(force=force)
+    if args and args[0] in ("uninstall", "--uninstall"):
+        return cmd_uninstall()
 
     full = False
     commit = False

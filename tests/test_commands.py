@@ -868,8 +868,8 @@ class TestCommands(TodoMdTestCase):
 
         # Reject archive statuses (DONE, CANCELED) and unknown statuses
         for bad_args, exp_err in (
-            (["edit", "F1", "--status", "DONE"], "use 'todo_md done' or 'todo_md cancel'"),
-            (["edit", "F1", "-s", "CANCELED"], "use 'todo_md done' or 'todo_md cancel'"),
+            (["edit", "F1", "--status", "DONE"], "use 'todo done' or 'todo cancel'"),
+            (["edit", "F1", "-s", "CANCELED"], "use 'todo done' or 'todo cancel'"),
             (["edit", "F1", "--status=DONE"], "active status"),
             (["edit", "F1", "--status", "INVALID"], "edit status must be WIP, NEXT, NEW, HOLD, or QUESTION"),
             (["edit", "F1", "--status"], "requires an argument"),

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# todo_md-repo: vitalio/todo_md
-"""todo_md CLI. Help text is rendered by usage_text() from the help tables below."""
+# todo-md-repo: vitalio/todo-md
+"""todo CLI. Help text is rendered by usage_text() from the help tables below."""
 from __future__ import annotations
 
 if __doc__ is None:
@@ -24,11 +24,12 @@ from datetime import date
 from pathlib import Path
 
 VERSION = "__VERSION__"
-REPO_MARKER = "todo_md-repo: vitalio/todo_md"
-DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/vitalio/todo_md/main/todo_md"
+REPO_MARKER = "todo-md-repo: vitalio/todo-md"
+LEGACY_REPO_MARKER = "todo_md-repo: vitalio/todo_md"
+DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/vitalio/todo-md/main/todo"
 FENCE = chr(96) * 3
-EMBEDDED_RULE_TODO_MD = "__EMBEDDED_RULE_TODO_MD__"
-RULE_SOURCE_PATH = Path(__file__).resolve().parent.parent / "agents" / "todo_md.md"
+EMBEDDED_RULE_TODO = "__EMBEDDED_RULE_TODO__"
+RULE_SOURCE_PATH = Path(__file__).resolve().parent.parent / "agents" / "todo.md"
 
 VALID_STATUSES: dict[str, str] = {
     "WIP": "🔵",
@@ -95,20 +96,21 @@ WORKSPACE_MAX_DEPTH = 3
 
 
 def get_embedded_todo_rule() -> str:
-    if EMBEDDED_RULE_TODO_MD != "__EMBEDDED_RULE_" + "TODO_MD__":
-        raw = EMBEDDED_RULE_TODO_MD
+    if EMBEDDED_RULE_TODO != "__EMBEDDED_RULE_" + "TODO__":
+        raw = EMBEDDED_RULE_TODO
     else:
         raw = RULE_SOURCE_PATH.read_text(encoding="utf-8")
     lines = [line for line in raw.splitlines() if not line.startswith("# Description:")]
-    return "\n".join(lines).strip("\n") + "\n"
+    body = "\n".join(lines).strip("\n") + "\n"
+    return body.replace("{cmd:todo}", prog_name())
 
 def prog_name() -> str:
-    raw = Path(sys.argv[0]).name if sys.argv and sys.argv[0] else "todo_md"
+    raw = Path(sys.argv[0]).name if sys.argv and sys.argv[0] else "todo"
     for suf in (".py", ".cmd", ".bat", ".exe"):
         if raw.lower().endswith(suf) and len(raw) > len(suf):
             raw = raw[:-len(suf)]
             break
-    return raw or "todo_md"
+    return raw or "todo"
 
 
 HELP_MAX_WIDTH = 100
@@ -182,9 +184,11 @@ HELP_COMMANDS: tuple[tuple[str, str], ...] = (
      "Create starter TODO.md (with optional project idea from TEXT/stdin) and "
      "TODO_ARCHIVE.md"),
     ("{prog} update [--force]",
-     "Self-update {prog} from GitHub (vitalio/todo_md); makes a network call"),
+     "Self-update {prog} from GitHub (vitalio/todo-md); makes a network call"),
     ("{prog} check-update",
      "Check if a newer version is available on GitHub; makes a network call"),
+    ("{prog} uninstall",
+     "Remove the installed {prog} binary (also --uninstall)"),
     ("{prog} -V | --version", "Print version and exit 0"),
     ("{prog} -h | --help", "Print this usage and exit 0"),
 )

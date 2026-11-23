@@ -67,9 +67,9 @@ class TestParser(TodoMdTestCase):
         self.assertIn("N1 line 3", r_only_new.stdout)
         self.assertIn("N2 line 1", r_only_new.stdout)
         self.assertNotIn("N2 line 3", r_only_new.stdout)
-        self.assertIn("todo_md F2", r_only_new.stdout)
+        self.assertIn("todo F2", r_only_new.stdout)
         self.assertNotIn("H1 line 3", r_only_new.stdout)
-        self.assertIn("todo_md F3", r_only_new.stdout)
+        self.assertIn("todo F3", r_only_new.stdout)
 
         # Adding a WIP/NEXT/QUESTION task compacts all NEW/HOLD tasks including F1
         self._run(
@@ -80,7 +80,7 @@ class TestParser(TodoMdTestCase):
         self.assertIn("Q1 line 2", r_with_q.stdout)
         self.assertIn("N1 line 1", r_with_q.stdout)
         self.assertNotIn("N1 line 3", r_with_q.stdout)
-        self.assertIn("todo_md F1", r_with_q.stdout)
+        self.assertIn("todo F1", r_with_q.stdout)
 
         # When only HOLD tasks exist, the first HOLD task is expanded and later HOLD tasks stay compact
         self._run([str(SCRIPT), "init", "--force"], check=True)
@@ -96,7 +96,7 @@ class TestParser(TodoMdTestCase):
         self.assertIn("H1 line 3", r_only_hold.stdout)
         self.assertIn("H2 line 1", r_only_hold.stdout)
         self.assertNotIn("H2 line 3", r_only_hold.stdout)
-        self.assertIn("todo_md F2", r_only_hold.stdout)
+        self.assertIn("todo F2", r_only_hold.stdout)
 
     def test_single_task_headers_prefix_status_and_workdir(self):
         ws = self.tmp / "ws"

@@ -4,17 +4,6 @@
 - Allow cross-project `<project>:<ID>` dependencies in `validate_all()` only when the repository has a local `.todo_projects` or `.todo_projects.local` configuration.
 - Update `agents/todo_md.md`, `README.md`, and unit tests in `tests/test_deps.py` to cover the one-way dependency boundary enforcement in `todo_md check` (and post-mutation validation on `add` / `edit`), and rebuild `./todo_md` via `python3 build.py`.
 
-# 🎯 [NEXT] F42: Rename project to todo-md and CLI utility to todo
-
-- Depends on: F72, F75, F77, F78, F79
-- Rename project/repository references from `todo_md` to `todo-md` (`vitalio/todo-md`) and CLI entrypoint to `todo` per `todo_flow:D8` (`docs/adr/0004-ecosystem-rename-and-cutover.md`):
-  - Emit `Bundle-Name: vitalio/todo-md`, embedded rule `agents/todo.md` with `{cmd:todo}` substitution (`id: "vitalio/todo-md:todo"`, `chain: ["vitalio/todo-md"]`), and repo marker `# todo-md-repo: vitalio/todo-md`.
-  - Preserve `TODO.md` / `TODO_ARCHIVE.md` / `.todo_projects` conventions and `TODO_MD_*` environment variables.
-  - Replace any existing `todo_md` binary in `$INSTALL_DIR` during `install.sh` / `update`, add `--uninstall` (`todo uninstall` / `todo --uninstall` and `install.sh --uninstall`), rename the GitHub repository `vitalio/todo_md` -> `vitalio/todo-md` and update local `git remote` URL, and run `python3 build.py && ./install.sh --yes` to migrate the local machine.
-- Acceptance criteria: GitHub repo is `vitalio/todo-md`, `build.py` outputs `todo`, `install.sh` installs `todo` and removes legacy `todo_md`, `--uninstall` removes the installed binary, and `python3 -m unittest discover -s tests` passes.
-
-- Trim `agents/todo.md` (and update the string assertions in `tests/test_cli.py` and `tests/test_bundle.py`) so the embedded rule states only the minimal machine-facing `todo` CLI and dependency contract without dumping every `--help` display flag (`--numbered`, `--include-hold`), `Bundle-Name` transport header details, or legacy `agents_bundle | run_block` examples.
-
 # 🎯 [NEXT] D3: Design explicit HOLD task review workflow and reverse dependency visibility
 
 - Specify how `HOLD` tasks expose downstream blocked dependents (`Blocks: ...` in `show` / `list HOLD`, including cross-project references under `-w`) so reviewers see what unblocks when a `HOLD` condition is met.
@@ -49,6 +38,10 @@
 # ⚪ [NEW] F80: Support <alias>=<path> project mapping in .todo_projects and .todo_projects.local
 
 - Allow entries in `.todo_projects` and `.todo_projects.local` to map a canonical project identifier to a local relative or external directory path (`<project_id>=<path>`), so `Depends on: <project_id>:<ID>` in an orchestrator's `TODO.md` resolves cleanly even when a local checkout directory has a different name or location.
+
+# ⚪ [NEW] F81: Update stale todo_md CLI and path references in open TODO.md backlog tasks
+
+Several open tasks in TODO.md (such as F73) still reference the legacy 'todo_md' binary name, 'agents/todo_md.md', and './todo_md' instead of 'todo' and 'agents/todo.md'.
 
 # ⏸️ [HOLD] P1: JSON output mode (`--json`) — *Defer machine-readable JSON output until an external client or dashboard is needed*
 

@@ -1,3 +1,14 @@
+# ✅ [DONE] F42: Rename project to todo-md and CLI utility to todo — *2026-11-23*
+
+- Depends on: F72, F75, F77, F78, F79
+- Rename project/repository references from `todo_md` to `todo-md` (`vitalio/todo-md`) and CLI entrypoint to `todo` per `todo_flow:D8` (`docs/adr/0004-ecosystem-rename-and-cutover.md`):
+  - Emit `Bundle-Name: vitalio/todo-md`, embedded rule `agents/todo.md` with `{cmd:todo}` substitution (`id: "vitalio/todo-md:todo"`, `chain: ["vitalio/todo-md"]`), and repo marker `# todo-md-repo: vitalio/todo-md`.
+  - Preserve `TODO.md` / `TODO_ARCHIVE.md` / `.todo_projects` conventions and `TODO_MD_*` environment variables.
+  - Replace any existing `todo_md` binary in `$INSTALL_DIR` during `install.sh` / `update`, add `--uninstall` (`todo uninstall` / `todo --uninstall` and `install.sh --uninstall`), rename the GitHub repository `vitalio/todo_md` -> `vitalio/todo-md` and update local `git remote` URL, and run `python3 build.py && ./install.sh --yes` to migrate the local machine.
+- Acceptance criteria: GitHub repo is `vitalio/todo-md`, `build.py` outputs `todo`, `install.sh` installs `todo` and removes legacy `todo_md`, `--uninstall` removes the installed binary, and `python3 -m unittest discover -s tests` passes.
+
+- Trim `agents/todo.md` (and update the string assertions in `tests/test_cli.py` and `tests/test_bundle.py`) so the embedded rule states only the minimal machine-facing `todo` CLI and dependency contract without dumping every `--help` display flag (`--numbered`, `--include-hold`), `Bundle-Name` transport header details, or legacy `agents_bundle | run_block` examples.
+
 # ✅ [DONE] B8: Align -C <dir> with git -C, add global -p/--project <project>, and collapse repeated DONE subtrees in chain --all --tree — *2026-11-23*
 
 - Separate directory and project targeting in `src/cli.py`: make `-C <dir>` resolve filesystem directory paths relative to current `PWD` (matching `git -C <dir>`), and support `-p <project>` / `--project <project>` as the global project-name/alias selector from `.todo_projects` before subcommands (while preserving `-p <P>` for `--prefix` inside `todo_md add`).

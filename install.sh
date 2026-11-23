@@ -1,18 +1,20 @@
 #!/usr/bin/env sh
-# Usage: install.sh [-h|--help] [--name CMD] [--dir DIR] [--yes]
+# Usage: install.sh [-h|--help] [--name CMD] [--dir DIR] [--yes] [--uninstall]
 #
-# Installs or updates todo_md (https://github.com/vitalio/todo_md).
+# Installs, updates, or uninstalls todo (https://github.com/vitalio/todo-md).
 # Checks for command name conflicts in PATH, offers an alternative name if
-# 'todo_md' is already taken by another program, installs into ~/.local/bin
-# (or --dir).
+# 'todo' is already taken by another program, installs into ~/.local/bin
+# (or --dir), and removes any legacy 'todo_md' binary from the install directory.
 # -h / --help prints this usage and exits 0 doing nothing.
 set -eu
 
-REPO_MARKER="todo_md-repo: vitalio/todo_md"
-RAW_URL="${TODO_MD_UPDATE_URL:-https://raw.githubusercontent.com/vitalio/todo_md/main/todo_md}"
+REPO_MARKER="todo-md-repo: vitalio/todo-md"
+LEGACY_REPO_MARKER="todo_md-repo: vitalio/todo_md"
+RAW_URL="${TODO_MD_UPDATE_URL:-https://raw.githubusercontent.com/vitalio/todo-md/main/todo}"
 CMD_NAME="${TODO_MD_NAME:-}"
 INSTALL_DIR="${TODO_MD_INSTALL_DIR:-}"
 ASSUME_YES=0
+UNINSTALL=0
 
 usage() {
     sed -n '2,8s/^# \?//p' "$0"
@@ -44,6 +46,10 @@ while [ "$#" -gt 0 ]; do
             ASSUME_YES=1
             shift
             ;;
+        --uninstall)
+            UNINSTALL=1
+            shift
+            ;;
         *)
             echo "install.sh: unknown option: $1" >&2
             usage >&2
@@ -51,6 +57,42 @@ while [ "$#" -gt 0 ]; do
             ;;
     esac
 done
+
+is_our_binary() {
+    [ -f "$1" ] && {
+        grep -q "$REPO_MARKER" "$1" 2>/dev/null || grep -q "$LEGACY_REPO_MARKER" "$1" 2>/dev/null
+    }
+}
+
+if [ "$UNINSTALL" -eq 1 ]; then
+    if [ -z "$CMD_NAME" ]; then
+        CMD_NAME="todo"
+    fi
+    if [ -z "$INSTALL_DIR" ]; then
+        EXISTING_OUR="$(command -v "$CMD_NAME" 2>/dev/null || true)"
+        EXISTING_LEGACY="$(command -v todo_md 2>/dev/null || true)"
+        if [ -n "$EXISTING_OUR" ] && is_our_binary "$EXISTING_OUR"; then
+            INSTALL_DIR="$(dirname "$EXISTING_OUR")"
+        elif [ -n "$EXISTING_LEGACY" ] && is_our_binary "$EXISTING_LEGACY"; then
+            INSTALL_DIR="$(dirname "$EXISTING_LEGACY")"
+        else
+            INSTALL_DIR="$HOME/.local/bin"
+        fi
+    fi
+    for bin_name in "$CMD_NAME" todo todo_md; do
+        CANDIDATE="$INSTALL_DIR/$bin_name"
+        if [ -f "$CANDIDATE" ]; then
+            if is_our_binary "$CANDIDATE"; then
+                rm -f "$CANDIDATE"
+            elif [ "$bin_name" = "$CMD_NAME" ]; then
+                echo "Error: $CANDIDATE is not a vitalio/todo-md script." >&2
+                exit 1
+            fi
+        fi
+    done
+    echo "Uninstalled $CMD_NAME from $INSTALL_DIR"
+    exit 0
+fi
 
 if ! command -v python3 >/dev/null 2>&1; then
     echo "Error: python3 is required but was not found in PATH." >&2
@@ -61,16 +103,12 @@ if ! command -v bash >/dev/null 2>&1; then
     exit 1
 fi
 
-is_our_binary() {
-    [ -f "$1" ] && grep -q "$REPO_MARKER" "$1" 2>/dev/null
-}
-
 if [ -z "$CMD_NAME" ]; then
-    CMD_NAME="todo_md"
+    CMD_NAME="todo"
     EXISTING="$(command -v "$CMD_NAME" 2>/dev/null || true)"
     if [ -n "$EXISTING" ] && ! is_our_binary "$EXISTING"; then
         echo "Notice: '$CMD_NAME' already exists at $EXISTING (another program)." >&2
-        ALT_NAME="todo_md_cli"
+        ALT_NAME="todo_cli"
         if [ "$ASSUME_YES" -eq 0 ] && [ -r /dev/tty ] && [ -w /dev/tty ]; then
             printf "Enter an alternative command name [%s]: " "$ALT_NAME" >/dev/tty
             IFS= read -r USER_NAME </dev/tty || USER_NAME=""
@@ -88,8 +126,11 @@ fi
 
 if [ -z "$INSTALL_DIR" ]; then
     EXISTING_OUR="$(command -v "$CMD_NAME" 2>/dev/null || true)"
+    EXISTING_LEGACY="$(command -v todo_md 2>/dev/null || true)"
     if [ -n "$EXISTING_OUR" ] && is_our_binary "$EXISTING_OUR"; then
         INSTALL_DIR="$(dirname "$EXISTING_OUR")"
+    elif [ -n "$EXISTING_LEGACY" ] && is_our_binary "$EXISTING_LEGACY"; then
+        INSTALL_DIR="$(dirname "$EXISTING_LEGACY")"
     else
         INSTALL_DIR="$HOME/.local/bin"
     fi
@@ -105,8 +146,8 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")" 2>/dev/null && pwd || pwd)"
-if [ -z "${TODO_MD_UPDATE_URL:-}" ] && [ -f "$SCRIPT_DIR/todo_md" ] && is_our_binary "$SCRIPT_DIR/todo_md"; then
-    cp "$SCRIPT_DIR/todo_md" "$TMP_FILE"
+if [ -z "${TODO_MD_UPDATE_URL:-}" ] && [ -f "$SCRIPT_DIR/todo" ] && is_our_binary "$SCRIPT_DIR/todo"; then
+    cp "$SCRIPT_DIR/todo" "$TMP_FILE"
 else
     if command -v curl >/dev/null 2>&1; then
         curl -fsSL "$RAW_URL" -o "$TMP_FILE"
@@ -118,12 +159,21 @@ else
 fi
 
 if ! is_our_binary "$TMP_FILE"; then
-    echo "Error: downloaded file is not a valid vitalio/todo_md script." >&2
+    echo "Error: downloaded file is not a valid vitalio/todo-md script." >&2
     exit 1
 fi
 
 chmod 0755 "$TMP_FILE"
 mv "$TMP_FILE" "$TARGET"
+
+# Remove legacy todo_md binary if present
+if [ "$CMD_NAME" != "todo_md" ] && [ -f "$INSTALL_DIR/todo_md" ] && is_our_binary "$INSTALL_DIR/todo_md"; then
+    rm -f "$INSTALL_DIR/todo_md"
+fi
+EXISTING_LEGACY_PATH="$(command -v todo_md 2>/dev/null || true)"
+if [ -n "$EXISTING_LEGACY_PATH" ] && [ "$EXISTING_LEGACY_PATH" != "$TARGET" ] && is_our_binary "$EXISTING_LEGACY_PATH"; then
+    rm -f "$EXISTING_LEGACY_PATH"
+fi
 
 VER="$("$TARGET" --version 2>/dev/null || echo "$CMD_NAME")"
 echo "============================================================"

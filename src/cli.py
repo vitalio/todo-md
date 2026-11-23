@@ -7,15 +7,36 @@ def version_tuple(v: str) -> tuple[int, ...]:
     return tuple(int(p) for p in re.split(r"[^0-9]+", v) if p)
 
 
+def _is_our_binary(path: Path) -> bool:
+    if not path.is_file():
+        return False
+    try:
+        head = path.read_text(encoding="utf-8", errors="ignore")[:2048]
+    except OSError:
+        return False
+    return REPO_MARKER in head or LEGACY_REPO_MARKER in head
+
+
+def _remove_legacy_binary(install_dir: Path, keep_path: Path | None = None) -> None:
+    legacy = install_dir / "todo_md"
+    if keep_path is not None and legacy.resolve() == keep_path.resolve():
+        return
+    if _is_our_binary(legacy):
+        try:
+            legacy.unlink()
+        except OSError:
+            pass
+
+
 def fetch_remote_script(url: str | None = None) -> str:
     import urllib.request
 
     target_url = url or os.environ.get("TODO_MD_UPDATE_URL") or DEFAULT_UPDATE_URL
-    req = urllib.request.Request(target_url, headers={"User-Agent": f"todo_md/{VERSION}"})
+    req = urllib.request.Request(target_url, headers={"User-Agent": f"todo-md/{VERSION}"})
     with urllib.request.urlopen(req, timeout=15) as resp:
         data = resp.read().decode("utf-8")
-    if REPO_MARKER not in data:
-        raise ValueError(f"remote file at {target_url} is not a valid vitalio/todo_md script")
+    if REPO_MARKER not in data and LEGACY_REPO_MARKER not in data:
+        raise ValueError(f"remote file at {target_url} is not a valid vitalio/todo-md script")
     return data
 
 
@@ -36,14 +57,22 @@ def cmd_check_update(url: str | None = None) -> int:
 
 def cmd_update(force: bool = False, url: str | None = None, target_path: Path | None = None) -> int:
     prog = prog_name()
-    dest = target_path or Path(__file__).resolve()
+    if target_path is not None:
+        self_file = target_path
+        dest = target_path
+    else:
+        self_file = Path(sys.argv[0]).resolve() if sys.argv and sys.argv[0] else Path(__file__).resolve()
+        if not self_file.is_file():
+            self_file = Path(__file__).resolve()
+        dest = (self_file.parent / "todo") if self_file.name == "todo_md" else self_file
     try:
         remote_src = fetch_remote_script(url)
     except Exception as exc:
         sys.stderr.write(f"{prog}: update failed: {exc}\n")
         return 1
     remote_ver = parse_version_from_source(remote_src) or "unknown"
-    if not force and version_tuple(remote_ver) <= version_tuple(VERSION):
+    if not force and dest == self_file and version_tuple(remote_ver) <= version_tuple(VERSION):
+        _remove_legacy_binary(dest.parent, keep_path=dest)
         sys.stdout.write(f"{prog} {VERSION} is already up to date.\n")
         return 0
     try:
@@ -60,7 +89,62 @@ def cmd_update(force: bool = False, url: str | None = None, target_path: Path | 
     except Exception as exc:
         sys.stderr.write(f"{prog}: could not write updated binary to {dest}: {exc}\n")
         return 1
+    _remove_legacy_binary(dest.parent, keep_path=dest)
     sys.stdout.write(f"{prog}: updated {VERSION} -> {remote_ver} ({dest})\n")
+    return 0
+
+
+def cmd_uninstall(target_dir: Path | None = None) -> int:
+    prog = prog_name()
+    removed_bins: list[str] = []
+    candidate_dirs: list[Path] = []
+    env_dir = os.environ.get("TODO_MD_INSTALL_DIR")
+    if target_dir is not None:
+        candidate_dirs.append(target_dir)
+    elif env_dir:
+        candidate_dirs.append(Path(env_dir).expanduser())
+    self_path = Path(sys.argv[0]).resolve() if sys.argv and sys.argv[0] else Path(__file__).resolve()
+    is_repo_checkout = (self_path.parent / "build.py").is_file() and (self_path.parent / "src").is_dir()
+    if not is_repo_checkout and self_path.parent.is_dir():
+        if self_path.parent not in candidate_dirs:
+            candidate_dirs.append(self_path.parent)
+    elif not candidate_dirs:
+        candidate_dirs.append(Path.home() / ".local" / "bin")
+
+    cmd_name = os.environ.get("TODO_MD_NAME") or "todo"
+    names: list[str] = []
+    for n in (cmd_name, self_path.name if not is_repo_checkout else "", "todo", "todo_md"):
+        if n and n not in names:
+            names.append(n)
+
+    seen_targets: set[Path] = set()
+    for d in candidate_dirs:
+        for n in names:
+            target = d / n
+            try:
+                resolved = target.resolve()
+            except OSError:
+                continue
+            if resolved in seen_targets:
+                continue
+            seen_targets.add(resolved)
+            if (resolved.parent / "build.py").is_file() and (resolved.parent / "src").is_dir():
+                continue
+            if target.is_file():
+                if not _is_our_binary(target):
+                    if n == cmd_name and (env_dir or target_dir is not None):
+                        sys.stderr.write(f"{prog}: {target} is not a vitalio/todo-md script\n")
+                        return 1
+                    continue
+                try:
+                    target.unlink()
+                    removed_bins.append(str(target))
+                except OSError as exc:
+                    sys.stderr.write(f"{prog}: could not remove {target}: {exc}\n")
+                    return 1
+
+    details = ", ".join(removed_bins) or "nothing to remove"
+    sys.stdout.write(f"{prog}: uninstalled ({details})\n")
     return 0
 
 
@@ -90,6 +174,7 @@ KNOWN_SUBCOMMANDS = (
     "show",
     "update",
     "check-update",
+    "uninstall",
     "help",
     "version",
     "overview",
@@ -298,7 +383,7 @@ def _quest_log(
     workspace: bool,
     full: bool,
     argv: list[str],
-    cmd: str = "todo_md",
+    cmd: str = "todo",
     positional_focus: bool = False,
 ) -> int:
     o = _parse_quest_log_args(prog, argv, cmd, positional_focus)
@@ -458,6 +543,8 @@ def main(argv: list[str] | None = None) -> int:
     if args and args[0] in ("update", "--update", "--self-update"):
         force = "--force" in args[1:]
         return cmd_update(force=force)
+    if args and args[0] in ("uninstall", "--uninstall"):
+        return cmd_uninstall()
 
     full = False
     commit = False

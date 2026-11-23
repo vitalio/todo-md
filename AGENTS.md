@@ -1,11 +1,11 @@
-# `todo_md` — Project-Specific Agent Rules
+# `todo-md` (`todo`) — Project-Specific Agent Rules
 
 Universal workflow, language, Git, SemVer, Python CLI, and single-file build
 rules are loaded via `.context.bundle`.
 
 ## Product Philosophy & Quest-Log UX
 
-- Quest-log mental model: build `todo_md` around the clarity and progression
+- Quest-log mental model: build `todo` (`todo-md`) around the clarity and progression
   feel of an RPG quest journal rather than a flat checklist. Every CLI view
   (`overview`, `list`, `show`, `queue`, `chain`, `done`) should immediately
   answer what is actionable now, what is locked, why it is locked, and what
@@ -18,17 +18,17 @@ rules are loaded via `.context.bundle`.
 - Progressive disclosure: keep default views compact and scannable while
   letting users drill into full quest details, dependency chains (`chain`),
   and execution paths (`queue`, `--full`) on demand.
-- Default view is the Quest-Log: `todo_md` (also `todo_md -w` and `todo_md <project>`)
+- Default view is the Quest-Log: `todo` (also `todo -w` and `todo <project>`)
   renders `cmd_chain()` as flat topological chains in execution order without row
   numbers; `--tree` / `-t` adds nested `Sub-chain ->` milestone trees with 4-char
   connectors (`├── `, `└── `, `└─► `, `│   `) and `--numbered[=left|right]` adds
   period-free row numbers padded to the widest number. The Markdown overview lives
-  in `todo_md overview` (and bare `todo_md --full`).
+  in `todo overview` (and bare `todo --full`).
 - Drill-down without leaving the Quest-Log: `--filter` / `-f <ID>...` (and positional
   `<ID>...` under `chain` / `queue`) filters by task IDs (bare `<ID>` matches across
   all projects in the active view, while `<project>:<ID>` matches only that project),
   scopes to matching chains/tasks, highlights them, and prints `Next actionable: <ref>`
-  for a single ID; `--search` / `-s <QUERY>` (or `todo_md search`) searches task IDs
+  for a single ID; `--search` / `-s <QUERY>` (or `todo search`) searches task IDs
   (`<ID>` and `<project>:<ID>`), titles, and bodies across all projects in the active
   view (including `.todo_projects` child projects) and focuses on matches (or prints
   full sections with `--full`); `--highlight` / `-H` is a boolean toggle that disables
@@ -37,11 +37,11 @@ rules are loaded via `.context.bundle`.
   (`TODO.md`) and archived (`TODO_ARCHIVE.md`) tasks across Quest-Log, `-s`, and `-f`;
   and status keywords (`WIP`, `NEXT`, `QUESTION`, `NEW`, `HOLD`, `ACTIVE`, `ALL`;
   `DONE`, `CANCELED`, `archive` render the list view) filter rows. Multiple IDs
-  (`todo_md F1 F2`, `show F1,F2`) print full task sections in order.
+  (`todo F1 F2`, `show F1,F2`) print full task sections in order.
 - Keep `_parse_quest_log_args()` and `_quest_log()` in `src/cli.py` as the single
   parser for the default view, `chain`, `queue`, and `search`; do not re-implement
   flag parsing per entry point.
-- Unlock feedback loop: closing a quest (`todo_md done <ID>`) should report
+- Unlock feedback loop: closing a quest (`todo done <ID>`) should report
   newly unlocked downstream quests (`Unblocked: ...`) so the next playable
   step is obvious without manually re-scanning the backlog.
 
@@ -57,7 +57,7 @@ rules are loaded via `.context.bundle`.
   the cached wrappers and never mutate task files inside an active session.
 - `src/parser.py` — pure `TODO.md` / `TODO_ARCHIVE.md` parsing: task sections,
   dependency clause syntax, prefix matching, ID tracking, search, and the
-  structural validator `validate_all()` (`todo_md check`); no terminal output.
+  structural validator `validate_all()` (`todo check`); no terminal output.
 - `src/dag.py` — unified dependency DAG (`build_dependency_dag()`,
   `build_execution_chain_dag()`), blocked-state info, and unblock detection.
 - `src/chains.py` — execution chain planning and ranking
@@ -71,16 +71,16 @@ rules are loaded via `.context.bundle`.
 - `src/commands.py` — backlog sorting, Git auto-commit helpers, and the
   mutating/validation subcommands (`init`, `add`, `edit`, `append`, `rename`,
   `status`, `next`, `reopen`, `done`, `cancel`, `archive`, `check`). Keep
-  `agents/todo_md.md`, `-h`/`--help`, and `README.md` in sync in the same
+  `agents/todo.md`, `-h`/`--help`, and `README.md` in sync in the same
   commit whenever commands or flags change.
-- `agents/todo_md.md` — agent rule embedded into the compiled `todo_md` by
-  `build.py` (`EMBEDDED_RULE_TODO_MD`, `get_embedded_todo_rule()`) and emitted
-  as `todo_md:todo_md` in bundle mode; it is pure Markdown and holds the
-  `todo_md` CLI and data-format contract without hardcoded role workflow
+- `agents/todo.md` — agent rule embedded into the compiled `todo` by
+  `build.py` (`EMBEDDED_RULE_TODO`, `get_embedded_todo_rule()`) and emitted
+  as `vitalio/todo-md:todo` in bundle mode; it is pure Markdown and holds the
+  `todo` CLI and data-format contract (`{cmd:todo}`) without hardcoded role workflow
   instructions.
 - `src/bundle.py` — `context-bundle-protocol` v1 producer (`BundleOptions`,
   `bundle_mode_enabled()`, `emit_task_bundle()`, `emit_context_bundle()`):
-  FIFO auto-detection, `Bundle-Name: todo_md`, native task preamble headers
+  FIFO auto-detection, `Bundle-Name: vitalio/todo-md`, native task preamble headers
   (`Task`, `Prefix`, `Status`, `Title`, `Workdir`, plus `Role` only on
   explicit `role=<role>` CLI override), and canonical `rule` and `prompt`
   fragments without streaming `include` file contents; it never mutates
@@ -94,14 +94,14 @@ rules are loaded via `.context.bundle`.
 
 ## Task Prefixes & Role Decoupling
 
-- `todo_md` is decoupled from `agents-rules` role names and file preloading: do
+- `todo-md` is decoupled from `agents-rules` role names and file preloading: do
   not reintroduce hardcoded role tables, `resolve_task_role()`, `--role`,
   `--by-role`, or in-body `- Role:` / `- Target files:` lines; filter views
   natively with `--prefix` and `--status`.
 - Prefix metadata (`PREFIX_INFO`, `DEFAULT_TASK_PREFIX`) lives in
-  `src/header.py`; `todo_md ids` renders the legend from it via
+  `src/header.py`; `todo ids` renders the legend from it via
   `prefix_legend_lines()`, so keep `--help`, `README.md`, and
-  `agents/todo_md.md` aligned with that table.
+  `agents/todo.md` aligned with that table.
 
 ## Dependency Graph & Sequencing Contract
 
@@ -119,7 +119,7 @@ rules are loaded via `.context.bundle`.
   in `.todo_projects` orchestrator tasks, so `queue`, `next-id`, `list`, and
   `show` agree with `chain`; `--ready` ranks tasks by their best parent chain
   index before local chain counts.
-- Validation & execution: `todo_md check` detects syntax errors, missing refs,
+- Validation & execution: `todo check` detects syntax errors, missing refs,
   and transitive cycles; `DONE` unblocks while `CANCELED` or `MISSING` blocks;
-  `todo_md queue <ID>` shows the ordered queue and `todo_md next-id <ID>`
+  `todo queue <ID>` shows the ordered queue and `todo next-id <ID>`
   prints the first unblocked task ID for pipe composition.

@@ -36,7 +36,7 @@ class TestBundle(TodoMdTestCase):
         r = self._run([str(SCRIPT), "--bundle", "F1"], check=True)
         headers, parts = self._parse(r.stdout)
         self.assertTrue(r.stdout.startswith("Bundle-Protocol: 1\n"), msg=r.stdout)
-        self.assertEqual(headers["Bundle-Name"], "todo_md")
+        self.assertEqual(headers["Bundle-Name"], "vitalio/todo-md")
         self.assertIn("===== Rules =====", r.stdout)
         self.assertTrue(headers["Bundle-Command"].endswith("--bundle F1"))
         self.assertRegex(headers["Bundle-Boundary"], r"^[0-9a-f]{32}$")
@@ -50,13 +50,13 @@ class TestBundle(TodoMdTestCase):
         self.assertEqual(headers["Workdir"], str(self.tmp.resolve()))
         self.assertEqual([m["kind"] for m, _ in parts], ["rule", "prompt"])
         rule_meta, rule_body = parts[0]
-        self.assertEqual(rule_meta, {"kind": "rule", "id": "todo_md:todo_md", "chain": ["todo_md"]})
+        self.assertEqual(rule_meta, {"kind": "rule", "id": "vitalio/todo-md:todo", "chain": ["vitalio/todo-md"]})
         self.assertNotIn("# Description:", rule_body)
         self.assertNotIn("[if ", rule_body)
         self.assertIn("`L` is a", rule_body)
         task_meta, task_body = parts[1]
         self.assertEqual(
-            task_meta, {"kind": "prompt", "id": "F1", "name": "TODO.md:F1", "chain": ["todo_md"]}
+            task_meta, {"kind": "prompt", "id": "F1", "name": "TODO.md:F1", "chain": ["vitalio/todo-md"]}
         )
         self.assertTrue(task_body.startswith("===== Prompt ====="))
         self.assertIn("# 🎯 [NEXT] F1:", task_body)
@@ -110,7 +110,7 @@ class TestBundle(TodoMdTestCase):
             with self.subTest(args=args):
                 r = self._run([str(SCRIPT), *args], check=True)
                 headers, parts = self._parse(r.stdout)
-                self.assertEqual(headers["Bundle-Name"], "todo_md")
+                self.assertEqual(headers["Bundle-Name"], "vitalio/todo-md")
                 self.assertNotIn("Task", headers)
                 self.assertNotIn("Role", headers)
                 self.assertEqual(headers["Workdir"], str(self.tmp.resolve()))
@@ -118,7 +118,7 @@ class TestBundle(TodoMdTestCase):
                 self.assertNotIn("# Description:", parts[0][1])
                 self.assertIn("Task ID prefixes", parts[0][1])
                 self.assertEqual(
-                    parts[1][0], {"kind": "prompt", "name": "todo_md", "chain": ["todo_md"]}
+                    parts[1][0], {"kind": "prompt", "name": "todo", "chain": ["vitalio/todo-md"]}
                 )
                 self.assertIn("F1", parts[1][1])
 
@@ -194,8 +194,10 @@ class TestBundle(TodoMdTestCase):
         full = mod.get_embedded_todo_rule()
         self.assertIn("Task ID prefixes", full)
         self.assertFalse(hasattr(mod, "EMBEDDED_RULE_TODO_MD_WORK"))
-        self.assertFalse((ROOT / "agents" / "todo_md_work.md").exists())
-        text = (ROOT / "agents" / "todo_md.md").read_text(encoding="utf-8")
+        self.assertFalse((ROOT / "agents" / "todo_md.md").exists())
+        self.assertNotIn("{cmd:todo}", full)
+        text = (ROOT / "agents" / "todo.md").read_text(encoding="utf-8")
+        self.assertIn("{cmd:todo}", text)
         self.assertNotIn("[if ", text)
         self.assertNotIn("[endif]", text)
 

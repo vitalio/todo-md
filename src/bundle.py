@@ -1,8 +1,8 @@
 BUNDLE_PROTOCOL_VERSION = "1"
-BUNDLE_NAME = "todo_md"
+BUNDLE_NAME = "vitalio/todo-md"
 BUNDLE_FLAGS = ("--bundle", "--plain")
-BUNDLE_CHAIN = ["todo_md"]
-BUNDLE_RULE_ID = "todo_md:todo_md"
+BUNDLE_CHAIN = ["vitalio/todo-md"]
+BUNDLE_RULE_ID = "vitalio/todo-md:todo"
 CONTEXT_HEADER_RE = re.compile(r"^[A-Za-z][A-Za-z-]*: ")
 TASK_SOURCE_RE = re.compile(r"^# (TODO(?:_ARCHIVE)?\.md):\d+", re.MULTILINE)
 
@@ -77,7 +77,7 @@ def emit_context_bundle(opts: BundleOptions, base_dir: Path, render) -> int:
     if rc != 0 or not out.strip():
         sys.stdout.write(out)
         return rc
-    meta = {"kind": "prompt", "name": "todo_md", "chain": BUNDLE_CHAIN}
+    meta = {"kind": "prompt", "name": "todo", "chain": BUNDLE_CHAIN}
     _write_stream(opts, [f"Workdir: {base_dir.resolve()}"], meta, out)
     return 0
 

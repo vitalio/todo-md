@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Usage:
-  python3 build.py            Build standalone ./todo_md from src/ modules
-  python3 build.py --check    Verify that ./todo_md is up to date with src/ (exit 0 if clean, 1 if stale)
+  python3 build.py            Build standalone ./todo from src/ modules
+  python3 build.py --check    Verify that ./todo is up to date with src/ (exit 0 if clean, 1 if stale)
   python3 build.py -h|--help  Print this usage and exit 0
 """
 from __future__ import annotations
@@ -15,8 +15,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 SRC_DIR = ROOT / "src"
-OUT_FILE = ROOT / "todo_md"
-RULE_FILE = ROOT / "agents" / "todo_md.md"
+OUT_FILE = ROOT / "todo"
+RULE_FILE = ROOT / "agents" / "todo.md"
 
 MODULE_ORDER = [
     "header.py",
@@ -40,11 +40,11 @@ def assemble_source() -> str:
         txt = mod_path.read_text(encoding="utf-8").rstrip()
         if item == "header.py":
             txt = txt.replace('VERSION = "__VERSION__"', f'VERSION = "{ver}"')
-            placeholder = 'EMBEDDED_RULE_TODO_MD = "__EMBEDDED_RULE_TODO_MD__"'
+            placeholder = 'EMBEDDED_RULE_TODO = "__EMBEDDED_RULE_TODO__"'
             if txt.count(placeholder) != 1:
-                raise SystemExit("build.py: EMBEDDED_RULE_TODO_MD placeholder missing in src/header.py")
+                raise SystemExit("build.py: EMBEDDED_RULE_TODO placeholder missing in src/header.py")
             rule_text = RULE_FILE.read_text(encoding="utf-8")
-            txt = txt.replace(placeholder, f"EMBEDDED_RULE_TODO_MD = {rule_text!r}")
+            txt = txt.replace(placeholder, f"EMBEDDED_RULE_TODO = {rule_text!r}")
         chunks.append(txt)
     source = "\n\n\n".join(chunks) + "\n"
     ast.parse(source)
@@ -59,7 +59,7 @@ def main(argv: list[str] | None = None) -> int:
     expected = assemble_source()
     if "--check" in args:
         if not OUT_FILE.is_file() or OUT_FILE.read_text(encoding="utf-8") != expected:
-            sys.stderr.write("build.py: todo_md is out of sync with src/ (run 'python3 build.py')\n")
+            sys.stderr.write("build.py: todo is out of sync with src/ (run 'python3 build.py')\n")
             return 1
         return 0
     if args:

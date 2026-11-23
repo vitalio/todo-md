@@ -18,7 +18,7 @@ from pathlib import Path
 from types import ModuleType
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "todo_md"
+SCRIPT = ROOT / "todo"
 INSTALL_SH = ROOT / "install.sh"
 
 _CACHED_TODO_MD_MOD: ModuleType | None = None
