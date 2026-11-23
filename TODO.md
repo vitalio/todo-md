@@ -1,3 +1,10 @@
+# 🎯 [NEXT] B11: Skip spawning git subprocess in _sync_upstream when no .git directory exists in ancestor path
+
+- Add a fast pure-Python helper in src/commands.py that checks whether base_dir or any of its parent directories contains a .git entry (directory or file for worktrees/submodules) before spawning git subprocesses in _sync_upstream() and _git_commit_todo(), while still honoring GIT_DIR / GIT_WORK_TREE when set in os.environ.
+- Add unit tests in tests/test_commands.py verifying that mutating commands in non-Git directories do not spawn git subprocesses while Git repositories and GIT_DIR overrides continue to sync and commit normally.
+- Rebuild ./todo and run full verification.
+- Version bump: PATCH.
+
 # 🎯 [NEXT] D3: Design explicit HOLD task review workflow and reverse dependency visibility
 
 - Specify how `HOLD` tasks expose downstream blocked dependents (`Blocks: ...` in `show` / `list HOLD`, including cross-project references under `-w`) so reviewers see what unblocks when a `HOLD` condition is met.
@@ -29,10 +36,6 @@
 - Add a short Quest-Log and dependency (`--depends`, `todo -r`, `todo -t`, `todo -f`) scenario to `Quick Start`.
 - Replace the 3,160-character single-row `todo chain` table cell and leading `git pull --ff-only` edge-case paragraph in `CLI Reference` with a dedicated `Quest-Log Views` overview plus separate `Commands`, `Global & Quest-Log Options` (including `--no-commit`), and `Environment` (`TODO_MD_*`) tables matching `todo --help` and `agents/stack/cli/docs.md`.
 - Replace stale `todo <ID> | agents_bundle | run_block` pipeline example in the `todo show` row with `todo <ID> | context | run`, and format the `License` section link consistently with sibling repositories.
-
-# ⚪ [NEW] B11: Skip spawning git subprocess in _sync_upstream when no .git directory exists in ancestor path
-
-_sync_upstream() in src/commands.py unconditionally spawns 'git rev-parse --is-inside-work-tree' on every mutating command (init, add, edit, append, status, done, etc.), adding subprocess fork overhead on every call in non-Git directories and temporary test directories.
 
 # ⏸️ [HOLD] P1: JSON output mode (`--json`) — *Defer machine-readable JSON output until an external client or dashboard is needed*
 
