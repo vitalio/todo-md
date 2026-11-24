@@ -5,6 +5,14 @@
 - In `agents/todo.md`, keep the embedded rule focused strictly on the `todo` CLI contract and data format without duplicating `agents-rules` role names or role routing policy: state single-letter ID prefixes (`F`, `B`, `D`, `L`, custom `A-Z`) and statuses (`WIP`, `NEXT`, `QUESTION`, `NEW`, `HOLD`, `DONE`, `CANCELED`) factually, explicitly require capturing auto-assigned IDs via `id=$(todo add -q ...)` rather than guessing future IDs beforehand when wiring `--depends`, and keep the `,` vs `->` vs `;` dependency precedence specification canonical in `agents/todo.md`.
 - Rebuild `./todo` via `python3 build.py` and add regression tests in `tests/test_commands.py` for repeated `-b` flags on `add`/`edit`/`append` and `--depends` in `add` usage error output.
 
+# 🎯 [NEXT] D6: Design repo-exclusive parallel execution lanes and critical-path metrics in Quest-Log
+
+- Depends on: F59 -> F60 -> F61 -> B6 -> F72 -> F83 -> D5 -> F84
+- Depends on: B8
+- Model parallel task execution under the repo-exclusivity invariant (at most one active task per repository at a time):
+  - Compute parallel wavefront width (`threads: <K>`) across ready tasks by grouping ready tasks by repository and selecting the top-ranked actionable task per repository as a parallel execution lane (`Lane 1..K`).
+  - Compute parallel critical-path steps for chains and orchestrator waves as `max(dag_depth, max_repo_open_count)` and surface parallelism metrics on chain headers and `todo -r` (`--ready`) in `src/chains.py` and `src/render_chain.py`.
+
 # 🎯 [NEXT] D3: Design explicit HOLD task review workflow and reverse dependency visibility
 
 - Specify how `HOLD` tasks expose downstream blocked dependents (`Blocks: ...` in `show` / `list HOLD`, including cross-project references under `-w`) so reviewers see what unblocks when a `HOLD` condition is met.
@@ -21,14 +29,6 @@
 - Define interaction and precedence with `-C <dir|project>` (`F20`), `TODO_MD_CWD`, positional `.md` paths, and cross-project `<project>:<ID>` dependency lookups via `TODO_MD_WORKSPACE` when inspecting a shortlist in `/tmp` or another directory.
 - Shortlist/chain export workflow: evaluate supporting an exported or agent-generated shortlist Markdown file (e.g. a custom prioritized sequence or `chain` snapshot) that users can inspect, filter, and step through with `todo -F <path>` while resolving `<project>:<ID>` references against `TODO_MD_WORKSPACE`.
 - Target files for downstream implementation: `src/cli.py`, `src/workspace.py`, `src/parser.py`, `src/render.py`, `src/commands.py`, `src/header.py`, `agents/todo.md`, `README.md`, `tests/test_cli.py`, `tests/test_parser.py`, `tests/test_commands.py`.
-
-# ⚪ [NEW] D6: Design repo-exclusive parallel execution lanes and critical-path metrics in Quest-Log
-
-- Depends on: F59 -> F60 -> F61 -> B6 -> F72 -> F83 -> D5 -> F84
-- Depends on: B8
-- Model parallel task execution under the repo-exclusivity invariant (at most one active task per repository at a time):
-  - Compute parallel wavefront width (`threads: <K>`) across ready tasks by grouping ready tasks by repository and selecting the top-ranked actionable task per repository as a parallel execution lane (`Lane 1..K`).
-  - Compute parallel critical-path steps for chains and orchestrator waves as `max(dag_depth, max_repo_open_count)` and surface parallelism metrics on chain headers and `todo -r` (`--ready`) in `src/chains.py` and `src/render_chain.py`.
 
 # ⏸️ [HOLD] P1: JSON output mode (`--json`) — *Defer machine-readable JSON output until an external client or dashboard is needed*
 
