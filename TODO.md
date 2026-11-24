@@ -1,3 +1,10 @@
+# 🎯 [NEXT] B12: Keep agents/todo.md role-agnostic, join repeated -b/--body flags, and include [--depends SPEC] in add usage
+
+- Bump: `PATCH`
+- In `src/commands.py` (`cmd_add()`, `cmd_edit()`, `cmd_append()`), accumulate repeated `-b` / `--body` flags in order and join them with `\n` (instead of silently overwriting earlier `-b` values with the last one), and include `[--depends SPEC]` in the short `usage: todo add ...` error line so it matches `todo -h` and `agents/todo.md`.
+- In `agents/todo.md`, keep the embedded rule focused strictly on the `todo` CLI contract and data format without duplicating `agents-rules` role names or role routing policy: state single-letter ID prefixes (`F`, `B`, `D`, `L`, custom `A-Z`) and statuses (`WIP`, `NEXT`, `QUESTION`, `NEW`, `HOLD`, `DONE`, `CANCELED`) factually, explicitly require capturing auto-assigned IDs via `id=$(todo add -q ...)` rather than guessing future IDs beforehand when wiring `--depends`, and keep the `,` vs `->` vs `;` dependency precedence specification canonical in `agents/todo.md`.
+- Rebuild `./todo` via `python3 build.py` and add regression tests in `tests/test_commands.py` for repeated `-b` flags on `add`/`edit`/`append` and `--depends` in `add` usage error output.
+
 # 🎯 [NEXT] D3: Design explicit HOLD task review workflow and reverse dependency visibility
 
 - Specify how `HOLD` tasks expose downstream blocked dependents (`Blocks: ...` in `show` / `list HOLD`, including cross-project references under `-w`) so reviewers see what unblocks when a `HOLD` condition is met.
