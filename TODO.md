@@ -1,3 +1,10 @@
+# 🎯 [NEXT] F85: Require explicit -B / --bundle flag for Bundle-Protocol v1 emission and remove FIFO /proc and ps auto-detection
+
+- Bump: `MINOR`
+- In `src/bundle.py` and `src/cli.py`, accept `-B` as the short alias for `--bundle` and emit `context-bundle-protocol` v1 streams only when `-B` / `--bundle` (or `TODO_MD_BUNDLE=1`, unless overridden by `--plain` / `TODO_MD_PLAIN=1`) is explicitly set; emit standard human/plain output by default in all pipes (`todo | ...`) as well as on a TTY.
+- Remove all FIFO pipe consumer heuristics and process inspection code from `src/bundle.py`: `BUNDLE_CONSUMER_NAMES`, `STANDARD_FILTER_NAMES`, `SHELL_WRAPPER_NAMES`, `_normalize_cmd_token()`, `_argv_executable_name()`, `_pipeline_consumer_from_shell_c()`, `_classify_process_tokens()`, `_read_proc_tokens()`, `_read_proc_ppid_pgid()`, `_ancestor_pids()`, `_linux_fifo_is_standard_filter()`, `_ps_fifo_is_standard_filter()`, `_fifo_is_standard_filter()`, and the `RUN_BLOCK_STEP_STDOUT_INO` / `IN_RUN_BLOCK` environment checks.
+- Document `-B` / `--bundle` in `src/header.py` (`todo -h`), `agents/todo.md`, `README.md`, and `AGENTS.md`, rebuild `./todo` via `python3 build.py`, and update `tests/test_bundle.py` and `tests/test_cli.py`.
+
 # 🎯 [NEXT] D6: Design repo-exclusive parallel execution lanes and critical-path metrics in Quest-Log
 
 - Depends on: F59 -> F60 -> F61 -> B6 -> F72 -> F83 -> D5 -> F84
