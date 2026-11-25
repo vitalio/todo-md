@@ -1,3 +1,12 @@
+# 🎯 [NEXT] F86: Rank next-id via ready chain order across orchestrator/workspace and fix trailing-backslash inline code check
+
+- Bump: `PATCH`
+- In `cmd_next_id()` and `resolve_top_task_id()` (`src/render.py`, `src/cli.py`, `src/header.py`), rank ready tasks using `build_execution_chain_dag()` and `plan_execution_chains(..., ready_only=True)` (`src/dag.py`, `src/chains.py`) instead of scanning only the local `TODO.md` top-down, so `todo next-id` (and `todo --top`) always prints the #1 highest-priority ready task matching `todo -r -l 1`:
+  - Automatically span configured `.todo_projects` when run inside an orchestrator repository (or all workspace projects when `-w` / `--workspace` is passed), printing `<project>:<ID>` for child-repository tasks (e.g. `todo-md:F85`) and bare `<ID>` for local tasks so `todo -B "$(todo next-id)" | context | run` works out of the box.
+  - Honor `--prefix <P>`, `--status <S>`, and optional target `<ID>` / `<project>:<ID>` queue scoping consistently across standalone, orchestrator, and `-w` modes.
+- In `_mask_section_inline_code()` (`src/parser.py`), remove the `ch == "\\"` escape branch inside open inline code spans (`open_tick_len > 0`) so valid CommonMark code spans ending with a backslash (such as `` `\` `` or `` `\\` ``) close cleanly instead of raising a false `unpaired inline backtick` error in `todo check`.
+- Add unit tests in `tests/test_chain.py`, `tests/test_cli.py`, and `tests/test_parser.py`, update `README.md` and `agents/todo.md`, and rebuild `./todo` via `python3 build.py`.
+
 # 🎯 [NEXT] F85: Require explicit -B / --bundle flag for Bundle-Protocol v1 emission and remove FIFO /proc and ps auto-detection
 
 - Depends on: B13
