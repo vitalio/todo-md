@@ -28,9 +28,9 @@ Create, update, and close tasks (mutating commands automatically validate and st
 `TODO.md`; pass `-c` / `--commit` to also git-commit `TODO*.md`):
 
 ```bash
-todo add F "Implement feature X" --next -b "Goal and acceptance criteria."
+todo add F "Implement feature X" --next -b 'Goal and acceptance criteria (`src/app.py`).'
 todo status F1 WIP -m "started implementation"
-todo append F1 -b "- [x] Unit tests added"
+todo append F1 -b '- [x] Unit tests added'
 todo done F1 -m "a1b2c3d"
 ```
 
@@ -69,9 +69,9 @@ Running `todo` (or `todo <project>`, `todo -w`, `todo chain`) renders the Quest-
 | `todo last-id [<STATUS\|archive>]` | Print ID of the last task in a status or archive (default: `NEW`) |
 | `todo list [filter] [<ID>...] [opts]` | List tasks (`active`, `archive`, `all`, or `<STATUS>`) in dependency order with aligned status badges, `[blocked: ...]` chains, and target `<ID>...` highlighting (`--prefix P`, `--status S`, `-r`/`--ready`, `-s`/`--search Q`, `-H`/`--highlight`, `-l N`/`--limit N`, `--full`) |
 | `todo archive [<ID>...] [-m NOTE] [--canceled]` | Print `TODO_ARCHIVE.md`, or archive task(s) `<ID>...` to `TODO_ARCHIVE.md` (as `DONE`, or `CANCELED` with `--canceled`) |
-| `todo add [<PROJ>] [<PREFIX>] <TITLE> [opts]` | Add a task with an auto-assigned ID; body comes from `-b` (repeatable, joined with `\n`) or `stdin` (`-p PREFIX` default `F`, `-q`/`--quiet`/`--id-only`, `--next`, `--status STATUS`, `-m NOTE`, `-b BODY\|-`, `--depends SPEC`) |
-| `todo edit <ID>... [opts]` | Update status, title, note, body, or dependencies (`--next`, `--status STATUS`, `-t TITLE`, `-m NOTE`, `-b BODY\|-` repeatable, `--depends SPEC`; a new body keeps existing `- Depends on:` lines it omits, and `--depends ""` clears dependencies) |
-| `todo append <ID>... [-b TEXT\|-]` | Append text to the body of task(s) `<ID>...` (from repeatable `-b TEXT\|-` or `stdin`) |
+| `todo add [<PROJ>] [<PREFIX>] <TITLE> [opts]` | Add a task with an auto-assigned ID; body comes from `-b` (repeatable, joined with `\n`; use single quotes `-b '...'` or `-b - <<'EOF'` when body contains backticks or `$`) or `stdin` (`-p PREFIX` default `F`, `-q`/`--quiet`/`--id-only`, `--next`, `--status STATUS`, `-m NOTE`, `-b 'BODY'\|-`, `--depends SPEC`) |
+| `todo edit <ID>... [opts]` | Update status, title, note, body, or dependencies (`--next`, `--status STATUS`, `-t TITLE`, `-m NOTE`, `-b 'BODY'\|-` repeatable, `--depends SPEC`; a new body keeps existing `- Depends on:` lines it omits, and `--depends ""` clears dependencies) |
+| `todo append <ID>... [-b 'TEXT'\|-]` | Append text to the body of task(s) `<ID>...` (from repeatable `-b 'TEXT'\|-` or `stdin`) |
 | `todo rename <OLD> <NEW\|P> \| <OLD>=<NEW\|P>...` | Atomically rename task ID(s) across `TODO*.md` (explicit `<NEW_ID>`, allowing swaps/cycles, or single-letter prefix `A-Z` for next free ID) and rewrite `- Depends on:` references |
 | `todo status <ID>... <STATUS> [-m NOTE] [--reopen]` | Set task status (`WIP`, `NEXT`, `NEW`, `HOLD`, `QUESTION`, `DONE`, `CANCELED`; `--reopen` if archived) |
 | `todo next <ID>... [-m NOTE] [--reopen]` | Promote task(s) `<ID>...` to `🎯 [NEXT]` at the top of `TODO.md` (`--reopen` if archived) |

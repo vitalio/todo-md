@@ -256,6 +256,210 @@ def _task_matches_prefix(task: dict[str, object], wanted_prefix: str) -> bool:
     raw_id = str(task.get("id") or task.get("ref") or "")
     return bool(raw_id) and _task_prefix(raw_id) == wanted_prefix.strip().upper()
 
+SHELL_QUOTE_HINT = (
+    "quote Markdown args with single quotes (-b '...') or a quoted heredoc (-b - <<'EOF') "
+    "so the shell does not expand inline `...` or $VAR"
+)
+_BULLET_PREFIX_RE = re.compile(r"^(\s*(?:(?:[-*+]|\d+[.)])\s+(?:\[[ xX~]\]\s+)?)?)(.*)$")
+_EMPTY_PARENS_BRACKETS_RE = re.compile(r"(?:^|\s)(\(\)|\[\])(?=\s|$|[.,;:!?)\]])")
+_SPACE_BEFORE_PUNCT_RE = re.compile(r"\S\s+[.,;:](?=\s|$)")
+
+
+def _mask_section_inline_code(
+    non_fence_lines: list[tuple[int, int, str]]
+) -> tuple[dict[int, str], list[tuple[int, str]]]:
+    masked_by_offset: dict[int, list[str]] = {off: [] for off, _, _ in non_fence_lines}
+    errors: list[tuple[int, str]] = []
+    open_tick_len = 0
+    open_lineno = 1
+    open_offset = 0
+    span_chars = 0
+
+    for offset, lineno, text in non_fence_lines:
+        # Heading line (offset 0) cannot leave an unclosed inline span into body lines
+        out = masked_by_offset[offset]
+        i = 0
+        n = len(text)
+        is_new_item = bool(re.match(r"^\s*(?:[-*+]|\d+[.)]|#+)\s+", text))
+        if open_tick_len > 0 and (not text.strip() or is_new_item):
+            if open_tick_len == 2 and span_chars <= 1:
+                errors.append(
+                    (open_lineno, f"empty inline code span ({chr(96) * 2}) (possible swallowed shell expansion)")
+                )
+            else:
+                errors.append((open_lineno, "unpaired inline backtick (`) (possible swallowed shell expansion)"))
+            open_tick_len = 0
+            span_chars = 0
+        while i < n:
+            ch = text[i]
+            if open_tick_len == 0:
+                if ch == "\\" and i + 1 < n and text[i + 1] == "`":
+                    out.append("``")
+                    i += 2
+                    continue
+                if ch != "`":
+                    out.append(ch)
+                    i += 1
+                    continue
+                run_start = i
+                while i < n and text[i] == "`":
+                    i += 1
+                tick_len = i - run_start
+                if tick_len == 2 and (i >= n or not text[i].isalnum()):
+                    # Check if a matching `` closes on the remaining line
+                    rem = text[i:]
+                    if not re.search(r"(?<!`)``(?!`)", rem):
+                        errors.append(
+                            (
+                                lineno,
+                                f"empty inline code span ({chr(96) * 2}) (possible swallowed shell expansion)",
+                            )
+                        )
+                        continue
+                open_tick_len = tick_len
+                open_lineno = lineno
+                open_offset = offset
+                span_chars = 0
+                out.append("`CODE`")
+            else:
+                if ch == "\\" and i + 1 < n and text[i + 1] == "`" and open_tick_len == 1:
+                    span_chars += 2
+                    i += 2
+                    continue
+                if ch == "`":
+                    c_start = i
+                    while i < n and text[i] == "`":
+                        i += 1
+                    c_len = i - c_start
+                    if c_len == open_tick_len:
+                        if span_chars == 0 and offset == open_offset:
+                            errors.append(
+                                (
+                                    open_lineno,
+                                    f"empty inline code span ({chr(96) * 2}) (possible swallowed shell expansion)",
+                                )
+                            )
+                        open_tick_len = 0
+                        span_chars = 0
+                    else:
+                        span_chars += c_len
+                else:
+                    span_chars += 1
+                    i += 1
+        if open_tick_len > 0 and offset == 0:
+            if open_tick_len == 2 and span_chars == 0:
+                errors.append(
+                    (open_lineno, f"empty inline code span ({chr(96) * 2}) (possible swallowed shell expansion)")
+                )
+            else:
+                errors.append((open_lineno, "unpaired inline backtick (`) (possible swallowed shell expansion)"))
+            open_tick_len = 0
+            span_chars = 0
+        elif open_tick_len > 0:
+            span_chars += 1
+
+    if open_tick_len > 0:
+        if open_tick_len == 2 and span_chars <= 1:
+            errors.append(
+                (open_lineno, f"empty inline code span ({chr(96) * 2}) (possible swallowed shell expansion)")
+            )
+        else:
+            errors.append((open_lineno, "unpaired inline backtick (`) (possible swallowed shell expansion)"))
+
+    return {off: "".join(chars) for off, chars in masked_by_offset.items()}, errors
+
+
+def validate_task_section_markdown(
+    sec_lines: list[str],
+    tid: str,
+    fname: str = "TODO.md",
+    start_lineno: int = 1,
+) -> list[str]:
+    errors: list[str] = []
+    in_fence = False
+    fence_open_lineno = start_lineno
+    non_fence_lines: list[tuple[int, int, str]] = []
+
+    for offset, line in enumerate(sec_lines):
+        lineno = start_lineno + offset
+        stripped = line.lstrip()
+        if stripped.startswith(FENCE):
+            if not in_fence:
+                in_fence = True
+                fence_open_lineno = lineno
+            else:
+                in_fence = False
+            continue
+        if in_fence:
+            continue
+        if offset == 0 and line.startswith("# "):
+            m = HEADING_RE.match(line)
+            if m:
+                raw_title = m.group(4)
+                base_title, note_text = _strip_heading_note(raw_title)
+                check_text = base_title if note_text is None else f"{base_title} — {note_text}"
+            else:
+                check_text = line
+        else:
+            check_text = line
+        non_fence_lines.append((offset, lineno, check_text))
+
+    if in_fence:
+        errors.append(
+            f"{fname}:{fence_open_lineno}: task {tid} has an unclosed fenced code block ({FENCE}); "
+            f"{SHELL_QUOTE_HINT}"
+        )
+
+    masked_map, code_errors = _mask_section_inline_code(non_fence_lines)
+    err_lines: set[int] = set()
+    for err_lineno, code_err in code_errors:
+        errors.append(f"{fname}:{err_lineno}: task {tid} has {code_err}; {SHELL_QUOTE_HINT}")
+        err_lines.add(err_lineno)
+
+    for offset, lineno, orig_text in non_fence_lines:
+        if lineno in err_lines:
+            continue
+        loc = f"{fname}:{lineno}"
+        stripped = orig_text.lstrip()
+        if stripped.startswith("|"):
+            continue
+        masked = masked_map.get(offset, "")
+        pm = _EMPTY_PARENS_BRACKETS_RE.search(masked)
+        if pm:
+            tok = pm.group(1)
+            errors.append(
+                f"{loc}: task {tid} has empty '{tok}' outside inline code "
+                f"(possible swallowed shell expansion); {SHELL_QUOTE_HINT}"
+            )
+            continue
+
+        if offset == 0:
+            prose = masked
+        else:
+            bm = _BULLET_PREFIX_RE.match(masked)
+            prose = bm.group(2) if bm else masked
+
+        prose_core = prose.strip()
+        if not prose_core:
+            continue
+
+        if "  " in prose_core:
+            errors.append(
+                f"{loc}: task {tid} has consecutive spaces in prose outside inline code "
+                f"(possible swallowed shell expansion); {SHELL_QUOTE_HINT}"
+            )
+            continue
+
+        if _SPACE_BEFORE_PUNCT_RE.search(prose_core):
+            errors.append(
+                f"{loc}: task {tid} has space before punctuation outside inline code "
+                f"(possible swallowed shell expansion); {SHELL_QUOTE_HINT}"
+            )
+            continue
+
+    return errors
+
+
 @_discovery_scoped
 def validate_all(base_dir: Path) -> tuple[list[str], int]:
     errors: list[str] = []
@@ -328,6 +532,14 @@ def validate_all(base_dir: Path) -> tuple[list[str], int]:
                         f"{fname}:{lineno + offset}: task {tid} has an in-body 'Target files:' line "
                         "(remove it)"
                     )
+            errors.extend(
+                validate_task_section_markdown(
+                    sec.splitlines(),
+                    tid=tid,
+                    fname=fname,
+                    start_lineno=lineno,
+                )
+            )
 
     ws_root = _workspace_root_cached(base_dir)
     is_orchestrator = has_local_todo_projects_config(base_dir)

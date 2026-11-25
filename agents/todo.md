@@ -31,14 +31,16 @@
     do not run `{cmd:todo} chain --all --tree` across the entire backlog
     without a target `<ID>` or `-l N`.
   - Mutate & validate: `{cmd:todo} add [<PROJECT>] [<PREFIX>] "<title>" [-p <P>]
-    [-q|--quiet] [--next] [--status <S>] [-m "<note>"] [-b "<body_md>"|-]... [--depends <spec>]`
+    [-q|--quiet] [--next] [--status <S>] [-m "<note>"] [-b '<body_md>'|-]... [--depends <spec>]`
     auto-assigns and prints the new `<ID>` (`-q` / `--quiet` prints only `<ID>`;
     always capture auto-assigned IDs via `id=$({cmd:todo} add -q ...)` rather
     than guessing future IDs beforehand when wiring `--depends`),
     `{cmd:todo} edit <ID>... [--next] [--status <S>] [-t "<title>"]
-    [-m "<note>"] [-b "<body_md>"|-]... [--depends <spec>]`,
-    `{cmd:todo} append <ID>... [-b "<text>"|-]...` (repeated `-b` / `--body`
-    flags are joined with `\n`),
+    [-m "<note>"] [-b '<body_md>'|-]... [--depends <spec>]`,
+    `{cmd:todo} append <ID>... [-b '<text>'|-]...` (repeated `-b` / `--body`
+    flags are joined with `\n`; Markdown bodies containing backticks or `$`
+    must use single quotes `-b '...'` or a quoted heredoc `-b - <<'EOF'` so
+    `bash` does not execute inline code as command substitution),
     `{cmd:todo} rename <OLD> <NEW|PREFIX> | <OLD>=<NEW|PREFIX>...`,
     `{cmd:todo} next <ID>... [-m "<note>"]`,
     `{cmd:todo} status <ID>... <STATUS> [-m "<note>"]`,

@@ -768,5 +768,110 @@ class TestParser(TodoMdTestCase):
         self.assertNotEqual(r_bad_list.returncode, 0, msg=r_bad_list.stderr)
 
 
+
+    def test_validate_rejects_swallowed_shell_expansions_and_broken_markdown(self):
+        proj = self.tmp / "md_check_proj"
+        proj.mkdir()
+        self._run([str(SCRIPT), "init"], cwd=str(proj), check=True)
+        fence = chr(96) * 3
+
+        # Valid Markdown constructs: fenced blocks with empty parens/consecutive spaces/unpaired ticks,
+        # inline code with empty parens/consecutive spaces/backticks, multi-line wrapped inline code,
+        # Markdown tables with alignment spaces, checkboxes, and nested bullets.
+        valid_todo = (
+            "# 🎯 [NEXT] F1: Valid Markdown constructs (`with_code()` and `a  b`)\n\n"
+            "- Depends on: F2\n"
+            "- Inline code spans with ` ()`, ` []`, `a  b`, `x , y`, and `` `nested` `` backticks.\n"
+            "- Escaped backticks in inline code (`\\`` and `\\`\\``) and fenced block (` " + fence + " `).\n"
+            "- Multi-line wrapped inline code span `Workdir: <absolute\n"
+            "  project path>` across a continuation line.\n"
+            "  - [x] Indented checkbox item with (`valid_arg()`) and [link](https://example.com).\n"
+            "| Column A   | Column B   |\n"
+            "| :---       | :---       |\n"
+            "| cell ()    | value  2   |\n"
+            + fence + "python\n"
+            "def demo():\n"
+            "    x = ()  # consecutive  spaces and unpaired ` inside fence are ignored\n"
+            + fence + "\n\n"
+            "# ⚪ [NEW] F2: Clean prerequisite task\n\n"
+            "- Simple valid body.\n"
+        )
+        (proj / "TODO.md").write_text(valid_todo, encoding="utf-8")
+        r_ok = self._run([str(SCRIPT), "check"], cwd=str(proj), check=True)
+        self.assertIn("OK", r_ok.stdout)
+
+        # Invalid Markdown & swallowed shell expansion artifacts in TODO.md and TODO_ARCHIVE.md
+        cases = [
+            (
+                "unclosed_fence",
+                "# ⚪ [NEW] F1: Unclosed fence task\n\n- Intro\n" + fence + "bash\necho hi\n",
+                "unclosed fenced code block",
+            ),
+            (
+                "unpaired_backtick_body",
+                "# ⚪ [NEW] F1: Clean title\n\n- Broken `inline code span\n- Next bullet\n",
+                "unpaired inline backtick",
+            ),
+            (
+                "unpaired_backtick_heading",
+                "# ⚪ [NEW] F1: Heading with `unclosed span\n\n- Clean body.\n",
+                "unpaired inline backtick",
+            ),
+            (
+                "empty_code_span",
+                "# ⚪ [NEW] F1: Clean title\n\n- Swallowed variable inside `` backticks.\n",
+                "empty inline code span",
+            ),
+            (
+                "empty_parens_body",
+                "# ⚪ [NEW] F1: Clean title\n\n- Update `src/parser.py` () to reject artifacts.\n",
+                "empty '()'",
+            ),
+            (
+                "empty_brackets_body",
+                "# ⚪ [NEW] F1: Clean title\n\n- Missing link label [] after expansion.\n",
+                "empty '[]'",
+            ),
+            (
+                "consecutive_spaces_heading",
+                "# ⚪ [NEW] F1: Fix  parser after vanished token\n\n- Clean body.\n",
+                "consecutive spaces in prose",
+            ),
+            (
+                "consecutive_spaces_body",
+                "# ⚪ [NEW] F1: Clean title\n\n- Update  to handle missing command substitution.\n",
+                "consecutive spaces in prose",
+            ),
+            (
+                "space_before_comma",
+                "# ⚪ [NEW] F1: Clean title\n\n- Update , then rebuild.\n",
+                "space before punctuation",
+            ),
+            (
+                "space_before_period",
+                "# ⚪ [NEW] F1: Clean title\n\n- Check the output .\n",
+                "space before punctuation",
+            ),
+            (
+                "space_before_colon",
+                "# ⚪ [NEW] F1: Clean title\n\n- Target file : `src/parser.py`.\n",
+                "space before punctuation",
+            ),
+            (
+                "space_before_semicolon",
+                "# ⚪ [NEW] F1: Clean title\n\n- First clause ; second clause.\n",
+                "space before punctuation",
+            ),
+        ]
+        for label, bad_text, expected_err in cases:
+            with self.subTest(label=label):
+                (proj / "TODO.md").write_text(bad_text, encoding="utf-8")
+                r_bad = self._run([str(SCRIPT), "check"], cwd=str(proj))
+                self.assertNotEqual(r_bad.returncode, 0, msg=r_bad.stdout)
+                self.assertIn(expected_err, r_bad.stderr)
+                self.assertIn("-b '...'", r_bad.stderr)
+                self.assertIn("<<'EOF'", r_bad.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

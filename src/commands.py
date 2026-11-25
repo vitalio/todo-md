@@ -633,6 +633,19 @@ def _fenced_matches(lines: list[str], pred) -> list[str]:
             found.append(line)
     return found
 
+def _reject_invalid_section_markdown(
+    sec_lines: list[str], tid: str, fname: str = "TODO.md", start_lineno: int = 1
+) -> bool:
+    md_errors = validate_task_section_markdown(
+        sec_lines, tid=tid, fname=fname, start_lineno=start_lineno
+    )
+    if not md_errors:
+        return False
+    for err in md_errors:
+        sys.stderr.write(f"ERROR: {err}\n")
+    return True
+
+
 def _preserve_old_body_lines(
     old_body: list[str], new_body: list[str], depends_clauses: list[str] | None
 ) -> list[str]:
@@ -761,6 +774,9 @@ def cmd_add(
     sec_lines = [heading]
     if body_lines:
         sec_lines.extend(["", *body_lines])
+
+    if _reject_invalid_section_markdown(sec_lines, tid=tid, fname="TODO.md", start_lineno=1):
+        return 1
 
     _insert_task_section(base_dir / "TODO.md", sec_lines, _default_todo_header(base_dir), prepend=prepend)
     if quiet:
@@ -960,6 +976,10 @@ def _edit_single_task(
                 old_sec[0] = heading
                 new_sec = old_sec
 
+        check_sec = list(new_sec)
+        if _reject_invalid_section_markdown(check_sec, tid=tid, fname=fname, start_lineno=start_idx + 1):
+            return 1
+
         updated_lines = lines[:start_idx] + new_sec + lines[end_idx:]
         new_text = re.sub(r"\n{3,}", "\n\n", "\n".join(updated_lines).rstrip()) + "\n"
         p.write_text(new_text, encoding="utf-8")
@@ -1059,7 +1079,9 @@ def _append_single_task(
         sec_lines = lines[start_idx:end_idx]
         while sec_lines and not sec_lines[-1].strip():
             sec_lines.pop()
-        sec_lines.extend(["", body_text, ""])
+        sec_lines.extend(["", *body_text.splitlines(), ""])
+        if _reject_invalid_section_markdown(sec_lines, tid=target, fname=fname, start_lineno=start_idx + 1):
+            return 1
         updated_lines = lines[:start_idx] + sec_lines + lines[end_idx:]
         new_text = re.sub(r"\n{3,}", "\n\n", "\n".join(updated_lines).rstrip()) + "\n"
         p.write_text(new_text, encoding="utf-8")

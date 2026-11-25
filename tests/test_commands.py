@@ -1047,5 +1047,87 @@ class TestCommands(TodoMdTestCase):
         self._run([str(SCRIPT), "check"], check=True)
 
 
+
+    def test_pre_write_validation_rejects_swallowed_expansions_in_add_edit_append(self):
+        self._run([str(SCRIPT), "init"], check=True)
+        fence = chr(96) * 3
+
+        # Valid add, edit, and append with inline code, fenced blocks, and tables succeed
+        self._run(
+            [
+                str(SCRIPT),
+                "add",
+                "F",
+                "Valid task with `code()`",
+                "-b",
+                "- Check `validate_all()` and `a  b`.\n| Col 1  | Col 2  |\n"
+                + fence + "sh\necho  () `ok\n" + fence,
+            ],
+            check=True,
+        )
+        todo_before = (self.tmp / "TODO.md").read_text(encoding="utf-8")
+
+        # Pre-write validation on add rejects corrupted title, note, or body without modifying TODO.md
+        bad_add_cases = [
+            (["add", "F", "Swallowed  token in title", "-b", "- Clean body."], "consecutive spaces"),
+            (["add", "F", "Unpaired `tick in title", "-b", "- Clean body."], "unpaired inline backtick"),
+            (["add", "F", "Empty () in title", "-b", "- Clean body."], "empty '()'"),
+            (["add", "F", "Clean title", "-m", "bad  note", "-b", "- Clean body."], "consecutive spaces"),
+            (["add", "F", "Clean title", "-b", "- Vanished `src/parser.py` () artifact."], "empty '()'"),
+            (["add", "F", "Clean title", "-b", "- Empty [] brackets outside code."], "empty '[]'"),
+            (["add", "F", "Clean title", "-b", "- Empty `` inline code span."], "empty inline code span"),
+            (["add", "F", "Clean title", "-b", "- Unpaired `inline backtick."], "unpaired inline backtick"),
+            (["add", "F", "Clean title", "-b", "- Double  space in prose."], "consecutive spaces"),
+            (["add", "F", "Clean title", "-b", "- Space before comma , here."], "space before punctuation"),
+            (["add", "F", "Clean title", "-b", "- Unclosed fence\n" + fence + "py\nx = 1"], "unclosed fenced code block"),
+        ]
+        for args, exp_err in bad_add_cases:
+            with self.subTest(cmd="add", args=args):
+                r = self._run([str(SCRIPT), *args])
+                self.assertNotEqual(r.returncode, 0, msg=r.stdout)
+                self.assertIn(exp_err, r.stderr)
+                self.assertIn("-b '...'", r.stderr)
+                self.assertIn("<<'EOF'", r.stderr)
+                self.assertEqual((self.tmp / "TODO.md").read_text(encoding="utf-8"), todo_before)
+
+        # Pre-write validation on edit rejects corrupted title, note, or body without modifying TODO.md
+        bad_edit_cases = [
+            (["edit", "F1", "-t", "Broken  title"], "consecutive spaces"),
+            (["edit", "F1", "-t", "Broken () title"], "empty '()'"),
+            (["edit", "F1", "-m", "note with `unpaired"], "unpaired inline backtick"),
+            (["edit", "F1", "-b", "- Swallowed () parens."], "empty '()'"),
+            (["edit", "F1", "-b", "- Swallowed `` code span."], "empty inline code span"),
+            (["edit", "F1", "-b", "- Swallowed  word in prose."], "consecutive spaces"),
+            (["edit", "F1", "-b", "- Swallowed word before period ."], "space before punctuation"),
+            (["edit", "F1", "-b", "- Unclosed\n" + fence], "unclosed fenced code block"),
+        ]
+        for args, exp_err in bad_edit_cases:
+            with self.subTest(cmd="edit", args=args):
+                r = self._run([str(SCRIPT), *args])
+                self.assertNotEqual(r.returncode, 0, msg=r.stdout)
+                self.assertIn(exp_err, r.stderr)
+                self.assertIn("-b '...'", r.stderr)
+                self.assertEqual((self.tmp / "TODO.md").read_text(encoding="utf-8"), todo_before)
+
+        # Pre-write validation on append rejects corrupted appended text without modifying TODO.md
+        bad_append_cases = [
+            (["append", "F1", "-b", "- Appended () empty parens."], "empty '()'"),
+            (["append", "F1", "-b", "- Appended `` empty code span."], "empty inline code span"),
+            (["append", "F1", "-b", "- Appended `unpaired backtick."], "unpaired inline backtick"),
+            (["append", "F1", "-b", "- Appended  double space."], "consecutive spaces"),
+            (["append", "F1", "-b", "- Appended space before colon : value."], "space before punctuation"),
+            (["append", "F1", "-b", fence + "sh\necho unclosed"], "unclosed fenced code block"),
+        ]
+        for args, exp_err in bad_append_cases:
+            with self.subTest(cmd="append", args=args):
+                r = self._run([str(SCRIPT), *args])
+                self.assertNotEqual(r.returncode, 0, msg=r.stdout)
+                self.assertIn(exp_err, r.stderr)
+                self.assertIn("-b '...'", r.stderr)
+                self.assertEqual((self.tmp / "TODO.md").read_text(encoding="utf-8"), todo_before)
+
+        self._run([str(SCRIPT), "check"], check=True)
+
+
 if __name__ == "__main__":
     unittest.main()
