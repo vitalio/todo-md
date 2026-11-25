@@ -1,5 +1,14 @@
+# 🎯 [NEXT] B13: Reject swallowed shell expansions and broken Markdown spans in task headings and bodies
+
+- Depends on: B12
+- Bump: `PATCH`
+- In `src/parser.py` (`validate_all()`) and pre-write validation for `cmd_add()`, `cmd_edit()`, and `cmd_append()` in `src/commands.py`, detect and reject Markdown corruption and swallowed shell-expansion artifacts (outside fenced ` ``` ` blocks): unclosed fenced code blocks, odd/unpaired inline backticks (`\``) across a task section, empty inline code spans (`\`\``), whitespace-preceded empty parens/brackets (` ()`, ` []`) outside inline code, and prose gaps left by vanished command substitutions outside inline code and Markdown tables (consecutive spaces inside a prose line after the bullet prefix, or space immediately before `.,;:`). Report a clear error advising single-quoted `-b '...'` or a quoted heredoc (`-b - <<'EOF'`).
+- In `agents/todo.md` (and `README.md` examples where applicable), switch `-b` / `--body` usage signatures from double quotes (`-b "<body_md>"|-`) to single quotes (`-b '<body_md>'|-`) and document that Markdown bodies containing backticks or `$` must use single quotes (`-b '...'`) or a quoted heredoc (`<<'EOF'`) so `bash` does not execute inline code as command substitution.
+- Rebuild `./todo` via `python3 build.py` and add unit tests in `tests/test_parser.py` and `tests/test_commands.py` covering rejected swallowed-expansion artifacts and valid Markdown constructs.
+
 # 🎯 [NEXT] F85: Require explicit -B / --bundle flag for Bundle-Protocol v1 emission and remove FIFO /proc and ps auto-detection
 
+- Depends on: B13
 - Bump: `MINOR`
 - In `src/bundle.py` and `src/cli.py`, accept `-B` as the short alias for `--bundle` and emit `context-bundle-protocol` v1 streams only when `-B` / `--bundle` (or `TODO_MD_BUNDLE=1`, unless overridden by `--plain` / `TODO_MD_PLAIN=1`) is explicitly set; emit standard human/plain output by default in all pipes (`todo | ...`) as well as on a TTY.
 - Remove all FIFO pipe consumer heuristics and process inspection code from `src/bundle.py`: `BUNDLE_CONSUMER_NAMES`, `STANDARD_FILTER_NAMES`, `SHELL_WRAPPER_NAMES`, `_normalize_cmd_token()`, `_argv_executable_name()`, `_pipeline_consumer_from_shell_c()`, `_classify_process_tokens()`, `_read_proc_tokens()`, `_read_proc_ppid_pgid()`, `_ancestor_pids()`, `_linux_fifo_is_standard_filter()`, `_ps_fifo_is_standard_filter()`, `_fifo_is_standard_filter()`, and the `RUN_BLOCK_STEP_STDOUT_INO` / `IN_RUN_BLOCK` environment checks.
