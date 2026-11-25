@@ -31,13 +31,14 @@
     do not run `{cmd:todo} chain --all --tree` across the entire backlog
     without a target `<ID>` or `-l N`.
   - Mutate & validate: `{cmd:todo} add [<PROJECT>] [<PREFIX>] "<title>" [-p <P>]
-    [-q|--quiet] [--next] [--status <S>] [-m "<note>"] [-b "<body_md>"|-] [--depends <spec>]`
-    auto-assigns and prints the new `<ID>` (`-q` / `--quiet` prints only `<ID>`
-    for `id=$({cmd:todo} add -q ...)`; wire dependent tasks using the ID
-    printed by `{cmd:todo} add`),
+    [-q|--quiet] [--next] [--status <S>] [-m "<note>"] [-b "<body_md>"|-]... [--depends <spec>]`
+    auto-assigns and prints the new `<ID>` (`-q` / `--quiet` prints only `<ID>`;
+    always capture auto-assigned IDs via `id=$({cmd:todo} add -q ...)` rather
+    than guessing future IDs beforehand when wiring `--depends`),
     `{cmd:todo} edit <ID>... [--next] [--status <S>] [-t "<title>"]
-    [-m "<note>"] [-b "<body_md>"|-] [--depends <spec>]`,
-    `{cmd:todo} append <ID>... [-b "<text>"|-]`,
+    [-m "<note>"] [-b "<body_md>"|-]... [--depends <spec>]`,
+    `{cmd:todo} append <ID>... [-b "<text>"|-]...` (repeated `-b` / `--body`
+    flags are joined with `\n`),
     `{cmd:todo} rename <OLD> <NEW|PREFIX> | <OLD>=<NEW|PREFIX>...`,
     `{cmd:todo} next <ID>... [-m "<note>"]`,
     `{cmd:todo} status <ID>... <STATUS> [-m "<note>"]`,

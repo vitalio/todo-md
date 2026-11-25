@@ -539,7 +539,22 @@ def cmd_reopen(
         no_commit=no_commit,
     )
 
-def _resolve_body_arg(body: str | None) -> str | None:
+def _resolve_body_arg(body: str | list[str] | None) -> str | None:
+    if isinstance(body, list):
+        if not body:
+            return _read_stdin_if_piped()
+        parts: list[str] = []
+        stdin_cache: str | None = None
+        for item in body:
+            if item == "-":
+                if sys.stdin.isatty():
+                    raise SystemExit(f"{prog_name()}: -b - / --body - requires non-TTY stdin")
+                if stdin_cache is None:
+                    stdin_cache = sys.stdin.read()
+                parts.append(stdin_cache)
+            else:
+                parts.append(item)
+        return "\n".join(parts)
     if body == "-":
         if sys.stdin.isatty():
             raise SystemExit(f"{prog_name()}: -b - / --body - requires non-TTY stdin")
@@ -644,7 +659,7 @@ def cmd_add(
     quiet = False
     prefix: str | None = None
     note: str | None = None
-    body: str | None = None
+    body_parts: list[str] = []
     depends_raw: list[str] = []
     pos: list[str] = []
     i = 0
@@ -685,7 +700,7 @@ def cmd_add(
         elif a in ("-b", "--body"):
             if i + 1 >= len(argv):
                 raise SystemExit(f"{prog}: {a} requires an argument")
-            body = argv[i + 1]
+            body_parts.append(argv[i + 1])
             i += 2
         elif a in ("--depends", "-d"):
             if i + 1 >= len(argv):
@@ -731,13 +746,13 @@ def cmd_add(
             raise SystemExit(f"{prog}: invalid ID prefix {first!r}; expected a single letter A-Z (e.g. F, B, P)")
     else:
         raise SystemExit(
-            f"{prog}: usage: {prog} add [<PREFIX>] <TITLE> [-p PREFIX] [-q|--quiet] [--next] [--status STATUS] [-m NOTE] [-b BODY]"
+            f"{prog}: usage: {prog} add [<PREFIX>] <TITLE> [-p PREFIX] [-q|--quiet] [--next] [--status STATUS] [-m NOTE] [-b BODY] [--depends SPEC]"
         )
 
     if not title:
         raise SystemExit(f"{prog}: task title cannot be empty")
 
-    body = _resolve_body_arg(body)
+    body = _resolve_body_arg(body_parts or None)
     depends_clauses = _normalize_depends_clauses(depends_raw) if depends_raw else None
     body_lines = body.strip().splitlines() if body and body.strip() else []
     body_lines = _apply_depends_to_body_lines(body_lines, depends_clauses)
@@ -775,7 +790,7 @@ def cmd_edit(
     new_title: str | None = None
     note: str | None = None
     clear_note = False
-    body: str | None = None
+    body_parts: list[str] = []
     depends_raw: list[str] | None = None
     pos: list[str] = []
     i = 0
@@ -816,7 +831,7 @@ def cmd_edit(
         elif a in ("-b", "--body"):
             if i + 1 >= len(argv):
                 raise SystemExit(f"{prog}: {a} requires an argument")
-            body = argv[i + 1]
+            body_parts.append(argv[i + 1])
             i += 2
         elif a in ("--depends", "-d"):
             if i + 1 >= len(argv):
@@ -845,7 +860,7 @@ def cmd_edit(
         raise SystemExit(
             f"{prog}: usage: {prog} edit <ID>... [--next] [--status STATUS] [-t TITLE] [-m NOTE] [-b BODY] [--depends SPEC]"
         )
-    body = _resolve_body_arg(body)
+    body = _resolve_body_arg(body_parts or None)
     depends_clauses = _normalize_depends_clauses(depends_raw) if depends_raw is not None else None
     if new_status is None and new_title is None and note is None and body is None and depends_clauses is None:
         raise SystemExit(
@@ -968,7 +983,7 @@ def cmd_append(
     explicit_dir: str | None = None,
 ) -> int:
     prog = prog_name()
-    body: str | None = None
+    body_parts: list[str] = []
     pos: list[str] = []
     i = 0
     while i < len(argv):
@@ -982,7 +997,7 @@ def cmd_append(
         elif a in ("-b", "--body", "-m", "--note"):
             if i + 1 >= len(argv):
                 raise SystemExit(f"{prog}: {a} requires an argument")
-            body = argv[i + 1]
+            body_parts.append(argv[i + 1])
             i += 2
         elif a.startswith("-"):
             raise SystemExit(f"{prog}: unknown option for append: {a}")
@@ -993,7 +1008,7 @@ def cmd_append(
     raw_ids = _expand_task_id_args(pos)
     if not raw_ids:
         raise SystemExit(f"{prog}: usage: {prog} append <ID>... [-b TEXT]")
-    body = _resolve_body_arg(body)
+    body = _resolve_body_arg(body_parts or None)
     if not body or not body.strip():
         raise SystemExit(f"{prog}: append requires non-empty text via -b TEXT or stdin")
     targets = [resolve_project_task_ref(base_dir, ref, explicit_dir=explicit_dir) for ref in raw_ids]

@@ -23,12 +23,12 @@ import unicodedata
 from datetime import date
 from pathlib import Path
 
-VERSION = "0.51.2"
+VERSION = "0.51.3"
 REPO_MARKER = "todo-md-repo: vitalio/todo-md"
 LEGACY_REPO_MARKER = "todo_md-repo: vitalio/todo_md"
 DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/vitalio/todo-md/main/todo"
 FENCE = chr(96) * 3
-EMBEDDED_RULE_TODO = '# Description: Structured Markdown task management (TODO.md and TODO_ARCHIVE.md) via todo\n- Task management (`{cmd:todo}`: `TODO.md`, `TODO_ARCHIVE.md`): Always inspect and\n  modify `TODO.md` and `TODO_ARCHIVE.md` via `{cmd:todo}` (never via `cat` or\n  manual file edits). Repository scope only: record each task in the `TODO.md`\n  of the repository it belongs to (run `{cmd:todo} -h` for full CLI option lists).\n  - Status lifecycle & task ID prefixes: `TODO.md` orders active tasks as\n    `🔵 [WIP]` -> `🎯 [NEXT]` -> `❓ [QUESTION]` -> `⚪ [NEW]` -> `⏸️ [HOLD]`,\n    and `TODO_ARCHIVE.md` keeps `✅ [DONE]` and `❌ [CANCELED]` newest-first.\n    Status readiness contract: `NEW` for unscoped tasks needing planning,\n    `NEXT` for scoped tasks ready for execution, `WIP` for active work,\n    `QUESTION` for tasks blocked on clarification, `HOLD` for deferred items.\n    Task ID prefixes (`A-Z`): `F` is a feature (default on `add`), `B` is a\n    bugfix (ranked ahead in `chain`), `D` is a design task, `L` is a\n    legislative rule task (`agents/`, `AGENTS.md`), and other `A-Z` prefixes\n    are custom domains. `{cmd:todo} check` rejects `- Role:` and `- Target files:`\n    lines across `TODO*.md`, and `{cmd:todo} <ID> [role=<role>]` is read-only;\n    start a task with `{cmd:todo} status <ID> WIP` or `{cmd:todo} next <ID>`.\n  - Inspect & target selection: pass `-C <dir>` (filesystem directory relative\n    to current `PWD`, matching `git -C <dir>`) or `-p <project>` / `--project\n    <name>` (workspace / `.todo_projects` project name or alias) before\n    subcommands (keeping `-p <P>` inside `{cmd:todo} add` for ID prefix, or\n    `<project>:<ID>` on task refs). `{cmd:todo} projects` resolves workspace\n    project names and aliases (including `<project_id>=<path>` in\n    `.todo_projects` and `.todo_projects.local`) to physical directory paths.\n    Core views: `{cmd:todo} [opts] [-w]`, `{cmd:todo} overview [--full] [-w]`,\n    `{cmd:todo} projects`, `{cmd:todo} [show] <ID>...`,\n    `{cmd:todo} list [active|archive|all|<STATUS>] [<ID>...] [--prefix <P>] [--status <S>] [--ready] [-s <QUERY>] [-l N] [--full]`,\n    `{cmd:todo} chain [<ID>...] [--all] [--prefix <P>] [--status <S>] [--ready] [-l N] [--tree] [-f <ID>...] [-s <QUERY>]`.\n    Do not re-run broad workspace views (`{cmd:todo}`, `overview`, `chain`)\n    when the Quest-Log is already present in `===== Prompt =====`, and\n    do not run `{cmd:todo} chain --all --tree` across the entire backlog\n    without a target `<ID>` or `-l N`.\n  - Mutate & validate: `{cmd:todo} add [<PROJECT>] [<PREFIX>] "<title>" [-p <P>]\n    [-q|--quiet] [--next] [--status <S>] [-m "<note>"] [-b "<body_md>"|-] [--depends <spec>]`\n    auto-assigns and prints the new `<ID>` (`-q` / `--quiet` prints only `<ID>`\n    for `id=$({cmd:todo} add -q ...)`; wire dependent tasks using the ID\n    printed by `{cmd:todo} add`),\n    `{cmd:todo} edit <ID>... [--next] [--status <S>] [-t "<title>"]\n    [-m "<note>"] [-b "<body_md>"|-] [--depends <spec>]`,\n    `{cmd:todo} append <ID>... [-b "<text>"|-]`,\n    `{cmd:todo} rename <OLD> <NEW|PREFIX> | <OLD>=<NEW|PREFIX>...`,\n    `{cmd:todo} next <ID>... [-m "<note>"]`,\n    `{cmd:todo} status <ID>... <STATUS> [-m "<note>"]`,\n    `{cmd:todo} reopen <ID>... [--status <S>] [-m "<note>"]`,\n    `{cmd:todo} done <ID>... [-m "<note>"]`,\n    `{cmd:todo} cancel <ID>... [-m "<reason>"]`,\n    `{cmd:todo} archive [<ID>...] [-m "<note>"] [--canceled]`, `{cmd:todo} check`.\n  - Dependencies & Chain integration (both directions): in `--depends` and\n    `- Depends on:`, use `,` for parallel items (`A,B`), `->` for sequential\n    stages (`"A -> B -> C"`), and `;` (or repeated `--depends` / `- Depends on:`\n    lines) for independent AND branches (`"A -> B; C -> D"`;\n    do not introduce a separate `- Order:` field). Because `,` binds tighter\n    than `->`, `"X, A -> B, Y"` parses as `"(X, A) -> (B, Y)"`, so a sequential\n    chain alongside parallel items must be separated with `;`\n    (`"X, Y; A -> B"`). Cross-project `<project>:<ID>` dependencies are allowed\n    only in orchestrator repositories with `.todo_projects` (or\n    `.todo_projects.local`); `{cmd:todo} check` rejects them in\n    non-orchestrator repositories. Wire new or refined tasks both upstream\n    (`--depends`) and downstream (`{cmd:todo} edit <ID> --depends ...` on\n    existing open tasks or waves).\n'
+EMBEDDED_RULE_TODO = '# Description: Structured Markdown task management (TODO.md and TODO_ARCHIVE.md) via todo\n- Task management (`{cmd:todo}`: `TODO.md`, `TODO_ARCHIVE.md`): Always inspect and\n  modify `TODO.md` and `TODO_ARCHIVE.md` via `{cmd:todo}` (never via `cat` or\n  manual file edits). Repository scope only: record each task in the `TODO.md`\n  of the repository it belongs to (run `{cmd:todo} -h` for full CLI option lists).\n  - Status lifecycle & task ID prefixes: `TODO.md` orders active tasks as\n    `🔵 [WIP]` -> `🎯 [NEXT]` -> `❓ [QUESTION]` -> `⚪ [NEW]` -> `⏸️ [HOLD]`,\n    and `TODO_ARCHIVE.md` keeps `✅ [DONE]` and `❌ [CANCELED]` newest-first.\n    Status readiness contract: `NEW` for unscoped tasks needing planning,\n    `NEXT` for scoped tasks ready for execution, `WIP` for active work,\n    `QUESTION` for tasks blocked on clarification, `HOLD` for deferred items.\n    Task ID prefixes (`A-Z`): `F` is a feature (default on `add`), `B` is a\n    bugfix (ranked ahead in `chain`), `D` is a design task, `L` is a\n    legislative rule task (`agents/`, `AGENTS.md`), and other `A-Z` prefixes\n    are custom domains. `{cmd:todo} check` rejects `- Role:` and `- Target files:`\n    lines across `TODO*.md`, and `{cmd:todo} <ID> [role=<role>]` is read-only;\n    start a task with `{cmd:todo} status <ID> WIP` or `{cmd:todo} next <ID>`.\n  - Inspect & target selection: pass `-C <dir>` (filesystem directory relative\n    to current `PWD`, matching `git -C <dir>`) or `-p <project>` / `--project\n    <name>` (workspace / `.todo_projects` project name or alias) before\n    subcommands (keeping `-p <P>` inside `{cmd:todo} add` for ID prefix, or\n    `<project>:<ID>` on task refs). `{cmd:todo} projects` resolves workspace\n    project names and aliases (including `<project_id>=<path>` in\n    `.todo_projects` and `.todo_projects.local`) to physical directory paths.\n    Core views: `{cmd:todo} [opts] [-w]`, `{cmd:todo} overview [--full] [-w]`,\n    `{cmd:todo} projects`, `{cmd:todo} [show] <ID>...`,\n    `{cmd:todo} list [active|archive|all|<STATUS>] [<ID>...] [--prefix <P>] [--status <S>] [--ready] [-s <QUERY>] [-l N] [--full]`,\n    `{cmd:todo} chain [<ID>...] [--all] [--prefix <P>] [--status <S>] [--ready] [-l N] [--tree] [-f <ID>...] [-s <QUERY>]`.\n    Do not re-run broad workspace views (`{cmd:todo}`, `overview`, `chain`)\n    when the Quest-Log is already present in `===== Prompt =====`, and\n    do not run `{cmd:todo} chain --all --tree` across the entire backlog\n    without a target `<ID>` or `-l N`.\n  - Mutate & validate: `{cmd:todo} add [<PROJECT>] [<PREFIX>] "<title>" [-p <P>]\n    [-q|--quiet] [--next] [--status <S>] [-m "<note>"] [-b "<body_md>"|-]... [--depends <spec>]`\n    auto-assigns and prints the new `<ID>` (`-q` / `--quiet` prints only `<ID>`;\n    always capture auto-assigned IDs via `id=$({cmd:todo} add -q ...)` rather\n    than guessing future IDs beforehand when wiring `--depends`),\n    `{cmd:todo} edit <ID>... [--next] [--status <S>] [-t "<title>"]\n    [-m "<note>"] [-b "<body_md>"|-]... [--depends <spec>]`,\n    `{cmd:todo} append <ID>... [-b "<text>"|-]...` (repeated `-b` / `--body`\n    flags are joined with `\\n`),\n    `{cmd:todo} rename <OLD> <NEW|PREFIX> | <OLD>=<NEW|PREFIX>...`,\n    `{cmd:todo} next <ID>... [-m "<note>"]`,\n    `{cmd:todo} status <ID>... <STATUS> [-m "<note>"]`,\n    `{cmd:todo} reopen <ID>... [--status <S>] [-m "<note>"]`,\n    `{cmd:todo} done <ID>... [-m "<note>"]`,\n    `{cmd:todo} cancel <ID>... [-m "<reason>"]`,\n    `{cmd:todo} archive [<ID>...] [-m "<note>"] [--canceled]`, `{cmd:todo} check`.\n  - Dependencies & Chain integration (both directions): in `--depends` and\n    `- Depends on:`, use `,` for parallel items (`A,B`), `->` for sequential\n    stages (`"A -> B -> C"`), and `;` (or repeated `--depends` / `- Depends on:`\n    lines) for independent AND branches (`"A -> B; C -> D"`;\n    do not introduce a separate `- Order:` field). Because `,` binds tighter\n    than `->`, `"X, A -> B, Y"` parses as `"(X, A) -> (B, Y)"`, so a sequential\n    chain alongside parallel items must be separated with `;`\n    (`"X, Y; A -> B"`). Cross-project `<project>:<ID>` dependencies are allowed\n    only in orchestrator repositories with `.todo_projects` (or\n    `.todo_projects.local`); `{cmd:todo} check` rejects them in\n    non-orchestrator repositories. Wire new or refined tasks both upstream\n    (`--depends`) and downstream (`{cmd:todo} edit <ID> --depends ...` on\n    existing open tasks or waves).\n'
 RULE_SOURCE_PATH = Path(__file__).resolve().parent.parent / "agents" / "todo.md"
 
 VALID_STATUSES: dict[str, str] = {
@@ -151,15 +151,15 @@ HELP_COMMANDS: tuple[tuple[str, str], ...] = (
     ("{prog} archive [<ID>...] [-m NOTE] [--canceled]",
      "Print TODO_ARCHIVE.md, or archive task(s) <ID>... (as DONE, or CANCELED with --canceled)"),
     ("{prog} add [<PROJ>] [<PREFIX>] <TITLE>",
-     "Add a task with an auto-assigned ID; body comes from -b or stdin. Options: "
-     "-p PREFIX (default: F), -q/--quiet (--id-only), --next, --status STATUS, -m NOTE, "
-     "-b BODY|-, --depends SPEC"),
+     "Add a task with an auto-assigned ID; body comes from -b (repeatable, joined with "
+     "\\n) or stdin. Options: -p PREFIX (default: F), -q/--quiet (--id-only), --next, "
+     "--status STATUS, -m NOTE, -b BODY|-, --depends SPEC"),
     ("{prog} edit <ID>... [opts]",
      "Update task(s) <ID>.... Options: --next, --status STATUS, -t TITLE, -m NOTE, "
-     "-b BODY|-, --depends SPEC. A new body keeps existing '- Depends on:' lines it "
-     "omits; --depends '' clears dependencies"),
+     "-b BODY|- (repeatable), --depends SPEC. A new body keeps existing '- Depends on:' "
+     "lines it omits; --depends '' clears dependencies"),
     ("{prog} append <ID>... [-b TEXT|-]",
-     "Append text to the body of task(s) <ID>... (from -b TEXT|- or stdin)"),
+     "Append text to the body of task(s) <ID>... (from repeatable -b TEXT|- or stdin)"),
     ("{prog} rename <OLD> <NEW|P> | <OLD>=<NEW|P>...",
      "Rename task ID(s) across TODO*.md and rewrite '- Depends on:' references (target can be "
      "an explicit ID or a single-letter prefix A-Z for next free ID)"),
@@ -5913,7 +5913,22 @@ def cmd_reopen(
         no_commit=no_commit,
     )
 
-def _resolve_body_arg(body: str | None) -> str | None:
+def _resolve_body_arg(body: str | list[str] | None) -> str | None:
+    if isinstance(body, list):
+        if not body:
+            return _read_stdin_if_piped()
+        parts: list[str] = []
+        stdin_cache: str | None = None
+        for item in body:
+            if item == "-":
+                if sys.stdin.isatty():
+                    raise SystemExit(f"{prog_name()}: -b - / --body - requires non-TTY stdin")
+                if stdin_cache is None:
+                    stdin_cache = sys.stdin.read()
+                parts.append(stdin_cache)
+            else:
+                parts.append(item)
+        return "\n".join(parts)
     if body == "-":
         if sys.stdin.isatty():
             raise SystemExit(f"{prog_name()}: -b - / --body - requires non-TTY stdin")
@@ -6018,7 +6033,7 @@ def cmd_add(
     quiet = False
     prefix: str | None = None
     note: str | None = None
-    body: str | None = None
+    body_parts: list[str] = []
     depends_raw: list[str] = []
     pos: list[str] = []
     i = 0
@@ -6059,7 +6074,7 @@ def cmd_add(
         elif a in ("-b", "--body"):
             if i + 1 >= len(argv):
                 raise SystemExit(f"{prog}: {a} requires an argument")
-            body = argv[i + 1]
+            body_parts.append(argv[i + 1])
             i += 2
         elif a in ("--depends", "-d"):
             if i + 1 >= len(argv):
@@ -6105,13 +6120,13 @@ def cmd_add(
             raise SystemExit(f"{prog}: invalid ID prefix {first!r}; expected a single letter A-Z (e.g. F, B, P)")
     else:
         raise SystemExit(
-            f"{prog}: usage: {prog} add [<PREFIX>] <TITLE> [-p PREFIX] [-q|--quiet] [--next] [--status STATUS] [-m NOTE] [-b BODY]"
+            f"{prog}: usage: {prog} add [<PREFIX>] <TITLE> [-p PREFIX] [-q|--quiet] [--next] [--status STATUS] [-m NOTE] [-b BODY] [--depends SPEC]"
         )
 
     if not title:
         raise SystemExit(f"{prog}: task title cannot be empty")
 
-    body = _resolve_body_arg(body)
+    body = _resolve_body_arg(body_parts or None)
     depends_clauses = _normalize_depends_clauses(depends_raw) if depends_raw else None
     body_lines = body.strip().splitlines() if body and body.strip() else []
     body_lines = _apply_depends_to_body_lines(body_lines, depends_clauses)
@@ -6149,7 +6164,7 @@ def cmd_edit(
     new_title: str | None = None
     note: str | None = None
     clear_note = False
-    body: str | None = None
+    body_parts: list[str] = []
     depends_raw: list[str] | None = None
     pos: list[str] = []
     i = 0
@@ -6190,7 +6205,7 @@ def cmd_edit(
         elif a in ("-b", "--body"):
             if i + 1 >= len(argv):
                 raise SystemExit(f"{prog}: {a} requires an argument")
-            body = argv[i + 1]
+            body_parts.append(argv[i + 1])
             i += 2
         elif a in ("--depends", "-d"):
             if i + 1 >= len(argv):
@@ -6219,7 +6234,7 @@ def cmd_edit(
         raise SystemExit(
             f"{prog}: usage: {prog} edit <ID>... [--next] [--status STATUS] [-t TITLE] [-m NOTE] [-b BODY] [--depends SPEC]"
         )
-    body = _resolve_body_arg(body)
+    body = _resolve_body_arg(body_parts or None)
     depends_clauses = _normalize_depends_clauses(depends_raw) if depends_raw is not None else None
     if new_status is None and new_title is None and note is None and body is None and depends_clauses is None:
         raise SystemExit(
@@ -6342,7 +6357,7 @@ def cmd_append(
     explicit_dir: str | None = None,
 ) -> int:
     prog = prog_name()
-    body: str | None = None
+    body_parts: list[str] = []
     pos: list[str] = []
     i = 0
     while i < len(argv):
@@ -6356,7 +6371,7 @@ def cmd_append(
         elif a in ("-b", "--body", "-m", "--note"):
             if i + 1 >= len(argv):
                 raise SystemExit(f"{prog}: {a} requires an argument")
-            body = argv[i + 1]
+            body_parts.append(argv[i + 1])
             i += 2
         elif a.startswith("-"):
             raise SystemExit(f"{prog}: unknown option for append: {a}")
@@ -6367,7 +6382,7 @@ def cmd_append(
     raw_ids = _expand_task_id_args(pos)
     if not raw_ids:
         raise SystemExit(f"{prog}: usage: {prog} append <ID>... [-b TEXT]")
-    body = _resolve_body_arg(body)
+    body = _resolve_body_arg(body_parts or None)
     if not body or not body.strip():
         raise SystemExit(f"{prog}: append requires non-empty text via -b TEXT or stdin")
     targets = [resolve_project_task_ref(base_dir, ref, explicit_dir=explicit_dir) for ref in raw_ids]

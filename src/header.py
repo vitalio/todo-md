@@ -151,15 +151,15 @@ HELP_COMMANDS: tuple[tuple[str, str], ...] = (
     ("{prog} archive [<ID>...] [-m NOTE] [--canceled]",
      "Print TODO_ARCHIVE.md, or archive task(s) <ID>... (as DONE, or CANCELED with --canceled)"),
     ("{prog} add [<PROJ>] [<PREFIX>] <TITLE>",
-     "Add a task with an auto-assigned ID; body comes from -b or stdin. Options: "
-     "-p PREFIX (default: F), -q/--quiet (--id-only), --next, --status STATUS, -m NOTE, "
-     "-b BODY|-, --depends SPEC"),
+     "Add a task with an auto-assigned ID; body comes from -b (repeatable, joined with "
+     "\\n) or stdin. Options: -p PREFIX (default: F), -q/--quiet (--id-only), --next, "
+     "--status STATUS, -m NOTE, -b BODY|-, --depends SPEC"),
     ("{prog} edit <ID>... [opts]",
      "Update task(s) <ID>.... Options: --next, --status STATUS, -t TITLE, -m NOTE, "
-     "-b BODY|-, --depends SPEC. A new body keeps existing '- Depends on:' lines it "
-     "omits; --depends '' clears dependencies"),
+     "-b BODY|- (repeatable), --depends SPEC. A new body keeps existing '- Depends on:' "
+     "lines it omits; --depends '' clears dependencies"),
     ("{prog} append <ID>... [-b TEXT|-]",
-     "Append text to the body of task(s) <ID>... (from -b TEXT|- or stdin)"),
+     "Append text to the body of task(s) <ID>... (from repeatable -b TEXT|- or stdin)"),
     ("{prog} rename <OLD> <NEW|P> | <OLD>=<NEW|P>...",
      "Rename task ID(s) across TODO*.md and rewrite '- Depends on:' references (target can be "
      "an explicit ID or a single-letter prefix A-Z for next free ID)"),

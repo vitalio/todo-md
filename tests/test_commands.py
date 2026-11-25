@@ -948,6 +948,104 @@ class TestCommands(TodoMdTestCase):
 
         self._run([str(SCRIPT), "check"], check=True)
 
+    def test_repeated_body_flags_and_add_usage_depends(self):
+        self._run([str(SCRIPT), "init"], check=True)
+
+        # Repeated -b / --body flags on add are joined in order with '\n'
+        self._run(
+            [
+                str(SCRIPT),
+                "add",
+                "F",
+                "Repeated body task",
+                "-b",
+                "- Line 1",
+                "--body",
+                "- Line 2",
+                "-b",
+                "- Line 3",
+            ],
+            check=True,
+        )
+        todo_txt = (self.tmp / "TODO.md").read_text(encoding="utf-8")
+        self.assertIn("- Line 1\n- Line 2\n- Line 3", todo_txt)
+
+        # Repeated -b / --body flags on edit join in order and preserve existing Depends on
+        self._run(
+            [
+                str(SCRIPT),
+                "add",
+                "F",
+                "Dependent task",
+                "--depends",
+                "F1",
+                "-b",
+                "- Initial body",
+            ],
+            check=True,
+        )
+        self._run(
+            [
+                str(SCRIPT),
+                "edit",
+                "F2",
+                "-b",
+                "- Edited line A",
+                "--body",
+                "- Edited line B",
+            ],
+            check=True,
+        )
+        todo_txt = (self.tmp / "TODO.md").read_text(encoding="utf-8")
+        self.assertIn("- Depends on: F1\n- Edited line A\n- Edited line B", todo_txt)
+        self.assertNotIn("- Initial body", todo_txt)
+
+        # Repeated -b / --body / -m flags on append join in order with '\n'
+        self._run(
+            [
+                str(SCRIPT),
+                "append",
+                "F2",
+                "-b",
+                "- Appended 1",
+                "--body",
+                "- Appended 2",
+            ],
+            check=True,
+        )
+        todo_txt = (self.tmp / "TODO.md").read_text(encoding="utf-8")
+        self.assertIn("- Edited line B\n\n- Appended 1\n- Appended 2", todo_txt)
+
+        # Mixing literal -b and '-b -' joins literal and piped stdin in order
+        self._run(
+            [
+                str(SCRIPT),
+                "add",
+                "F",
+                "Mixed dash and literal",
+                "-b",
+                "- Header bullet",
+                "--body",
+                "-",
+                "-b",
+                "- Footer bullet",
+            ],
+            input="- Piped middle bullet",
+            check=True,
+        )
+        todo_txt = (self.tmp / "TODO.md").read_text(encoding="utf-8")
+        self.assertIn("- Header bullet\n- Piped middle bullet\n- Footer bullet", todo_txt)
+
+        # Short usage error for 'todo add' includes [--depends SPEC]
+        for bad_add in (["add"], ["add", "F", "Title", "ExtraPositional"]):
+            with self.subTest(bad_add=bad_add):
+                r_err = self._run([str(SCRIPT), *bad_add])
+                self.assertNotEqual(r_err.returncode, 0, msg=r_err.stdout)
+                self.assertIn("usage: todo add", r_err.stderr)
+                self.assertIn("[--depends SPEC]", r_err.stderr)
+
+        self._run([str(SCRIPT), "check"], check=True)
+
 
 if __name__ == "__main__":
     unittest.main()
