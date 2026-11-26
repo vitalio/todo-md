@@ -13,8 +13,10 @@
     bugfix (ranked ahead in `chain`), `D` is a design task, `L` is a
     legislative rule task (`agents/`, `AGENTS.md`), and other `A-Z` prefixes
     are custom domains. `{cmd:todo} check` rejects `- Role:` and `- Target files:`
-    lines across `TODO*.md`, and `{cmd:todo} <ID> [role=<role>]` is read-only;
-    start a task with `{cmd:todo} status <ID> WIP` or `{cmd:todo} next <ID>`.
+    lines across `TODO*.md`, and `{cmd:todo} [-B|--bundle] <ID> [role=<role>]`
+    is read-only (`-B` / `--bundle` emits a `context-bundle-protocol` v1
+    stream); start a task with `{cmd:todo} status <ID> WIP` or
+    `{cmd:todo} next <ID>`.
   - Inspect & target selection: pass `-C <dir>` (filesystem directory relative
     to current `PWD`, matching `git -C <dir>`) or `-p <project>` / `--project
     <name>` (workspace / `.todo_projects` project name or alias) before

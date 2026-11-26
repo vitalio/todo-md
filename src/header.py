@@ -15,7 +15,6 @@ import re
 import secrets
 import shlex
 import shutil
-import stat
 import subprocess
 import sys
 import tempfile
@@ -207,11 +206,10 @@ HELP_GLOBAL_OPTIONS: tuple[tuple[str, str], ...] = (
     ("-c, --commit",
      "Git-commit TODO*.md after mutating commands (opt-in; creates a git commit)"),
     ("--no-commit", "Accepted as a no-op alias (commits are disabled by default)"),
-    ("--bundle",
-     "Emit a context-bundle-protocol v1 stream for <ID> (show), last, the default view and "
-     "overview; auto-enabled when piped directly into context or run outside a run_block step. "
-     "The stream is read-only: it never changes task status"),
-    ("--plain", "Disable bundle auto-detection (--bundle takes precedence)"),
+    ("-B, --bundle",
+     "Emit a context-bundle-protocol v1 stream for <ID> (show), last, the default view, and "
+     "overview (read-only: never changes task status)"),
+    ("--plain", "Disable bundle mode (-B/--bundle takes precedence)"),
     ("role=ROLE",
      "Bundle mode explicit role override for <ID>, show, last, overview, and the default view: "
      "emits Role: ROLE in the bundle preamble"),
@@ -281,8 +279,9 @@ HELP_ENV: tuple[tuple[str, str], ...] = (
      "Set to 1 to suppress git commits even when --commit / TODO_MD_COMMIT is set"),
     ("TODO_MD_NO_GIT_PULL",
      "Set to 1 to skip git pull --ff-only upstream sync before mutating commands"),
-    ("TODO_MD_BUNDLE", "Set to 1 to emit bundle streams (same as --bundle)"),
-    ("TODO_MD_PLAIN", "Set to 1 to disable bundle auto-detection (same as --plain)"),
+    ("TODO_MD_BUNDLE", "Set to 1 to emit bundle streams (same as -B/--bundle)"),
+    ("TODO_MD_PLAIN",
+     "Set to 1 to disable bundle mode unless -B/--bundle is set (same as --plain)"),
     ("TODO_MD_UPDATE_URL", "Override raw script URL for update / check-update"),
 )
 

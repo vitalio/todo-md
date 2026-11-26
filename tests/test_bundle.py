@@ -106,7 +106,7 @@ class TestBundle(TodoMdTestCase):
 
     def test_context_bundle_for_quest_log_and_overview(self):
         self._setup_task()
-        for args in (["--bundle"], ["--bundle", "overview"]):
+        for args in (["--bundle"], ["-B"], ["--bundle", "overview"], ["-B", "overview"]):
             with self.subTest(args=args):
                 r = self._run([str(SCRIPT), *args], check=True)
                 headers, parts = self._parse(r.stdout)
@@ -122,18 +122,29 @@ class TestBundle(TodoMdTestCase):
                 )
                 self.assertIn("F1", parts[1][1])
 
-    def test_fifo_auto_detection(self):
+    def test_explicit_bundle_activation_and_plain_pipe_default(self):
         self._setup_task()
         drop = ("TODO_MD_PLAIN", "TODO_MD_BUNDLE", "RUN_BLOCK_STEP_STDOUT_INO", "IN_RUN_BLOCK")
         base_env = {k: v for k, v in os.environ.items() if k not in drop}
         cases = (
-            ({}, ["F1"], True),
+            ({}, ["F1"], False),
+            ({}, [], False),
+            ({}, ["overview"], False),
             ({"IN_RUN_BLOCK": "1"}, ["F1"], False),
-            ({"IN_RUN_BLOCK": "1", "RUN_BLOCK_STEP_STDOUT_INO": "1:1"}, ["F1"], True),
+            ({"IN_RUN_BLOCK": "1", "RUN_BLOCK_STEP_STDOUT_INO": "1:1"}, ["F1"], False),
+            ({}, ["-B", "F1"], True),
+            ({}, ["F1", "-B"], True),
+            ({}, ["--bundle", "F1"], True),
+            ({}, ["show", "-B", "F1"], True),
             ({}, ["--plain", "F1"], False),
             ({"TODO_MD_PLAIN": "1"}, ["F1"], False),
+            ({"TODO_MD_PLAIN": "1"}, ["-B", "F1"], True),
             ({"TODO_MD_PLAIN": "1"}, ["--bundle", "F1"], True),
+            ({}, ["-B", "--plain", "F1"], True),
             ({"TODO_MD_BUNDLE": "1"}, ["F1"], True),
+            ({"TODO_MD_BUNDLE": "1"}, ["--plain", "F1"], False),
+            ({"TODO_MD_BUNDLE": "1", "TODO_MD_PLAIN": "1"}, ["F1"], False),
+            ({"TODO_MD_BUNDLE": "1", "TODO_MD_PLAIN": "1"}, ["-B", "F1"], True),
         )
         for extra, args, expected in cases:
             with self.subTest(extra=extra, args=args):
@@ -142,50 +153,36 @@ class TestBundle(TodoMdTestCase):
                 )
                 self.assertEqual("Bundle-Protocol: 1" in r.stdout, expected, msg=r.stdout)
 
-        fake_bin = self.tmp / "fake_bin"
-        fake_bin.mkdir()
-        cat_script = "#!/usr/bin/env python3\nimport sys\nsys.stdout.write(sys.stdin.read())\n"
-        for name in ("context", "run", "agents_bundle", "run_block"):
-            p = fake_bin / name
-            p.write_text(cat_script, encoding="utf-8")
-            p.chmod(0o755)
-        pipe_env = {**base_env, "PATH": f"{fake_bin}:{base_env.get('PATH', '')}"}
+        removed_symbols = (
+            "BUNDLE_CONSUMER_NAMES",
+            "STANDARD_FILTER_NAMES",
+            "SHELL_WRAPPER_NAMES",
+            "_normalize_cmd_token",
+            "_argv_executable_name",
+            "_pipeline_consumer_from_shell_c",
+            "_classify_process_tokens",
+            "_read_proc_tokens",
+            "_read_proc_ppid_pgid",
+            "_ancestor_pids",
+            "_linux_fifo_is_standard_filter",
+            "_ps_fifo_is_standard_filter",
+            "_fifo_is_standard_filter",
+        )
+        for sym in removed_symbols:
+            with self.subTest(removed_symbol=sym):
+                self.assertFalse(hasattr(self.todo_md_mod, sym), f"{sym} should be removed")
 
-        for tokens, expected_kind in (
-            (["context"], "bundle"),
-            (["/usr/local/bin/run", "s1/1"], "bundle"),
-            (["python3", "/home/user/.local/bin/agents_bundle.py"], "bundle"),
-            (["sh", "/usr/bin/run_block"], "bundle"),
-            (["grep", "F1"], "filter"),
-            (["less", "-R"], "filter"),
-            (["head", "-n", "10"], "filter"),
-            (["tail", "-n", "5"], "filter"),
-            (["wc", "-l"], "filter"),
-            (["awk", "{print $1}"], "filter"),
-            (["sed", "-n", "1,5p"], "filter"),
-            (["sort"], "filter"),
-            (["cut", "-d:", "-f1"], "filter"),
-            (["tr", "a-z", "A-Z"], "filter"),
-            (["sh", "-c", "todo | less"], "filter"),
-            (["sh", "-c", "todo F1 | context | run"], "bundle"),
+        for args, expected in (
+            ("F1", False),
+            ("", False),
+            ("-B F1", True),
+            ("--bundle F1", True),
         ):
-            with self.subTest(tokens=tokens):
-                self.assertEqual(self.todo_md_mod._classify_process_tokens(tokens), expected_kind)
-
-        for consumer, extra, args, expected in (
-            ("context", {}, "F1", True),
-            ("run", {}, "F1", True),
-            ("context", {"IN_RUN_BLOCK": "1"}, "F1", False),
-            ("context", {"IN_RUN_BLOCK": "1", "RUN_BLOCK_STEP_STDOUT_INO": "1:1"}, "F1", True),
-            ("grep -v '^$'", {}, "F1", False),
-            ("head -n 20", {}, "", False),
-            ("wc -l", {}, "", False),
-        ):
-            with self.subTest(consumer=consumer, extra=extra, args=args):
-                cmd = f"{SCRIPT} {args} | {consumer}".strip()
+            with self.subTest(pipe_args=args):
+                cmd = f"{SCRIPT} {args} | cat".strip()
                 r_pipe = self._run_subprocess(
                     ["sh", "-c", cmd],
-                    env={**pipe_env, **extra},
+                    env=base_env,
                     check=True,
                 )
                 self.assertEqual(
@@ -196,7 +193,7 @@ class TestBundle(TodoMdTestCase):
 
     def test_help_documents_bundle_flags(self):
         r = self._run_subprocess([str(SCRIPT), "--help"], check=True)
-        for frag in ("--bundle", "--plain", "role=ROLE", "TODO_MD_BUNDLE", "TODO_MD_PLAIN"):
+        for frag in ("-B, --bundle", "--plain", "role=ROLE", "TODO_MD_BUNDLE", "TODO_MD_PLAIN"):
             with self.subTest(frag=frag):
                 self.assertIn(frag, r.stdout)
         self.assertNotIn("--no-files", r.stdout)

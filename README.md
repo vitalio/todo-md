@@ -64,7 +64,7 @@ Running `todo` (or `todo <project>`, `todo -w`, `todo chain`) renders the Quest-
 | `todo overview [--full] [-w]` | Print the Markdown `TODO.md` or workspace overview (full `WIP`/`NEXT`/`QUESTION` or first task, plus compact backlog; bare `todo --full` prints it expanded) |
 | `todo search <QUERY> [opts]` | Search task IDs (`<ID>` and `<project>:<ID>`), titles, and bodies across all projects in view and focus the Quest-Log on matches (same as `todo -s <QUERY>`) |
 | `todo projects` | List workspace or `.todo_projects` orchestrator projects, open task counts, and resolved physical directory paths |
-| `todo <ID>...` / `todo show <ID>...\|last` | Show `Task:`, `Prefix:`, `Status:`, `Title:`, and `Workdir:` headers plus full Markdown sections (space- or comma-separated, `<project>:<ID>` supported, separated by blank lines), ready for `todo <ID> \| context \| run` |
+| `todo <ID>...` / `todo show <ID>...\|last` | Show `Task:`, `Prefix:`, `Status:`, `Title:`, and `Workdir:` headers plus full Markdown sections (space- or comma-separated, `<project>:<ID>` supported, separated by blank lines), ready for `todo -B <ID> \| context \| run` |
 | `todo last [<STATUS\|archive>]` | Show full Markdown section for the last task in a status or archive (default: `NEW`; also available as `todo show last`) |
 | `todo last-id [<STATUS\|archive>]` | Print ID of the last task in a status or archive (default: `NEW`) |
 | `todo list [filter] [<ID>...] [opts]` | List tasks (`active`, `archive`, `all`, or `<STATUS>`) in dependency order with aligned status badges, `[blocked: ...]` chains, and target `<ID>...` highlighting (`--prefix P`, `--status S`, `-r`/`--ready`, `-s`/`--search Q`, `-H`/`--highlight`, `-l N`/`--limit N`, `--full`) |
@@ -100,8 +100,8 @@ Running `todo` (or `todo <project>`, `todo -w`, `todo chain`) renders the Quest-
 | `--full` | Show full task sections without compacting `NEW`/`HOLD` (bare `todo --full` prints the expanded Markdown overview; with `-s`/`--search` prints full matching sections) |
 | `-c`, `--commit` | Git-commit `TODO*.md` after mutating commands (opt-in; creates a git commit) |
 | `--no-commit` | Accepted as a no-op alias (commits are disabled by default) |
-| `--bundle` | Emit a `context-bundle-protocol` v1 stream for `<ID>` (`show`), `last`, the default view, and `overview` (read-only: never changes task status) |
-| `--plain` | Disable bundle auto-detection (`--bundle` takes precedence) |
+| `-B`, `--bundle` | Emit a `context-bundle-protocol` v1 stream for `<ID>` (`show`), `last`, the default view, and `overview` (read-only: never changes task status) |
+| `--plain` | Disable bundle mode (`-B` / `--bundle` takes precedence) |
 | `role=ROLE` | Bundle mode explicit role override for `<ID>`, `show`, `last`, `overview`, and the default view: emits `Role: ROLE` in the bundle preamble |
 | `-t`, `--tree` | Render nested `Sub-chain` milestone trees with 4-char connectors (`├── `, `└── `, `└─► `; default: flat rows in execution order) |
 | `--numbered[=left\|right]` | Add period-free row numbers padded to the widest number (default: no numbers; side default: `left`) |
@@ -131,8 +131,8 @@ changes), then automatically validate and status-order `TODO.md`.
 | `TODO_MD_COMMIT` | Set to `1` to git-commit `TODO*.md` automatically on mutating commands |
 | `TODO_MD_NO_COMMIT` | Set to `1` to suppress git commits even when `--commit` / `TODO_MD_COMMIT` is set |
 | `TODO_MD_NO_GIT_PULL` | Set to `1` to skip `git pull --ff-only` upstream sync before mutating commands |
-| `TODO_MD_BUNDLE` | Set to `1` to emit bundle streams (same as `--bundle`) |
-| `TODO_MD_PLAIN` | Set to `1` to disable bundle auto-detection (same as `--plain`) |
+| `TODO_MD_BUNDLE` | Set to `1` to emit bundle streams (same as `-B` / `--bundle`) |
+| `TODO_MD_PLAIN` | Set to `1` to disable bundle mode unless `-B` / `--bundle` is set (same as `--plain`) |
 | `TODO_MD_UPDATE_URL` | Override raw script URL for `update` / `check-update` |
 
 ## Task ID Prefixes
@@ -153,22 +153,21 @@ Task IDs are a single uppercase letter plus a number (`F1`, `B3`, `D2`, `L1`):
 ## Context Bundle Protocol
 
 `todo` is a self-contained producer of `context-bundle-protocol` v1 for agent sessions
-(`todo <ID> | context | run`). In bundle mode it prints `Bundle-*` transport headers
+(`todo -B <ID> | context | run`). In bundle mode it prints `Bundle-*` transport headers
 (`Bundle-Protocol: 1`, `Bundle-Name: vitalio/todo-md`, `Bundle-Command`, `Bundle-Boundary`),
 native task preamble headers (`Task: <ID>`, `Prefix: <P>`, `Status: <S>`, `Title: <title>`,
 `Workdir: <dir>`, plus `Role: <role>` only when an explicit `role=<role>` CLI override is
 passed), the embedded `agents/todo.md` rule fragment (`kind: "rule"`,
 `id: "vitalio/todo-md:todo"`), and the task section (or the Quest-Log / overview for
-`todo [-w]` and `todo overview`) as a prompt fragment (`kind: "prompt"`).
+`todo -B [-w]` and `todo -B overview`) as a prompt fragment (`kind: "prompt"`).
 
-- Bundle mode is on with `--bundle` (`TODO_MD_BUNDLE=1`), or automatically when stdout is
-  piped into `context` (`agents_bundle`) or `run` (`run_block`) outside a `run_block` step
-  output pipe (piping to standard shell filters like `grep`, `less`, `head`, `tail`, `wc`,
-  `awk`, `sed`, `sort`, `cut`, or `tr` keeps plain output). `--plain` (`TODO_MD_PLAIN=1`)
-  disables auto-detection.
+- Explicit activation: bundle mode is emitted only when `-B` / `--bundle` (or
+  `TODO_MD_BUNDLE=1`, unless overridden by `--plain` / `TODO_MD_PLAIN=1`) is explicitly
+  set; standard human/plain output is emitted by default on a TTY and in all pipes
+  (`todo | ...`).
 - Read-only: `todo <ID>`, plain or in bundle mode, never changes `TODO.md`.
 - Role override: `role=<role>` on `<ID>`, `show`, `last`, `overview`, and the default view
-  emits `Role: <role>` in the bundle preamble (`todo <ID> role=plan | context | run`).
+  emits `Role: <role>` in the bundle preamble (`todo -B <ID> role=plan | context | run`).
 
 ## License
 

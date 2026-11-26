@@ -87,11 +87,12 @@ rules are loaded via `.context.bundle`.
   instructions.
 - `src/bundle.py` — `context-bundle-protocol` v1 producer (`BundleOptions`,
   `bundle_mode_enabled()`, `emit_task_bundle()`, `emit_context_bundle()`):
-  FIFO auto-detection, `Bundle-Name: vitalio/todo-md`, native task preamble headers
-  (`Task`, `Prefix`, `Status`, `Title`, `Workdir`, plus `Role` only on
-  explicit `role=<role>` CLI override), and canonical `rule` and `prompt`
-  fragments without streaming `include` file contents; it never mutates
-  `TODO.md`.
+  explicit `-B` / `--bundle` (or `TODO_MD_BUNDLE=1`, unless overridden by
+  `--plain` / `TODO_MD_PLAIN=1`) activation, `Bundle-Name: vitalio/todo-md`,
+  native task preamble headers (`Task`, `Prefix`, `Status`, `Title`, `Workdir`,
+  plus `Role` only on explicit `role=<role>` CLI override), and canonical
+  `rule` and `prompt` fragments without streaming `include` file contents; it
+  never mutates `TODO.md`.
 - `src/cli.py` — CLI argument routing and self-update (`update`,
   `check-update`).
 - `tests/helpers.py` & `tests/test_*.py` — shared in-process/subprocess test

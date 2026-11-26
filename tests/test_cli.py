@@ -115,6 +115,8 @@ class TestCli(TodoMdTestCase):
         self.assertNotIn("--by-role", rh.stdout)
         self.assertIn("Task ID prefixes (`A-Z`): `F` is a feature", rule_txt)
         self.assertIn("rejects `- Role:` and `- Target files:`", rule_txt)
+        self.assertIn("[-B|--bundle]", rule_txt)
+        self.assertIn("-B, --bundle", rh.stdout)
         self.assertFalse((ROOT / "install.ps1").exists())
 
     def _assert_help_aligned(self, text: str) -> None:
@@ -177,7 +179,8 @@ class TestCli(TodoMdTestCase):
             self.assertIn(subheading, readme)
         self.assertNotIn("agents_bundle | run_block", readme)
         self.assertNotIn("agents_bundle \\| run_block", readme)
-        self.assertIn("todo <ID> \\| context \\| run", readme)
+        self.assertIn("todo -B <ID> \\| context \\| run", readme)
+        self.assertIn("`-B`, `--bundle`", readme)
         self.assertIn("[MIT](LICENSE)", readme)
         for line in readme.splitlines():
             self.assertLess(len(line), 600, f"README line too long ({len(line)} chars): {line[:80]}...")

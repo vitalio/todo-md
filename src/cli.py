@@ -617,7 +617,7 @@ def main(argv: list[str] | None = None) -> int:
     args = [a for a in args if a not in BUNDLE_FLAGS]
     bundle = BundleOptions(
         argv=orig_args,
-        bundle_flag="--bundle" in bundle_flags,
+        bundle_flag=bool({"-B", "--bundle"} & bundle_flags),
         plain_flag="--plain" in bundle_flags,
     )
 
