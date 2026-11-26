@@ -1,3 +1,13 @@
+# 🎯 [NEXT] F87: Auto-normalize escaped nested backticks, sentence double spaces, and trailing unclosed fences on task mutations
+
+- Bump: `PATCH`
+- Add `normalize_task_section_markdown(sec_lines: list[str]) -> list[str]` in `src/parser.py` and call it before `_reject_invalid_section_markdown()` across all task-mutating commands in `src/commands.py` (`cmd_add()`, `_edit_single_task()`, `_append_single_task()`, and `cmd_transition()` when `-m` / `note` updates the heading line):
+  - **Escaped backticks inside single-backtick spans**: outside fenced code blocks, when a single-backtick span contains paired backslash-escaped backticks (e.g. `` `foo \`<sha12>\` bar` `` or a wrapped 2-line span inside the same paragraph/list item), convert the outer delimiter to double backticks and unescape the inner backticks into valid CommonMark (`` ``foo `<sha12>` bar`` ``, padding with a leading/trailing space when the inner content starts or ends with a backtick).
+  - **Double spaces after sentence-ending punctuation**: outside fenced code blocks, inline code spans, and Markdown table rows, collapse two or more spaces after sentence-ending punctuation (`[.!?]  +` before an uppercase letter, digit, quote, backtick, or opening paren/bracket) to a single space so prose formatted with two spaces between sentences does not trigger false `consecutive spaces in prose` errors.
+  - **Trailing unclosed fenced code block**: if a task body ends while still inside an open fenced code block, append a closing fence line automatically.
+- Keep strict rejection (`validate_task_section_markdown()`) for genuine swallowed shell expansions where data was already lost by `bash` before `todo` was invoked: empty inline code spans, genuinely unpaired backticks, empty `()` / `[]`, mid-sentence consecutive spaces (e.g. `in  from`), and space before punctuation (e.g. `in .`), and enforce `_reject_invalid_section_markdown([sec_lines[0]], ...)` in `cmd_transition()` so invalid `-m` notes are caught at write time.
+- Add unit tests in `tests/test_parser.py` and `tests/test_commands.py`, update `README.md` and `agents/todo.md`, and rebuild `./todo` via `python3 build.py`.
+
 # 🎯 [NEXT] D6: Design repo-exclusive parallel execution lanes and critical-path metrics in Quest-Log
 
 - Depends on: F59 -> F60 -> F61 -> B6 -> F72 -> F83 -> D5 -> F84
