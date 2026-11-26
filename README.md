@@ -81,7 +81,7 @@ Running `todo` (or `todo <project>`, `todo -w`, `todo chain`) renders the Quest-
 | `todo ids` | Print highest task IDs in use and next available ID per prefix, followed by the prefix legend |
 | `todo chain [<ID>...] [opts]` | Show the Quest-Log: overall progress header, top-ranked finales, root-anchored chains, and ready tasks (see Global & Quest-Log Options) |
 | `todo queue <ID>... [--all]` | Alias for `todo chain <ID>... [--all]`: focused Quest-Log of the chain(s) containing `<ID>...` with `Next actionable: <ref>` for a single ID |
-| `todo next-id [<ID>] [--prefix P] [--status S]` / `--top` | Print the top ready `WIP`/`NEXT` task ID (or matching `--status`), or the first ready ID in `<ID>`'s queue |
+| `todo next-id [<ID>] [--prefix P] [--status S] [-w]` / `--top` | Print the #1 ready `WIP`/`NEXT` task ref (`<ID>` locally or `<project>:<ID>` across `.todo_projects` / `-w`, matching `todo -r -l 1` or `--status`), or the top ready ref in `<ID>`'s queue |
 | `todo check` | Validate layout, task headings, status badges, unique IDs, dependency syntax/cycles, cross-project refs, forbidden `- Role:` / `- Target files:` lines, and stale completion notes |
 | `todo init [TEXT] [--force]` | Create starter `TODO.md` (with optional project idea from `TEXT` or `stdin`) and `TODO_ARCHIVE.md` |
 | `todo update [--force]` | Self-update `todo` from GitHub (`vitalio/todo-md`); makes a network call |

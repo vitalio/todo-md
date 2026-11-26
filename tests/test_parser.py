@@ -782,7 +782,7 @@ class TestParser(TodoMdTestCase):
             "# 🎯 [NEXT] F1: Valid Markdown constructs (`with_code()` and `a  b`)\n\n"
             "- Depends on: F2\n"
             "- Inline code spans with ` ()`, ` []`, `a  b`, `x , y`, and `` `nested` `` backticks.\n"
-            "- Escaped backticks in inline code (`\\`` and `\\`\\``) and fenced block (` " + fence + " `).\n"
+            "- Trailing-backslash inline code spans (`\\` and `\\\\`), escaped prose backticks \\`ok\\`, and fenced block (` " + fence + " `).\n"
             "- Multi-line wrapped inline code span `Workdir: <absolute\n"
             "  project path>` across a continuation line.\n"
             "  - [x] Indented checkbox item with (`valid_arg()`) and [link](https://example.com).\n"

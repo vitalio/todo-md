@@ -2068,6 +2068,55 @@ class TestChain(TodoMdTestCase):
         self.assertIn("\033[1;35m🏁 FINAL\033[0m", r_color.stdout)
         self.assertIn("\033[1;91m🔥 COMBO\033[0m", r_color.stdout)
 
+    def test_next_id_matches_ready_chain_ranking_across_standalone_orchestrator_and_workspace(self):
+        ws = self.tmp / "ws_ready_rank"
+        orch = ws / "orch"
+        proj_a = ws / "proj_a"
+        proj_b = ws / "proj_b"
+        for d in (orch, proj_a, proj_b):
+            d.mkdir(parents=True)
+            self._run([str(SCRIPT), "init"], cwd=str(d), check=True)
+
+        # In proj_a: F1 is at the top of TODO.md (standalone NEXT), while F2 (NEXT) unblocks F3 & F4
+        self._run([str(SCRIPT), "add", "F", "Standalone top-of-file task", "--next"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Chain foundation task", "--next"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Downstream one", "--next", "--depends", "F2"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "add", "F", "Downstream two", "--next", "--depends", "F3"], cwd=str(proj_a), check=True)
+
+        # Even though F1 appears above F2 in TODO.md, F2 advances Chain 1 (unblocks 2 tasks) so todo -r -l 1 and next-id pick F2
+        r_ready_a = self._run([str(SCRIPT), "-r", "-l", "1"], cwd=str(proj_a), check=True)
+        self.assertEqual(self._row_refs(r_ready_a.stdout), ["F2"])
+        self.assertEqual(self._run([str(SCRIPT), "next-id"], cwd=str(proj_a), check=True).stdout.strip(), "F2")
+        self.assertEqual(self.todo_md_mod.resolve_top_task_id(proj_a), "F2")
+
+        # Adding a ready NEXT bugfix B1 that unblocks F4 makes B1 part of Chain 1 and ranks B1 #1 in both todo -r -l 1 and next-id
+        self._run([str(SCRIPT), "add", "B", "Critical bugfix", "--next"], cwd=str(proj_a), check=True)
+        self._run([str(SCRIPT), "edit", "F3", "--depends", "F2, B1"], cwd=str(proj_a), check=True)
+        r_ready_b = self._run([str(SCRIPT), "-r", "-l", "1"], cwd=str(proj_a), check=True)
+        self.assertEqual(self._row_refs(r_ready_b.stdout), ["B1"])
+        self.assertEqual(self._run([str(SCRIPT), "next-id"], cwd=str(proj_a), check=True).stdout.strip(), "B1")
+        self.assertEqual(self._run([str(SCRIPT), "next-id", "--prefix", "F"], cwd=str(proj_a), check=True).stdout.strip(), "F2")
+
+        # Configure orchestrator spanning proj_a and proj_b; proj_b has a ready WIP finale task F2 (after DONE F1)
+        (orch / ".todo_projects").write_text("orch\nproj_a\nproj_b\n", encoding="utf-8")
+        self._run([str(SCRIPT), "add", "F", "Completed prereq"], cwd=str(proj_b), check=True)
+        self._run([str(SCRIPT), "done", "F1", "-m", "done"], cwd=str(proj_b), check=True)
+        self._run([str(SCRIPT), "add", "F", "Ready finale in proj_b", "--status", "WIP", "--depends", "F1"], cwd=str(proj_b), check=True)
+        self._run([str(SCRIPT), "add", "F", "Orch goal", "--next", "--depends", "proj_a:F4, proj_b:F2"], cwd=str(orch), check=True)
+
+        # In orchestrator, todo -r -l 1 and todo next-id both pick proj_b:F2
+        r_orch_r = self._run([str(SCRIPT), "-r", "-l", "1"], cwd=str(orch), check=True)
+        self.assertEqual(self._row_refs(r_orch_r.stdout), ["proj_b:F2"])
+        self.assertEqual(self._run([str(SCRIPT), "next-id"], cwd=str(orch), check=True).stdout.strip(), "proj_b:F2")
+        self.assertEqual(self._run([str(SCRIPT), "next-id", "--status", "NEXT"], cwd=str(orch), check=True).stdout.strip(), "proj_a:B1")
+        self.assertEqual(self._run([str(SCRIPT), "next-id", "F1", "--status", "NEXT"], cwd=str(orch), check=True).stdout.strip(), "proj_a:B1")
+        self.assertEqual(self._run([str(SCRIPT), "next-id", "F1", "--status", "NEXT", "--prefix", "F"], cwd=str(orch), check=True).stdout.strip(), "proj_a:F2")
+
+        # Across workspace (-w) from proj_a, next-id also matches todo -w -r -l 1
+        r_ws_r = self._run([str(SCRIPT), "-w", "-r", "-l", "1"], cwd=str(proj_a), check=True)
+        self.assertEqual(self._row_refs(r_ws_r.stdout), ["proj_b:F2"])
+        self.assertEqual(self._run([str(SCRIPT), "-w", "next-id"], cwd=str(proj_a), check=True).stdout.strip(), "proj_b:F2")
+
 
 if __name__ == "__main__":
     unittest.main()

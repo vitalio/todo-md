@@ -997,34 +997,77 @@ def cmd_archive_view(base_dir: Path) -> int:
     sys.stdout.write(read_if_exists(arch_path).rstrip() + "\n")
     return 0
 
+def _format_next_id_ref(
+    node_key: tuple[Path, str],
+    base_dir: Path,
+    ws_root: Path,
+    workspace: bool = False,
+) -> str:
+    b_res = base_dir.resolve()
+    ndir, ntid = node_key
+    if not workspace and is_todo_project(b_res) and ndir == b_res:
+        return ntid
+    return f"{project_display_name(ndir, ws_root.resolve(), b_res)}:{ntid}"
+
 @_discovery_scoped
 def resolve_top_task_id(
     base_dir: Path,
     prefix: str | None = None,
     status: str | None = None,
     explicit_dir: str | None = None,
+    workspace: bool = False,
 ) -> str | None:
-    todo_path = base_dir / "TODO.md"
-    if not todo_path.is_file():
+    b_res = base_dir.resolve()
+    ws_root = _workspace_root_cached(b_res, explicit_dir=explicit_dir)
+    ws_res = ws_root.resolve()
+    is_orch = (not workspace) and is_orchestrator_project(b_res, ws_res, explicit_dir=explicit_dir)
+    if workspace:
+        if not resolve_workspace_chain_projects(b_res, ws_res):
+            return None
+    elif is_orch:
+        if not read_configured_todo_projects(b_res, ws_res, include_env=True) and not (b_res / "TODO.md").is_file():
+            return None
+    elif not (b_res / "TODO.md").is_file():
         return None
-    active_tasks = parse_tasks_in_text(read_if_exists(todo_path), "TODO.md")
+
+    dag = build_execution_chain_dag(
+        base_dir,
+        workspace=workspace,
+        explicit_dir=explicit_dir,
+        include_done=False,
+    )
+    if dag["syntax_errors"] or dag["cycle"]:
+        return None
     wanted_prefix = prefix.strip().upper() if prefix is not None else None
     if status is not None:
         st_up = status.strip().upper()
-        wanted_statuses: tuple[str, ...] = (
-            tuple(ACTIVE_STATUS_ORDER) if st_up in ("ACTIVE", "ALL") else (st_up,)
+        wanted_statuses: frozenset[str] = (
+            frozenset(ACTIVE_STATUS_ORDER) if st_up in ("ACTIVE", "ALL") else frozenset({st_up})
         )
+        include_hold = st_up == "HOLD"
     else:
-        wanted_statuses = ("WIP", "NEXT")
-    for wanted in wanted_statuses:
-        for t in active_tasks:
-            if str(t["status"]) != wanted:
-                continue
-            if wanted_prefix is not None and not _task_matches_prefix(t, wanted_prefix):
-                continue
-            if _is_task_blocked(base_dir, t, explicit_dir=explicit_dir):
-                continue
-            return str(t["id"]).upper()
+        wanted_statuses = frozenset({"WIP", "NEXT"})
+        include_hold = False
+
+    plan = plan_execution_chains(
+        dag,
+        include_hold=include_hold,
+        ready_only=True,
+    )
+    nodes: dict[tuple[Path, str], dict[str, object]] = dag["nodes"]  # type: ignore[assignment]
+    target_project: Path | None = dag.get("target_project")  # type: ignore[assignment]
+    ready_tasks: list[tuple[Path, str]] = plan["ready_tasks"]  # type: ignore[assignment]
+    for u in ready_tasks:
+        if target_project is not None and u[0] != target_project:
+            continue
+        nd = nodes[u]
+        if not nd.get("exists"):
+            continue
+        if str(nd["status"]) not in wanted_statuses:
+            continue
+        if wanted_prefix is not None and not _task_matches_prefix(nd, wanted_prefix):
+            continue
+        return _format_next_id_ref(u, b_res, ws_res, workspace=workspace)
     return None
 
 @_discovery_scoped
@@ -1035,6 +1078,7 @@ def cmd_next_id(
     explicit_dir: str | None = None,
     prefix: str | None = None,
     status: str | None = None,
+    workspace: bool = False,
 ) -> int:
     notes: list[str] = []
     if prefix is not None:
@@ -1043,7 +1087,13 @@ def cmd_next_id(
         notes.append(f"status={status.strip().upper()}")
     filter_note = f" ({', '.join(notes)})" if notes else ""
     if task_id is None:
-        tid = resolve_top_task_id(base_dir, prefix=prefix, status=status, explicit_dir=explicit_dir)
+        tid = resolve_top_task_id(
+            base_dir,
+            prefix=prefix,
+            status=status,
+            explicit_dir=explicit_dir,
+            workspace=workspace,
+        )
         if not tid:
             st_label = status.strip().upper() if status is not None else "WIP or NEXT"
             sys.stderr.write(
@@ -1053,15 +1103,48 @@ def cmd_next_id(
         sys.stdout.write(f"{tid}\n")
         return 0
 
-    tdir = target_dir or base_dir
+    b_res = base_dir.resolve()
+    ws_root = _workspace_root_cached(b_res, explicit_dir=explicit_dir)
+    ws_res = ws_root.resolve()
+    is_orch = (not workspace) and is_orchestrator_project(b_res, ws_res, explicit_dir=explicit_dir)
+    tdir = (target_dir or base_dir).resolve()
+    tid_norm = task_id.strip().upper()
+    include_hold = status is not None and status.strip().upper() == "HOLD"
+
+    chain_dag = build_execution_chain_dag(
+        base_dir,
+        workspace=workspace,
+        explicit_dir=explicit_dir,
+        include_done=False,
+    )
+    ready_order: dict[tuple[Path, str], int] = {}
+    if not chain_dag["syntax_errors"] and not chain_dag["cycle"]:
+        c_plan = plan_execution_chains(
+            chain_dag,
+            include_hold=include_hold,
+            ready_only=True,
+        )
+        c_ready: list[tuple[Path, str]] = c_plan["ready_tasks"]  # type: ignore[assignment]
+        ready_order = {u: idx for idx, u in enumerate(c_ready)}
+        if (workspace or is_orch) and (target_dir is None or tdir == b_res):
+            c_nodes: dict[tuple[Path, str], dict[str, object]] = chain_dag["nodes"]  # type: ignore[assignment]
+            if not c_nodes.get((tdir, tid_norm), {}).get("exists"):
+                c_active: list[tuple[Path, str]] = c_plan["active_nodes"]  # type: ignore[assignment]
+                matched = [u for u in c_active if u[1] == tid_norm and c_nodes.get(u, {}).get("exists")]
+                if not matched:
+                    matched = [u for u in c_nodes if u[1] == tid_norm and c_nodes[u].get("exists")]
+                if matched:
+                    tdir = matched[0][0]
+
     dag = build_dependency_dag(
         base_dir,
         tdir,
-        task_id,
+        tid_norm,
         explicit_dir=explicit_dir,
         stop_at_done=True,
     )
     nodes: dict[tuple[Path, str], dict[str, object]] = dag["nodes"]  # type: ignore[assignment]
+    prereqs: dict[tuple[Path, str], list[tuple[Path, str]]] = dag["prereqs"]  # type: ignore[assignment]
     topo_order: list[tuple[Path, str]] = dag["topo_order"]  # type: ignore[assignment]
     root_key: tuple[Path, str] = dag["root"]  # type: ignore[assignment]
     root_node = nodes[root_key]
@@ -1096,11 +1179,35 @@ def cmd_next_id(
         st_u = status.strip().upper()
         if st_u not in ("ACTIVE", "ALL"):
             wanted_st_set = frozenset({st_u})
-    next_act = _first_actionable_in_dag(dag, prefix=prefix, status=wanted_st_set)
-    if not next_act:
+    wanted_prefix = prefix.strip().upper() if prefix is not None else None
+    candidates: list[tuple[int, tuple[Path, str]]] = []
+    for idx, u in enumerate(topo_order):
+        nd = nodes[u]
+        st = str(nd["status"])
+        if st not in ACTIVE_STATUS_ORDER:
+            continue
+        if wanted_st_set is not None and st not in wanted_st_set:
+            continue
+        if wanted_prefix is not None and not _task_matches_prefix(nd, wanted_prefix):
+            continue
+        if any(str(nodes[p]["status"]) != "DONE" for p in prereqs[u]):
+            continue
+        candidates.append((idx, u))
+    if not candidates:
         sys.stderr.write(
             f"{prog_name()}: no unblocked actionable task{filter_note} found for {root_node['ref']}\n"
         )
         return 1
+    fallback_rank = len(ready_order)
+    _, best_u = min(
+        candidates,
+        key=lambda item: (
+            ready_order.get(item[1], fallback_rank),
+            0 if _is_bug_task_node(nodes, item[1]) else 1,
+            ACTIVE_STATUS_ORDER.get(str(nodes[item[1]]["status"]), 99),
+            item[0],
+        ),
+    )
+    next_act = _format_next_id_ref(best_u, b_res, ws_res, workspace=workspace)
     sys.stdout.write(f"{next_act}\n")
     return 0

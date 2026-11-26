@@ -91,7 +91,7 @@ class TestCli(TodoMdTestCase):
         self.assertNotIn("--numbered", rule_txt)
         self.assertNotIn("--include-hold", rule_txt)
         self.assertNotIn("last[-id]", rule_txt)
-        self.assertNotIn("next-id", rule_txt)
+        self.assertIn("next-id [<ID>] [--prefix <P>] [--status <S>] [-w]", rule_txt)
         self.assertIn("A -> B -> C", rule_txt)
         self.assertIn("do not introduce a separate `- Order:` field", rule_txt)
         self.assertIn("Status readiness contract:", rule_txt)
@@ -590,6 +590,60 @@ class TestCli(TodoMdTestCase):
         r_q_space = self._run([str(SCRIPT), "queue", "F2", "F3", "--all"], cwd=str(proj), check=True)
         self.assertIn("F2: Second", r_q_space.stdout)
         self.assertIn("Third", r_q_space.stdout)
+
+    def test_next_id_orchestrator_workspace_and_bundle_composition(self):
+        ws = self.tmp / "ws_next_id"
+        orch = ws / "todo-flow"
+        child_md = ws / "todo-md"
+        child_rb = ws / "run-block"
+        for d in (orch, child_md, child_rb):
+            d.mkdir(parents=True)
+            self._run([str(SCRIPT), "init"], cwd=str(d), check=True)
+        (orch / ".todo_projects").write_text("todo-flow\ntodo-md\nrun-block\n", encoding="utf-8")
+
+        # Child tasks: todo-md:F1 (NEXT) and run-block:B1 (NEXT bugfix); orchestrator F1 depends on both
+        self._run([str(SCRIPT), "add", "F", "Child feature in todo-md", "--next"], cwd=str(child_md), check=True)
+        self._run([str(SCRIPT), "add", "B", "Child bugfix in run-block", "--next"], cwd=str(child_rb), check=True)
+        self._run(
+            [str(SCRIPT), "add", "F", "Orch wave", "--next", "--depends", "todo-md:F1, run-block:B1"],
+            cwd=str(orch),
+            check=True,
+        )
+
+        # In orchestrator, todo next-id and todo --top automatically span .todo_projects and pick #1 ready task (run-block:B1)
+        r_orch_nid = self._run([str(SCRIPT), "next-id"], cwd=str(orch), check=True)
+        self.assertEqual(r_orch_nid.stdout.strip(), "run-block:B1")
+        r_orch_top = self._run([str(SCRIPT), "--top"], cwd=str(orch), check=True)
+        self.assertEqual(r_orch_top.stdout.strip(), "run-block:B1")
+
+        # --prefix F in orchestrator selects todo-md:F1
+        r_orch_f = self._run([str(SCRIPT), "next-id", "--prefix", "F"], cwd=str(orch), check=True)
+        self.assertEqual(r_orch_f.stdout.strip(), "todo-md:F1")
+
+        # Target queue scoping in orchestrator ranks ready tasks in F1's queue (run-block:B1 before todo-md:F1)
+        r_q_nid = self._run([str(SCRIPT), "next-id", "F1"], cwd=str(orch), check=True)
+        self.assertEqual(r_q_nid.stdout.strip(), "run-block:B1")
+        r_q_nid_f = self._run([str(SCRIPT), "next-id", "F1", "--prefix", "F"], cwd=str(orch), check=True)
+        self.assertEqual(r_q_nid_f.stdout.strip(), "todo-md:F1")
+
+        # Bundle emission works out of the box with $(todo next-id) output from orchestrator
+        r_bundle = self._run([str(SCRIPT), "-B", r_orch_nid.stdout.strip()], cwd=str(orch), check=True)
+        self.assertIn("Bundle-Protocol: 1", r_bundle.stdout)
+        self.assertIn("Task: B1", r_bundle.stdout)
+        self.assertIn(f"Workdir: {child_rb.resolve()}", r_bundle.stdout)
+
+        # Complete child tasks -> orchestrator local task F1 becomes ready and prints bare F1
+        self._run([str(SCRIPT), "done", "run-block:B1", "-m", "fixed"], cwd=str(orch), check=True)
+        self.assertEqual(self._run([str(SCRIPT), "next-id"], cwd=str(orch), check=True).stdout.strip(), "todo-md:F1")
+        self._run([str(SCRIPT), "done", "todo-md:F1", "-m", "shipped"], cwd=str(orch), check=True)
+        self.assertEqual(self._run([str(SCRIPT), "next-id"], cwd=str(orch), check=True).stdout.strip(), "F1")
+
+        # -w / --workspace spans all workspace projects and prints <project>:<ID>
+        self._run([str(SCRIPT), "add", "B", "Urgent workspace bug", "--status", "WIP"], cwd=str(child_md), check=True)
+        r_ws_nid = self._run([str(SCRIPT), "-w", "next-id"], cwd=str(child_rb), check=True)
+        self.assertEqual(r_ws_nid.stdout.strip(), "todo-md:B1")
+        r_ws_top = self._run([str(SCRIPT), "-w", "--top"], cwd=str(child_rb), check=True)
+        self.assertEqual(r_ws_top.stdout.strip(), "todo-md:B1")
 
 
 if __name__ == "__main__":

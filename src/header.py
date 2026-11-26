@@ -178,7 +178,8 @@ HELP_COMMANDS: tuple[tuple[str, str], ...] = (
      "Show the Quest-Log: top-ranked finales, root-anchored chains, and "
      "ready tasks (see Quest-Log options)"),
     ("{prog} next-id [<ID>] [--prefix P] [--status S] | --top",
-     "Print the top ready WIP/NEXT ID (or matching --status), or the first ready ID in <ID>'s queue"),
+     "Print the #1 ready WIP/NEXT ref (or matching --status) in chain order across repo, "
+     ".todo_projects, or -w, or in <ID>'s queue"),
     ("{prog} check", "Validate layout, headings, status badges, and unique IDs"),
     ("{prog} init [TEXT] [--force]",
      "Create starter TODO.md (with optional project idea from TEXT/stdin) and "

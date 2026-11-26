@@ -793,8 +793,15 @@ def main(argv: list[str] | None = None) -> int:
                 explicit_dir=explicit_dir,
                 prefix=prefix_filter,
                 status=status_filter,
+                workspace=workspace,
             )
-        return cmd_next_id(base_dir, explicit_dir=explicit_dir, prefix=prefix_filter, status=status_filter)
+        return cmd_next_id(
+            base_dir,
+            explicit_dir=explicit_dir,
+            prefix=prefix_filter,
+            status=status_filter,
+            workspace=workspace,
+        )
     if args[0] in ("last-id", "--last-id"):
         if len(args) > 2:
             raise SystemExit(f"{prog}: usage: {prog} last-id [<STATUS|archive>]")
@@ -806,7 +813,7 @@ def main(argv: list[str] | None = None) -> int:
     if args[0] in ("next", "top", "--next", "--top"):
         pos, note = _parse_note_arg(args[1:])
         if args[0] == "--top" and not pos and note is None:
-            return cmd_next_id(base_dir, explicit_dir=explicit_dir)
+            return cmd_next_id(base_dir, explicit_dir=explicit_dir, workspace=workspace)
         reopen = "--reopen" in pos
         pos = [p for p in pos if p != "--reopen"]
         bad_flags = [p for p in pos if p.startswith("-")]

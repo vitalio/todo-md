@@ -27,7 +27,8 @@
     Core views: `{cmd:todo} [opts] [-w]`, `{cmd:todo} overview [--full] [-w]`,
     `{cmd:todo} projects`, `{cmd:todo} [show] <ID>...`,
     `{cmd:todo} list [active|archive|all|<STATUS>] [<ID>...] [--prefix <P>] [--status <S>] [--ready] [-s <QUERY>] [-l N] [--full]`,
-    `{cmd:todo} chain [<ID>...] [--all] [--prefix <P>] [--status <S>] [--ready] [-l N] [--tree] [-f <ID>...] [-s <QUERY>]`.
+    `{cmd:todo} chain [<ID>...] [--all] [--prefix <P>] [--status <S>] [--ready] [-l N] [--tree] [-f <ID>...] [-s <QUERY>]`,
+    `{cmd:todo} next-id [<ID>] [--prefix <P>] [--status <S>] [-w]`.
     Do not re-run broad workspace views (`{cmd:todo}`, `overview`, `chain`)
     when the Quest-Log is already present in `===== Prompt =====`, and
     do not run `{cmd:todo} chain --all --tree` across the entire backlog

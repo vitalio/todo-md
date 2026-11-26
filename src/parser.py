@@ -322,10 +322,6 @@ def _mask_section_inline_code(
                 span_chars = 0
                 out.append("`CODE`")
             else:
-                if ch == "\\" and i + 1 < n and text[i + 1] == "`" and open_tick_len == 1:
-                    span_chars += 2
-                    i += 2
-                    continue
                 if ch == "`":
                     c_start = i
                     while i < n and text[i] == "`":

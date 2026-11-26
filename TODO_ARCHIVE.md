@@ -1,3 +1,12 @@
+# ✅ [DONE] F86: Rank next-id via ready chain order across orchestrator/workspace and fix trailing-backslash inline code check — *2026-11-26, ranked next-id via ready chain order across orchestrator/workspace and fixed trailing-backslash inline code check*
+
+- Bump: `PATCH`
+- In `cmd_next_id()` and `resolve_top_task_id()` (`src/render.py`, `src/cli.py`, `src/header.py`), rank ready tasks using `build_execution_chain_dag()` and `plan_execution_chains(..., ready_only=True)` (`src/dag.py`, `src/chains.py`) instead of scanning only the local `TODO.md` top-down, so `todo next-id` (and `todo --top`) always prints the #1 highest-priority ready task matching `todo -r -l 1`:
+  - Automatically span configured `.todo_projects` when run inside an orchestrator repository (or all workspace projects when `-w` / `--workspace` is passed), printing `<project>:<ID>` for child-repository tasks (e.g. `todo-md:F85`) and bare `<ID>` for local tasks so `todo -B "$(todo next-id)" | context | run` works out of the box.
+  - Honor `--prefix <P>`, `--status <S>`, and optional target `<ID>` / `<project>:<ID>` queue scoping consistently across standalone, orchestrator, and `-w` modes.
+- In `_mask_section_inline_code()` (`src/parser.py`), remove the `ch == "\\"` escape branch inside open inline code spans (`open_tick_len > 0`) so valid CommonMark code spans ending with a backslash (such as `` `\` `` or `` `\\` ``) close cleanly instead of raising a false `unpaired inline backtick` error in `todo check`.
+- Add unit tests in `tests/test_chain.py`, `tests/test_cli.py`, and `tests/test_parser.py`, update `README.md` and `agents/todo.md`, and rebuild `./todo` via `python3 build.py`.
+
 # ✅ [DONE] F85: Require explicit -B / --bundle flag for Bundle-Protocol v1 emission and remove FIFO /proc and ps auto-detection — *2026-11-26*
 
 - Depends on: B13
@@ -10,7 +19,7 @@
 
 - Depends on: B12
 - Bump: `PATCH`
-- In `src/parser.py` (`validate_all()`) and pre-write validation for `cmd_add()`, `cmd_edit()`, and `cmd_append()` in `src/commands.py`, detect and reject Markdown corruption and swallowed shell-expansion artifacts (outside fenced ` ``` ` blocks): unclosed fenced code blocks, odd/unpaired inline backticks (`\``) across a task section, empty inline code spans (`\`\``), whitespace-preceded empty parens/brackets (` ()`, ` []`) outside inline code, and prose gaps left by vanished command substitutions outside inline code and Markdown tables (consecutive spaces inside a prose line after the bullet prefix, or space immediately before `.,;:`). Report a clear error advising single-quoted `-b '...'` or a quoted heredoc (`-b - <<'EOF'`).
+- In `src/parser.py` (`validate_all()`) and pre-write validation for `cmd_add()`, `cmd_edit()`, and `cmd_append()` in `src/commands.py`, detect and reject Markdown corruption and swallowed shell-expansion artifacts (outside fenced ` ``` ` blocks): unclosed fenced code blocks, odd/unpaired inline backticks (`` ` ``) across a task section, empty inline code spans (` `` `), whitespace-preceded empty parens/brackets (` ()`, ` []`) outside inline code, and prose gaps left by vanished command substitutions outside inline code and Markdown tables (consecutive spaces inside a prose line after the bullet prefix, or space immediately before `.,;:`). Report a clear error advising single-quoted `-b '...'` or a quoted heredoc (`-b - <<'EOF'`).
 - In `agents/todo.md` (and `README.md` examples where applicable), switch `-b` / `--body` usage signatures from double quotes (`-b "<body_md>"|-`) to single quotes (`-b '<body_md>'|-`) and document that Markdown bodies containing backticks or `$` must use single quotes (`-b '...'`) or a quoted heredoc (`<<'EOF'`) so `bash` does not execute inline code as command substitution.
 - Rebuild `./todo` via `python3 build.py` and add unit tests in `tests/test_parser.py` and `tests/test_commands.py` covering rejected swallowed-expansion artifacts and valid Markdown constructs.
 
