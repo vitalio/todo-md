@@ -1,3 +1,12 @@
+# 🎯 [NEXT] F89: Enforce strict one-way .todo_projects discovery boundary and remove parent directory scanning
+
+- Enforce the strict one-way orchestrator discovery and mutation boundary defined in `todo-flow/docs/adr/0005-orchestrator-standard-and-dependency-boundaries.md`: multi-project scope exists strictly when `.todo_projects`, `.todo_projects.local`, or `TODO_MD_PROJECTS` is configured; a standalone repository without `.todo_projects` never scans parent or sibling directories (`..`), never discovers enclosing orchestrators, and never mutates external orchestrator files.
+- In `src/workspace.py`, remove blind filesystem scanning (`_scan_projects()`, `discover_projects()`, `_scan_orchestrators_for_project()`, `discover_orchestrators_for_project()`). Resolve configured `.todo_projects` / `.todo_projects.local` entries (`<project_id>` and `<alias>=<path>`) directly against `config_dir`, `ws_root` (`TODO_MD_WORKSPACE` or `config_dir.parent`), or explicit paths without walking `ws_root` subdirectories.
+- In `src/dag.py`, `src/render.py`, and `src/commands.py`, remove reverse child-to-orchestrator coupling (`_inbound_prereqs()`, `_inbound_blocker_items()`, and `_rewrite_orchestrator_deps()` on `todo rename`): child repositories remain 100% self-contained, while cross-project blockers and stage edges are inspected from the orchestrator repository.
+- In `src/render.py` and `src/cli.py`, unify `cmd_projects()`, `cmd_workspace_summary()`, `cmd_workspace_list()`, and `cmd_workspace_check()` around configured `.todo_projects` entries: inside an orchestrator, `-w` and `todo projects` operate strictly on the configured project registry (never pulling in unrelated sibling directories such as `chrome/canary`); inside a standalone repository without `.todo_projects` or `TODO_MD_PROJECTS`, `todo projects` lists only the current repository (`1 project(s)`) and `-w` / `-p <project>` / `<project>:<ID>` fail explicitly with a clear error message requiring `.todo_projects`.
+- Update `AGENTS.md`, `agents/todo.md`, `README.md`, and unit tests in `tests/test_deps.py`, `tests/test_chain.py`, `tests/test_commands.py`, and `tests/test_cli.py`, and rebuild `./todo` via `python3 build.py`.
+- Bump: `MINOR`
+
 # 🎯 [NEXT] F88: Group todo -h commands, drop repeated {prog} prefix, compact [opts] signatures, and unify cross-section description column
 
 - Update `src/header.py` (`HELP_COMMANDS`, `HELP_GLOBAL_OPTIONS`, `_help_table()`, `usage_text()`) to conform to the refined `agents/cli/help.md` layout contract:
@@ -11,21 +20,23 @@
 
 - Depends on: F59 -> F60 -> F61 -> B6 -> F72 -> F83 -> D5 -> F84
 - Depends on: B8
+- Depends on: F89
 - Model parallel task execution under the repo-exclusivity invariant (at most one active task per repository at a time):
   - Compute parallel wavefront width (`threads: <K>`) across ready tasks by grouping ready tasks by repository and selecting the top-ranked actionable task per repository as a parallel execution lane (`Lane 1..K`).
   - Compute parallel critical-path steps for chains and orchestrator waves as `max(dag_depth, max_repo_open_count)` and surface parallelism metrics on chain headers and `todo -r` (`--ready`) in `src/chains.py` and `src/render_chain.py`.
 
 # 🎯 [NEXT] D3: Design explicit HOLD task review workflow and reverse dependency visibility
 
-- Specify how `HOLD` tasks expose downstream blocked dependents (`Blocks: ...` in `show` / `list HOLD`, including cross-project references under `-w`) so reviewers see what unblocks when a `HOLD` condition is met.
+- Depends on: F89
+- Specify how `HOLD` tasks expose downstream blocked dependents (`Blocks: ...` in `show` / `list HOLD`, including cross-project references when run from an orchestrator with `.todo_projects`) so reviewers see what unblocks when a `HOLD` condition is met.
 - Design an opt-in, explicitly invoked workflow (and any supporting CLI filter/command or bundle/rule trigger) for auditing `HOLD` tasks against repository/environment state without running automatically on unrelated agent turns.
 - Define status transition rules when a `HOLD` condition is satisfied (`NEW` vs `NEXT`) versus still waiting (updating notes in place).
-- Coordinate with `todo-flow:D4`: when a child repository belongs to a workspace orchestrator (`.todo_projects`), surface inbound orchestrator blockers in runtime `list` / `show` output (e.g. `[blocked via todo-flow:F2: ...]`) without storing cross-project `Depends on:` edges in the child `TODO.md`.
+- Preserve the strict one-way dependency boundary (`todo-flow/docs/adr/0005-orchestrator-standard-and-dependency-boundaries.md`): child repositories remain self-contained without scanning parent directories for enclosing orchestrators; cross-project reverse dependency visibility (`Blocks: ...`) is surfaced when inspecting from the orchestrator repository.
 - Target files for downstream implementation: `src/dag.py`, `src/render.py`, `src/commands.py`, `src/cli.py`, `src/header.py`, `agents/todo.md`, `README.md`, `tests/test_deps.py`, `tests/test_commands.py`.
 
 # 🎯 [NEXT] D2: Design standalone task file mode (-F / --file) for shortlists and ad-hoc task files
 
-- Depends on: F55, F75
+- Depends on: F55, F75, F89
 - Explore and specify `-F <path>` / `--file <path>` support across `todo` subcommands (`overview`, `list`, `show`, `next-id`, `queue`, `files`, `check`, `add`, `edit`, `append`, `status`, `next`) so `todo` can inspect and manipulate any Markdown task file (such as a temporary shortlist generated during planning or dispatch) outside a repository's `TODO.md` (keeping `-f` reserved for `--filter`).
 - Define behavior when `TODO_ARCHIVE.md` is absent beside the target file: allow read/check and in-file status mutations without requiring an archive file, and specify explicit error or `--archive <path>` handling for `done` / `cancel` / `archive`.
 - Define interaction and precedence with `-C <dir|project>` (`F20`), `TODO_MD_CWD`, positional `.md` paths, and cross-project `<project>:<ID>` dependency lookups via `TODO_MD_WORKSPACE` when inspecting a shortlist in `/tmp` or another directory.
