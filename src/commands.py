@@ -228,7 +228,7 @@ def _extract_and_remove_task(text: str, target_id: str) -> tuple[dict[str, objec
             if m and m.group(3).upper() == target_id:
                 emoji, status, tid, title = m.groups()
                 start_idx = idx
-                found_info = {"id": tid, "status": status, "emoji": emoji, "title": title}
+                found_info = {"id": tid, "status": status, "emoji": emoji, "title": title, "line": idx + 1}
     if start_idx is None or found_info is None:
         return None, text
     if end_idx is None:
@@ -387,6 +387,14 @@ def cmd_transition(
     tid = str(found["id"])
     sec_lines = list(found["lines"])  # type: ignore[arg-type]
     sec_lines[0] = _format_heading(final_status, tid, str(found["title"]), note=effective_note)
+    sec_lines[0] = normalize_task_section_markdown([sec_lines[0]])[0]
+    if _reject_invalid_section_markdown(
+        [sec_lines[0]],
+        tid=tid,
+        fname=source_file,
+        start_lineno=int(found.get("line", 1)),  # type: ignore[arg-type]
+    ):
+        return 1
 
     if require_archived or (is_archived and reopen):
         commit_msg = f"Reopen task {tid} as {final_status}: {base_title}"
@@ -775,6 +783,7 @@ def cmd_add(
     if body_lines:
         sec_lines.extend(["", *body_lines])
 
+    sec_lines = normalize_task_section_markdown(sec_lines)
     if _reject_invalid_section_markdown(sec_lines, tid=tid, fname="TODO.md", start_lineno=1):
         return 1
 
@@ -976,8 +985,8 @@ def _edit_single_task(
                 old_sec[0] = heading
                 new_sec = old_sec
 
-        check_sec = list(new_sec)
-        if _reject_invalid_section_markdown(check_sec, tid=tid, fname=fname, start_lineno=start_idx + 1):
+        new_sec = normalize_task_section_markdown(new_sec)
+        if _reject_invalid_section_markdown(new_sec, tid=tid, fname=fname, start_lineno=start_idx + 1):
             return 1
 
         updated_lines = lines[:start_idx] + new_sec + lines[end_idx:]
@@ -1080,6 +1089,7 @@ def _append_single_task(
         while sec_lines and not sec_lines[-1].strip():
             sec_lines.pop()
         sec_lines.extend(["", *body_text.splitlines(), ""])
+        sec_lines = normalize_task_section_markdown(sec_lines)
         if _reject_invalid_section_markdown(sec_lines, tid=target, fname=fname, start_lineno=start_idx + 1):
             return 1
         updated_lines = lines[:start_idx] + sec_lines + lines[end_idx:]

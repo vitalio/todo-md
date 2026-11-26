@@ -43,7 +43,10 @@
     `{cmd:todo} append <ID>... [-b '<text>'|-]...` (repeated `-b` / `--body`
     flags are joined with `\n`; Markdown bodies containing backticks or `$`
     must use single quotes `-b '...'` or a quoted heredoc `-b - <<'EOF'` so
-    `bash` does not execute inline code as command substitution),
+    `bash` does not execute inline code as command substitution; mutations
+    auto-normalize paired `\`...\`` inside single-backtick spans, sentence
+    double spaces, and trailing unclosed code fences while rejecting swallowed
+    shell expansions),
     `{cmd:todo} rename <OLD> <NEW|PREFIX> | <OLD>=<NEW|PREFIX>...`,
     `{cmd:todo} next <ID>... [-m "<note>"]`,
     `{cmd:todo} status <ID>... <STATUS> [-m "<note>"]`,

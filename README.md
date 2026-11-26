@@ -119,7 +119,10 @@ Mutating commands (`init`, `add`, `edit`, `append`, `rename`, `status`, `next`, 
 `done`, `cancel`, `archive <ID>...`) first run `git pull --ff-only --no-rebase --quiet` when
 the repository has a configured git upstream (skipped outside a git repository, without an
 upstream, when `TODO_MD_NO_GIT_PULL=1` is set, or when tracked files have uncommitted
-changes), then automatically validate and status-order `TODO.md`.
+changes), auto-normalize recoverable Markdown quirks (paired `\`...\`` inside
+single-backtick spans, double spaces after sentence-ending punctuation, and trailing
+unclosed fenced code blocks) while rejecting swallowed shell expansions, and status-order
+`TODO.md`.
 
 ### Environment
 

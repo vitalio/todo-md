@@ -872,6 +872,93 @@ class TestParser(TodoMdTestCase):
                 self.assertIn("-b '...'", r_bad.stderr)
                 self.assertIn("<<'EOF'", r_bad.stderr)
 
+    def test_normalize_task_section_markdown(self):
+        mod = self.todo_md_mod
+        fence = chr(96) * 3
+
+        raw_lines = [
+            r'# 🎯 [NEXT] F1: Normalize `cmd \`<id>\` arg`.  Second sentence — *Note `\`<sha12>\``.  Extra*',
+            "",
+            r'- Single-line escaped backticks: `run --done s1 -m "closed (\`<sha12>\`)"` and `\`<edge>\``.',
+            r'- Leading/trailing escaped backticks: `\`<start>\` tail` and `head \`<end>\``.',
+            r'- Multiple escaped pairs: `run \`<a1>\` then \`<b2>\` ok`.',
+            r'- Wrapped 2-line span: `first line \`<sha12>\`',
+            r'  second line` in the same bullet.',
+            r'- Wrapped starting with escaped backtick: `\`<sha12>\`',
+            r'  second line` in the same bullet.',
+            r'- Sentence double spaces: First sentence.  Second sentence!   3rd sentence?  "Quoted" and  `code.  keep`.',
+            r'- Punctuation before parens/brackets/backticks: Done.  (Next) and ok!  [Ref] and check?  `cmd`.',
+            r'- Trailing-backslash spans stay untouched: (`\` and `\\`) and prose \`ok\`.',
+            r'| Table Col 1.  Keep | `cell \`<x>\` ok` |',
+            fence + "bash",
+            r'echo `foo \`bar\` baz`',
+            "# Inside fence.  Two spaces stay untouched",
+        ]
+        norm_lines = mod.normalize_task_section_markdown(raw_lines)
+
+        self.assertEqual(
+            norm_lines[0],
+            "# 🎯 [NEXT] F1: Normalize ``cmd `<id>` arg``. Second sentence — *Note `` `<sha12>` ``. Extra*",
+        )
+        self.assertEqual(
+            norm_lines[2],
+            '- Single-line escaped backticks: ``run --done s1 -m "closed (`<sha12>`)"`` and `` `<edge>` ``.',
+        )
+        self.assertEqual(
+            norm_lines[3],
+            "- Leading/trailing escaped backticks: `` `<start>` tail`` and ``head `<end>` ``.",
+        )
+        self.assertEqual(
+            norm_lines[4],
+            "- Multiple escaped pairs: ``run `<a1>` then `<b2>` ok``.",
+        )
+        self.assertEqual(
+            norm_lines[5],
+            "- Wrapped 2-line span: ``first line `<sha12>`",
+        )
+        self.assertEqual(
+            norm_lines[6],
+            "  second line`` in the same bullet.",
+        )
+        self.assertEqual(
+            norm_lines[7],
+            "- Wrapped starting with escaped backtick: `` `<sha12>`",
+        )
+        self.assertEqual(
+            norm_lines[8],
+            "  second line`` in the same bullet.",
+        )
+        self.assertEqual(
+            norm_lines[9],
+            '- Sentence double spaces: First sentence. Second sentence! 3rd sentence? "Quoted" and  `code.  keep`.',
+        )
+        self.assertEqual(
+            norm_lines[10],
+            "- Punctuation before parens/brackets/backticks: Done. (Next) and ok! [Ref] and check? `cmd`.",
+        )
+        self.assertEqual(
+            norm_lines[11],
+            r"- Trailing-backslash spans stay untouched: (`\` and `\\`) and prose \`ok\`.",
+        )
+        self.assertEqual(
+            norm_lines[12],
+            "| Table Col 1.  Keep | ``cell `<x>` ok`` |",
+        )
+        self.assertEqual(norm_lines[13], fence + "bash")
+        self.assertEqual(norm_lines[14], r"echo `foo \`bar\` baz`")
+        self.assertEqual(norm_lines[15], "# Inside fence.  Two spaces stay untouched")
+        self.assertEqual(norm_lines[16], fence)
+
+        # Line 9 still has mid-sentence 'and  `code.  keep`' which validate_task_section_markdown catches
+        errs_with_mid = mod.validate_task_section_markdown(norm_lines, tid="F1")
+        self.assertEqual(len(errs_with_mid), 1)
+        self.assertIn("consecutive spaces in prose", errs_with_mid[0])
+
+        # Fix the mid-sentence double space and verify the normalized section validates cleanly
+        clean_lines = list(norm_lines)
+        clean_lines[9] = clean_lines[9].replace("and  `code.  keep`", "and `code.  keep`")
+        self.assertEqual(mod.validate_task_section_markdown(clean_lines, tid="F1"), [])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -263,6 +263,228 @@ SHELL_QUOTE_HINT = (
 _BULLET_PREFIX_RE = re.compile(r"^(\s*(?:(?:[-*+]|\d+[.)])\s+(?:\[[ xX~]\]\s+)?)?)(.*)$")
 _EMPTY_PARENS_BRACKETS_RE = re.compile(r"(?:^|\s)(\(\)|\[\])(?=\s|$|[.,;:!?)\]])")
 _SPACE_BEFORE_PUNCT_RE = re.compile(r"\S\s+[.,;:](?=\s|$)")
+_SENTENCE_DOUBLE_SPACE_RE = re.compile(r"([.!?])  +(?=[A-Z0-9\"'`(\[])")
+_NEW_BLOCK_ITEM_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)]|#+)\s+")
+
+
+def _find_closing_backtick_run(text: str, start: int, tick_len: int) -> int | None:
+    i = start
+    n = len(text)
+    while i < n:
+        if text[i] != "`":
+            i += 1
+            continue
+        c_start = i
+        while i < n and text[i] == "`":
+            i += 1
+        if i - c_start == tick_len:
+            return c_start
+    return None
+
+
+def _try_parse_escaped_single_tick_span(text: str, start: int) -> tuple[str, int] | None:
+    n = len(text)
+    j = start
+    inner_parts: list[str] = []
+    escaped_count = 0
+    while j < n:
+        ch = text[j]
+        if ch == "\\":
+            bs_start = j
+            while j < n and text[j] == "\\":
+                j += 1
+            bs_count = j - bs_start
+            if j < n and text[j] == "`":
+                if bs_count % 2 == 1:
+                    if bs_count > 1:
+                        inner_parts.append("\\" * (bs_count - 1))
+                    inner_parts.append("`")
+                    escaped_count += 1
+                    j += 1
+                    continue
+                inner_parts.append("\\" * bs_count)
+                continue
+            inner_parts.append("\\" * bs_count)
+            continue
+        if ch == "`":
+            c_start = j
+            while j < n and text[j] == "`":
+                j += 1
+            c_len = j - c_start
+            if c_len == 1:
+                if escaped_count >= 2 and escaped_count % 2 == 0:
+                    inner = "".join(inner_parts)
+                    if inner.startswith("`"):
+                        inner = " " + inner
+                    if inner.endswith("`"):
+                        inner = inner + " "
+                    return f"``{inner}``", j
+                return None
+            return None
+        inner_parts.append(ch)
+        j += 1
+    return None
+
+
+def _normalize_escaped_nested_backticks(text: str) -> str:
+    if "\\`" not in text:
+        return text
+    out: list[str] = []
+    i = 0
+    n = len(text)
+    while i < n:
+        ch = text[i]
+        if ch == "\\" and i + 1 < n:
+            bs_start = i
+            while i < n and text[i] == "\\":
+                i += 1
+            bs_count = i - bs_start
+            if i < n and text[i] == "`" and bs_count % 2 == 1:
+                out.append(text[bs_start : i + 1])
+                i += 1
+                continue
+            out.append(text[bs_start:i])
+            continue
+        if ch != "`":
+            out.append(ch)
+            i += 1
+            continue
+        run_start = i
+        while i < n and text[i] == "`":
+            i += 1
+        tick_len = i - run_start
+        if tick_len >= 2:
+            close_idx = _find_closing_backtick_run(text, i, tick_len)
+            if close_idx is not None:
+                out.append(text[run_start : close_idx + tick_len])
+                i = close_idx + tick_len
+            else:
+                out.append(text[run_start:i])
+            continue
+        parsed = _try_parse_escaped_single_tick_span(text, i)
+        if parsed is not None:
+            normalized_span, next_i = parsed
+            out.append(normalized_span)
+            i = next_i
+            continue
+        close_idx = _find_closing_backtick_run(text, i, 1)
+        if close_idx is not None:
+            out.append(text[run_start : close_idx + 1])
+            i = close_idx + 1
+        else:
+            out.append("`")
+    return "".join(out)
+
+
+def _collapse_sentence_double_spaces_outside_code(text: str) -> str:
+    if "  " not in text:
+        return text
+    spans: list[str] = []
+    masked_parts: list[str] = []
+    i = 0
+    n = len(text)
+    while i < n:
+        ch = text[i]
+        if ch == "\\" and i + 1 < n and text[i + 1] == "`":
+            masked_parts.append(text[i : i + 2])
+            i += 2
+            continue
+        if ch != "`":
+            masked_parts.append(ch)
+            i += 1
+            continue
+        run_start = i
+        while i < n and text[i] == "`":
+            i += 1
+        tick_len = i - run_start
+        close_idx = _find_closing_backtick_run(text, i, tick_len)
+        if close_idx is not None and close_idx > i:
+            span_idx = len(spans)
+            spans.append(text[run_start : close_idx + tick_len])
+            masked_parts.append(f"`\x00{span_idx}\x00`")
+            i = close_idx + tick_len
+        else:
+            masked_parts.append(text[run_start:i])
+    masked = "".join(masked_parts)
+    collapsed = _SENTENCE_DOUBLE_SPACE_RE.sub(r"\1 ", masked)
+    for idx, orig_span in enumerate(spans):
+        collapsed = collapsed.replace(f"`\x00{idx}\x00`", orig_span, 1)
+    return collapsed
+
+
+def _normalize_prose_block(text: str, collapse_spaces: bool = True) -> str:
+    res = _normalize_escaped_nested_backticks(text)
+    if collapse_spaces:
+        res = _collapse_sentence_double_spaces_outside_code(res)
+    return res
+
+
+def normalize_task_section_markdown(sec_lines: list[str]) -> list[str]:
+    if not sec_lines:
+        return []
+    out: list[str] = [
+        "" for _ in sec_lines
+    ]
+    in_fence = False
+    para_indices: list[int] = []
+
+    def _flush_para() -> None:
+        if not para_indices:
+            return
+        joined = "\n".join(sec_lines[idx] for idx in para_indices)
+        normalized = _normalize_prose_block(joined, collapse_spaces=True)
+        for idx, nline in zip(para_indices, normalized.split("\n")):
+            out[idx] = nline
+        para_indices.clear()
+
+    for idx, line in enumerate(sec_lines):
+        stripped = line.lstrip()
+        if stripped.startswith(FENCE):
+            _flush_para()
+            in_fence = not in_fence
+            out[idx] = line
+            continue
+        if in_fence:
+            out[idx] = line
+            continue
+        if idx == 0 and line.startswith("# "):
+            _flush_para()
+            m = HEADING_RE.match(line)
+            if m:
+                raw_title = m.group(4)
+                base_title, note_text = _strip_heading_note(raw_title)
+                norm_base = _normalize_prose_block(base_title, collapse_spaces=True)
+                prefix = line[: m.start(4)]
+                if note_text is not None:
+                    norm_note = _normalize_prose_block(note_text, collapse_spaces=True)
+                    out[idx] = f"{prefix}{norm_base} — *{norm_note}*"
+                else:
+                    out[idx] = f"{prefix}{norm_base}"
+            else:
+                out[idx] = _normalize_prose_block(line, collapse_spaces=True)
+            continue
+        if not stripped:
+            _flush_para()
+            out[idx] = line
+            continue
+        if stripped.startswith("|"):
+            _flush_para()
+            out[idx] = _normalize_prose_block(line, collapse_spaces=False)
+            continue
+        if _NEW_BLOCK_ITEM_RE.match(line):
+            _flush_para()
+        para_indices.append(idx)
+
+    _flush_para()
+
+    if in_fence:
+        trailing_blanks: list[str] = []
+        while out and not out[-1].strip():
+            trailing_blanks.append(out.pop())
+        out.append(FENCE)
+        out.extend(reversed(trailing_blanks))
+
+    return out
 
 
 def _mask_section_inline_code(
@@ -306,8 +528,16 @@ def _mask_section_inline_code(
                     i += 1
                 tick_len = i - run_start
                 if tick_len == 2 and (i >= n or not text[i].isalnum()):
-                    # Check if a matching `` closes on the remaining line
-                    rem = text[i:]
+                    # Check if a matching `` closes on the remaining line or continuation lines
+                    rem_parts = [text[i:]]
+                    if offset > 0:
+                        for next_off, _, next_text in non_fence_lines:
+                            if next_off <= offset:
+                                continue
+                            if not next_text.strip() or _NEW_BLOCK_ITEM_RE.match(next_text) or next_text.lstrip().startswith("|"):
+                                break
+                            rem_parts.append(next_text)
+                    rem = "\n".join(rem_parts)
                     if not re.search(r"(?<!`)``(?!`)", rem):
                         errors.append(
                             (

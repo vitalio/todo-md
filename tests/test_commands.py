@@ -1079,7 +1079,6 @@ class TestCommands(TodoMdTestCase):
             (["add", "F", "Clean title", "-b", "- Unpaired `inline backtick."], "unpaired inline backtick"),
             (["add", "F", "Clean title", "-b", "- Double  space in prose."], "consecutive spaces"),
             (["add", "F", "Clean title", "-b", "- Space before comma , here."], "space before punctuation"),
-            (["add", "F", "Clean title", "-b", "- Unclosed fence\n" + fence + "py\nx = 1"], "unclosed fenced code block"),
         ]
         for args, exp_err in bad_add_cases:
             with self.subTest(cmd="add", args=args):
@@ -1099,7 +1098,6 @@ class TestCommands(TodoMdTestCase):
             (["edit", "F1", "-b", "- Swallowed `` code span."], "empty inline code span"),
             (["edit", "F1", "-b", "- Swallowed  word in prose."], "consecutive spaces"),
             (["edit", "F1", "-b", "- Swallowed word before period ."], "space before punctuation"),
-            (["edit", "F1", "-b", "- Unclosed\n" + fence], "unclosed fenced code block"),
         ]
         for args, exp_err in bad_edit_cases:
             with self.subTest(cmd="edit", args=args):
@@ -1116,7 +1114,6 @@ class TestCommands(TodoMdTestCase):
             (["append", "F1", "-b", "- Appended `unpaired backtick."], "unpaired inline backtick"),
             (["append", "F1", "-b", "- Appended  double space."], "consecutive spaces"),
             (["append", "F1", "-b", "- Appended space before colon : value."], "space before punctuation"),
-            (["append", "F1", "-b", fence + "sh\necho unclosed"], "unclosed fenced code block"),
         ]
         for args, exp_err in bad_append_cases:
             with self.subTest(cmd="append", args=args):
@@ -1125,6 +1122,104 @@ class TestCommands(TodoMdTestCase):
                 self.assertIn(exp_err, r.stderr)
                 self.assertIn("-b '...'", r.stderr)
                 self.assertEqual((self.tmp / "TODO.md").read_text(encoding="utf-8"), todo_before)
+
+        # Pre-write validation on transition commands (status, next, done, cancel, archive, reopen)
+        # rejects corrupted -m notes before writing to disk
+        bad_transition_cases = [
+            (["status", "F1", "WIP", "-m", "bad  note"], "consecutive spaces"),
+            (["next", "F1", "-m", "unpaired `tick"], "unpaired inline backtick"),
+            (["done", "F1", "-m", "empty () parens"], "empty '()'"),
+            (["cancel", "F1", "-m", "empty `` span"], "empty inline code span"),
+            (["archive", "F1", "-m", "space before period ."], "space before punctuation"),
+        ]
+        for args, exp_err in bad_transition_cases:
+            with self.subTest(cmd="transition", args=args):
+                r = self._run([str(SCRIPT), *args])
+                self.assertNotEqual(r.returncode, 0, msg=r.stdout)
+                self.assertIn(exp_err, r.stderr)
+                self.assertIn("-b '...'", r.stderr)
+                self.assertEqual((self.tmp / "TODO.md").read_text(encoding="utf-8"), todo_before)
+
+        # Auto-normalization on add, edit, append, and transitions (status/done/reopen -m):
+        # escaped nested backticks, sentence double spaces, and trailing unclosed code fences
+        self._run(
+            [
+                str(SCRIPT),
+                "add",
+                "F",
+                r"Title with `cmd \`<id>\` ok`.  Second sentence",
+                "-m",
+                r"Note one.  Note `\`<sha>\``",
+                "-b",
+                r"- Run `foo \`<sha12>\` bar`.  Next sentence!  `code()`."
+                + "\n"
+                + fence
+                + "py\nx = 1",
+            ],
+            check=True,
+        )
+        todo_after_add = (self.tmp / "TODO.md").read_text(encoding="utf-8")
+        self.assertIn(
+            "# ⚪ [NEW] F2: Title with ``cmd `<id>` ok``. Second sentence — *Note one. Note `` `<sha>` ``*",
+            todo_after_add,
+        )
+        self.assertIn(
+            "- Run ``foo `<sha12>` bar``. Next sentence! `code()`.\n" + fence + "py\nx = 1\n" + fence,
+            todo_after_add,
+        )
+
+        # Edit auto-normalizes escaped backticks, sentence double spaces, and trailing unclosed fence
+        self._run(
+            [
+                str(SCRIPT),
+                "edit",
+                "F2",
+                "-t",
+                r"Edited `\`<id>\` tail`.  Clean",
+                "-b",
+                r"- Wrapped `span \`<sha>\`"
+                + "\n  line 2`.  Done.\n"
+                + fence
+                + "sh\necho hi",
+            ],
+            check=True,
+        )
+        todo_after_edit = (self.tmp / "TODO.md").read_text(encoding="utf-8")
+        self.assertIn("# ⚪ [NEW] F2: Edited `` `<id>` tail``. Clean", todo_after_edit)
+        self.assertIn(
+            "- Wrapped ``span `<sha>`\n  line 2``. Done.\n" + fence + "sh\necho hi\n" + fence,
+            todo_after_edit,
+        )
+
+        # Append auto-normalizes escaped backticks, sentence double spaces, and trailing unclosed fence
+        self._run(
+            [
+                str(SCRIPT),
+                "append",
+                "F2",
+                "-b",
+                r"- Appended `a \`b\` c`!  Great." + "\n" + fence + "txt\ntrailing block",
+            ],
+            check=True,
+        )
+        todo_after_append = (self.tmp / "TODO.md").read_text(encoding="utf-8")
+        self.assertIn(
+            "- Appended ``a `b` c``! Great.\n" + fence + "txt\ntrailing block\n" + fence,
+            todo_after_append,
+        )
+
+        # Transition -m note auto-normalizes escaped backticks and sentence double spaces,
+        # while reopen rejects invalid -m notes
+        self._run(
+            [str(SCRIPT), "done", "F2", "-m", r"Closed (`\`<sha12>\``).  Verified"],
+            check=True,
+        )
+        arch_txt = (self.tmp / "TODO_ARCHIVE.md").read_text(encoding="utf-8")
+        self.assertIn("Closed (`` `<sha12>` ``). Verified*", arch_txt)
+
+        r_bad_reopen = self._run([str(SCRIPT), "reopen", "F2", "-m", "bad  reopen note"])
+        self.assertNotEqual(r_bad_reopen.returncode, 0, msg=r_bad_reopen.stdout)
+        self.assertIn("consecutive spaces", r_bad_reopen.stderr)
 
         self._run([str(SCRIPT), "check"], check=True)
 
