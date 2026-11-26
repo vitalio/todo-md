@@ -1,3 +1,12 @@
+# 🎯 [NEXT] F88: Group todo -h commands, drop repeated {prog} prefix, compact [opts] signatures, and unify cross-section description column
+
+- Update `src/header.py` (`HELP_COMMANDS`, `HELP_GLOBAL_OPTIONS`, `_help_table()`, `usage_text()`) to conform to the refined `agents/cli/help.md` layout contract:
+  - Split `HELP_COMMANDS` into 3 thematic sections (`View & Search Commands:`, `Task Lifecycle Commands:`, `Repository & System Commands:`) and drop the repeated `{prog} ` prefix from subcommand rows (`Usage:` already shows `{prog}` invocation templates; mention bare `todo <ID>...` in `show <ID>...`).
+  - Compact overlong left-column command signatures (`archive [<ID>...] [opts]`, `rename <OLD> <NEW|P>...`, `next <ID>... [opts]`, `next-id [<ID>|--top] [opts]`) and move their command-specific flags into the right-hand description so the shared description column sits around column 34-36 (`>= 64` columns for descriptions).
+  - Move `-V, --version` and `-h, --help` from `Commands:` to the end of `Global options:`, and rename `Environment variables:` to `Environment:`.
+  - Compute one shared description column `col` across all tabular sections in `usage_text()` (capped by a `HELP_MAX_LEFT` budget with wrapped/overflow handling when a custom `prog_name()` exceeds the budget) so the right-hand description column never jumps horizontally between sections.
+- Update `tests/test_cli.py` (`test_help_version_and_agents`, `test_help_structured_sections_and_alignment`, `_assert_help_aligned`) to assert the grouped command section headings, `Environment:`, and a single shared description column across all tabular sections; keep `README.md` and `agents/todo.md` in sync, rebuild `./todo` via `python3 build.py`, and run `python3 -m unittest`.
+
 # 🎯 [NEXT] D6: Design repo-exclusive parallel execution lanes and critical-path metrics in Quest-Log
 
 - Depends on: F59 -> F60 -> F61 -> B6 -> F72 -> F83 -> D5 -> F84
