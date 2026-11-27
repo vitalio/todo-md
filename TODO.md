@@ -1,11 +1,14 @@
-# 🎯 [NEXT] F88: Group todo -h commands, drop repeated {prog} prefix, compact [opts] signatures, and unify cross-section description column
+# 🎯 [NEXT] F88: Fold check-update into update [--check | --force], group todo -h commands, compact [opts] signatures, and unify cross-section description column
 
+- Bump: `MINOR`
+- Fold `check-update` / `--check-update` and `--self-update` into `todo update [--check | --force]` (and `--update [--check | --force]`) in `src/cli.py` and `src/header.py` per `agents/cli/lifecycle.md`:
+  - Remove `"check-update"` from `KNOWN_SUBCOMMANDS` and top-level dispatch, remove the undocumented `--self-update` alias, and support `--check` and `--force` under `update` / `--update` (rejecting unknown options or combined `--check` + `--force` with exit status `2`).
 - Update `src/header.py` (`HELP_COMMANDS`, `HELP_GLOBAL_OPTIONS`, `_help_table()`, `usage_text()`) to conform to the refined `agents/cli/help.md` layout contract:
-  - Split `HELP_COMMANDS` into 3 thematic sections (`View & Search Commands:`, `Task Lifecycle Commands:`, `Repository & System Commands:`) and drop the repeated `{prog} ` prefix from subcommand rows (`Usage:` already shows `{prog}` invocation templates; mention bare `todo <ID>...` in `show <ID>...`).
+  - Split `HELP_COMMANDS` into 3 thematic sections (`View & Search Commands:`, `Task Lifecycle Commands:`, `Repository & System Commands:`) and drop the repeated `{prog} ` prefix from subcommand rows (`Usage:` already shows `{prog}` invocation templates; mention bare `todo <ID>...` in `show <ID>...`, and list `update [--check | --force]` under `Repository & System Commands:`).
   - Compact overlong left-column command signatures (`archive [<ID>...] [opts]`, `rename <OLD> <NEW|P>...`, `next <ID>... [opts]`, `next-id [<ID>|--top] [opts]`) and move their command-specific flags into the right-hand description so the shared description column sits around column 34-36 (`>= 64` columns for descriptions).
   - Move `-V, --version` and `-h, --help` from `Commands:` to the end of `Global options:`, and rename `Environment variables:` to `Environment:`.
   - Compute one shared description column `col` across all tabular sections in `usage_text()` (capped by a `HELP_MAX_LEFT` budget with wrapped/overflow handling when a custom `prog_name()` exceeds the budget) so the right-hand description column never jumps horizontally between sections.
-- Update `tests/test_cli.py` (`test_help_version_and_agents`, `test_help_structured_sections_and_alignment`, `_assert_help_aligned`) to assert the grouped command section headings, `Environment:`, and a single shared description column across all tabular sections; keep `README.md` and `agents/todo.md` in sync, rebuild `./todo` via `python3 build.py`, and run `python3 -m unittest`.
+- Update `tests/test_cli.py`, `README.md`, `AGENTS.md`, and `agents/todo.md`, rebuild `./todo` via `python3 build.py`, and run `python3 -m unittest`.
 
 # 🎯 [NEXT] D6: Design repo-exclusive parallel execution lanes and critical-path metrics in Quest-Log
 
@@ -33,6 +36,16 @@
 - Define interaction and precedence with `-C <dir|project>` (`F20`), `TODO_MD_CWD`, positional `.md` paths, and cross-project `<project>:<ID>` dependency lookups via `TODO_MD_WORKSPACE` when inspecting a shortlist in `/tmp` or another directory.
 - Shortlist/chain export workflow: evaluate supporting an exported or agent-generated shortlist Markdown file (e.g. a custom prioritized sequence or `chain` snapshot) that users can inspect, filter, and step through with `todo -F <path>` while resolving `<project>:<ID>` references against `TODO_MD_WORKSPACE`.
 - Target files for downstream implementation: `src/cli.py`, `src/workspace.py`, `src/parser.py`, `src/render.py`, `src/commands.py`, `src/header.py`, `agents/todo.md`, `README.md`, `tests/test_cli.py`, `tests/test_parser.py`, `tests/test_commands.py`.
+
+# 🎯 [NEXT] F90: Remove legacy todo_md binary migration shims and output strings
+
+- Depends on: F88
+- Bump: `PATCH`
+- Remove post-ADR-0004 legacy `todo_md` migration code across `src/`, `install.sh`, and `tests/` (retaining canonical `TODO_MD_*` environment variables):
+  - `src/header.py`, `src/cli.py`, & `install.sh`: remove `LEGACY_REPO_MARKER = "todo_md-repo: vitalio/todo_md"`, `_remove_legacy_binary()`, `self_file.name == "todo_md"` target redirection in `cmd_update()`, and `todo_md` legacy binary lookup/removal in `cmd_uninstall()` and `install.sh` (updating the `mktemp` prefix in `install.sh` to `todo_install.XXXXXX`).
+  - `src/render.py` & `src/render_chain.py`: replace `"No todo_md projects found under ..."` with `"No todo projects found under ..."`.
+  - `tests/`: remove legacy `todo_md` binary cutover assertions in `tests/test_cli.py` and clean up stale `todo_md` / `run_block` fixture directory names and comments across `tests/test_*.py`.
+- Rebuild `./todo` via `python3 build.py` and verify `python3 -m unittest` passes.
 
 # ⏸️ [HOLD] P1: JSON output mode (`--json`) — *Defer machine-readable JSON output until an external client or dashboard is needed*
 
