@@ -52,7 +52,7 @@ Running `todo` (or `todo <project>`, `todo -w`, `todo chain`) renders the Quest-
 - **Root-anchored chains**: `<pct>% · <done>/<total> · Chain <N> -> <root_ref>: <root_title>:` rendered as flat topological rows in execution order by default, or as nested `<pct>% · <done>/<total> · Sub-chain -> <milestone_ref>: <title>:` trees with 4-char connectors (`├── `, `└── `, `└─► `) under `-t` / `--tree`.
 - **Quest Momentum ranking**: ready `WIP` / `NEXT` chain finales (`🟢 ready · 🏁 FINAL`) rank first as top `Chain 1..K` entries, followed by chains ordered by bugfix priority (`B*`), active quest momentum / started-chain status floor, status tier (`WIP` -> `NEXT` -> `QUESTION` -> `NEW` -> `HOLD`), velocity, whole-cone size, and root tie-breaker. Shared prerequisites annotate cross-chain membership with `🔗 also in: <other_root_ref>, ...`.
 - **Ready queue (`-r` / `--ready`)**: ranks immediately actionable tasks by bugfix prefix, status tier, Quest Momentum continuation, best parent chain rank (tasks advancing `Chain 1` first), multi-chain count, completed prerequisite count, and immediate ready unlocks (`🏁 FINAL · ⚡ STAGE · 🔥 COMBO · ⛓️ chain: <N> · 🟢 ready: +<M> · 🔓 unblocks: <K>`, showing `⛓️ chain: <N>` when `N > 1` and `🟢 ready: +<M>` when `M > 0`).
-- **Dependency syntax (`--depends` / `- Depends on:`)**: `,` separates parallel items within a stage, `->` separates sequential stages (`,` binds tighter than `->`, e.g. `A, B -> C`), and `;` separates independent AND branches (`A -> B; C -> D`). In orchestrator repositories with `.todo_projects` (or `.todo_projects.local`, supporting project paths and `<project_id>=<path>` aliases), cross-project `<project>:<ID>` blockers merge transitively into child-project views.
+- **Dependency syntax (`--depends` / `- Depends on:`)**: `,` separates parallel items in a stage, `->` separates sequential stages (`,` binds tighter than `->`, e.g. `A, B -> C`), and `;` separates independent AND branches (`A -> B; C -> D`). In orchestrators with `.todo_projects` (`.todo_projects.local` / `TODO_MD_PROJECTS`, including `<project_id>=<path>` aliases), cross-project `<project>:<ID>` dependencies resolve across configured projects while standalone repos remain self-contained (`-w`, `-p <project>`, and `<project>:<ID>` require `.todo_projects`).
 
 ## CLI Reference
 
@@ -63,7 +63,7 @@ Running `todo` (or `todo <project>`, `todo -w`, `todo chain`) renders the Quest-
 | `todo [dir\|project] [opts] [-w]` | Print the default Quest-Log view of the repository, `<project>`, or workspace (`-w`): flat root-anchored chains in execution order |
 | `todo overview [--full] [-w]` | Print the Markdown `TODO.md` or workspace overview (full `WIP`/`NEXT`/`QUESTION` or first task, plus compact backlog; bare `todo --full` prints it expanded) |
 | `todo search <QUERY> [opts]` | Search task IDs (`<ID>` and `<project>:<ID>`), titles, and bodies across all projects in view and focus the Quest-Log on matches (same as `todo -s <QUERY>`) |
-| `todo projects` | List workspace or `.todo_projects` orchestrator projects, open task counts, and resolved physical directory paths |
+| `todo projects` | List configured `.todo_projects` orchestrator projects (or the current standalone repository), open task counts, and resolved physical directory paths |
 | `todo <ID>...` / `todo show <ID>...\|last` | Show `Task:`, `Prefix:`, `Status:`, `Title:`, and `Workdir:` headers plus full Markdown sections (space- or comma-separated, `<project>:<ID>` supported, separated by blank lines), ready for `todo -B <ID> \| context \| run` |
 | `todo last [<STATUS\|archive>]` | Show full Markdown section for the last task in a status or archive (default: `NEW`; also available as `todo show last`) |
 | `todo last-id [<STATUS\|archive>]` | Print ID of the last task in a status or archive (default: `NEW`) |
@@ -95,8 +95,8 @@ Running `todo` (or `todo <project>`, `todo -w`, `todo chain`) renders the Quest-
 | Option | Description |
 | :--- | :--- |
 | `-C DIR` | Run as if `todo` was started in filesystem directory `DIR` relative to current `PWD` (matching `git -C DIR`) |
-| `-p PROJ`, `--project PROJ` | Target workspace or `.todo_projects` project name/alias before subcommands (precedence: `-C`/`-p`/`--project` > `TODO_MD_CWD` > `<project>:<ID>` > `cwd`; inside `add`, `-p PREFIX` sets the task ID prefix) |
-| `-w`, `--workspace` | Operate across all discovered workspace projects |
+| `-p PROJ`, `--project PROJ` | Target `.todo_projects` project name/alias before subcommands (requires `.todo_projects`; precedence: `-C`/`-p`/`--project` > `TODO_MD_CWD` > `<project>:<ID>` > `cwd`; inside `add`, `-p PREFIX` sets the task ID prefix) |
+| `-w`, `--workspace` | Operate across all configured `.todo_projects` projects (requires `.todo_projects`) |
 | `--full` | Show full task sections without compacting `NEW`/`HOLD` (bare `todo --full` prints the expanded Markdown overview; with `-s`/`--search` prints full matching sections) |
 | `-c`, `--commit` | Git-commit `TODO*.md` after mutating commands (opt-in; creates a git commit) |
 | `--no-commit` | Accepted as a no-op alias (commits are disabled by default) |

@@ -650,6 +650,7 @@ def plan_execution_chains(
         )
 
     done_topo_pos = {d: idx for idx, d in enumerate(done_topo_order)}
+    any_wip_in_dag = any(str(nodes[u]["status"]) == "WIP" for u in active_list)
 
     def _build_chain_entry(
         root: tuple[Path, str],
@@ -718,7 +719,9 @@ def plan_execution_chains(
         raw_best_status = min(open_statuses, default=99)
         has_wip = any(str(nodes[u]["status"]) == "WIP" for u in comp_open)
         is_active_quest = has_wip or (
-            latest_done_task is not None and latest_done_task in comp_done
+            not any_wip_in_dag
+            and latest_done_task is not None
+            and latest_done_task in comp_done
         )
         best_status = ACTIVE_STATUS_ORDER["WIP"] if is_active_quest else raw_best_status
 

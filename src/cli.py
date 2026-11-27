@@ -395,7 +395,7 @@ def _quest_log(
     use_ws = workspace
     ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
     if not use_ws and not is_todo_project(base_dir) and not (base_dir / "TODO.md").is_file():
-        if discover_projects(ws_root):
+        if has_todo_projects_config(base_dir):
             use_ws = True
     matched_refs: list[tuple[Path, str]] = list(filter_refs)
     search = o["search"]
@@ -428,7 +428,7 @@ def _quest_log(
         filt = "archive" if archive == "ARCHIVE" else str(archive)
         if use_ws:
             return cmd_workspace_list(
-                ws_root,
+                base_dir,
                 filt,
                 limit=o["limit"],
                 full=full,
@@ -436,6 +436,7 @@ def _quest_log(
                 ready=False,
                 targets=matched_refs,
                 focus=focus_refs,
+                explicit_dir=explicit_dir,
             )
         return cmd_list(
             base_dir,
@@ -477,11 +478,10 @@ def _overview(
 
 def _render_overview(base_dir: Path, explicit_dir: str | None, workspace: bool, full: bool) -> int:
     if workspace:
-        return cmd_workspace_summary(resolve_workspace_root(base_dir, explicit_dir=explicit_dir), full=full)
+        return cmd_workspace_summary(base_dir, full=full, explicit_dir=explicit_dir)
     if not is_todo_project(base_dir) and not (base_dir / "TODO.md").is_file():
-        ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
-        if discover_projects(ws_root):
-            return cmd_workspace_summary(ws_root, full=full)
+        if has_todo_projects_config(base_dir):
+            return cmd_workspace_summary(base_dir, full=full, explicit_dir=explicit_dir)
     return cmd_summary(base_dir, full=full)
 
 
@@ -632,14 +632,16 @@ def main(argv: list[str] | None = None) -> int:
             explicit_dir = args.pop(0)
         elif not re.fullmatch(r"[A-Za-z]\d+", args[0]) and not PROJECT_TASK_RE.match(args[0]):
             probe_base = resolve_target_dir(None)
-            ws_probe = resolve_workspace_root(probe_base)
-            norm_arg = args[0].replace("\\", "/").strip("/")
-            ext_cand = lookup_external_alias(probe_base, ws_probe, norm_arg)
-            cand = ext_cand if ext_cand is not None else (ws_probe / norm_arg).resolve()
-            if is_todo_project(cand):
-                explicit_dir = str(cand)
-                args.pop(0)
+            if has_todo_projects_config(probe_base):
+                ws_probe = resolve_workspace_root(probe_base)
+                norm_arg = args[0].replace("\\", "/").strip("/")
+                ext_cand = lookup_external_alias(probe_base, ws_probe, norm_arg)
+                if ext_cand is not None and is_todo_project(ext_cand):
+                    explicit_dir = str(ext_cand)
+                    args.pop(0)
     base_dir = resolve_target_dir(explicit_dir)
+    if workspace:
+        require_todo_projects_config(base_dir, "workspace mode (-w/--workspace)")
     bundle.role, args = _extract_session_role(prog, args)
     if args and args[0] in ("projects", "--projects"):
         return cmd_projects(base_dir, explicit_dir=explicit_dir)
@@ -827,10 +829,12 @@ def main(argv: list[str] | None = None) -> int:
     if args[0] in ("ids", "--ids"):
         return cmd_ids(base_dir)
     if args[0] in ("check", "--check"):
-        if workspace or (not is_todo_project(base_dir) and not (base_dir / "TODO.md").is_file()):
-            ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
-            if workspace or discover_projects(ws_root):
-                return cmd_workspace_check(ws_root)
+        if workspace or (
+            not is_todo_project(base_dir)
+            and not (base_dir / "TODO.md").is_file()
+            and has_todo_projects_config(base_dir)
+        ):
+            return cmd_workspace_check(base_dir, explicit_dir=explicit_dir)
         return cmd_check(base_dir)
     if args[0] in ("init", "--init"):
         return cmd_init(base_dir, argv=args[1:], commit=commit, no_commit=no_commit)
@@ -909,21 +913,24 @@ def main(argv: list[str] | None = None) -> int:
             resolve_filter_task_ref(base_dir, ref, explicit_dir=explicit_dir)
             for ref in raw_target_refs
         ]
-        if workspace or (not is_todo_project(base_dir) and not (base_dir / "TODO.md").is_file()):
-            ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
-            if workspace or discover_projects(ws_root):
-                return cmd_workspace_list(
-                    ws_root,
-                    filt,
-                    limit=limit,
-                    full=full,
-                    prefix=prefix_filter,
-                    status=status_filter,
-                    ready=ready,
-                    targets=target_refs,
-                    search=search_query,
-                    highlight_only=highlight_only,
-                )
+        if workspace or (
+            not is_todo_project(base_dir)
+            and not (base_dir / "TODO.md").is_file()
+            and has_todo_projects_config(base_dir)
+        ):
+            return cmd_workspace_list(
+                base_dir,
+                filt,
+                limit=limit,
+                full=full,
+                prefix=prefix_filter,
+                status=status_filter,
+                ready=ready,
+                targets=target_refs,
+                search=search_query,
+                highlight_only=highlight_only,
+                explicit_dir=explicit_dir,
+            )
         return cmd_list(
             base_dir,
             filt,

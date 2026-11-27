@@ -739,12 +739,11 @@ def cmd_add(
 
     if len(pos) >= 2 and not re.fullmatch(r"[A-Za-z](?:\d+)?", pos[0].strip()):
         cand_proj = pos[0].strip().replace("\\", "/").strip("/")
-        ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
-        if cand_proj and ".." not in cand_proj.split("/"):
+        if cand_proj and ".." not in cand_proj.split("/") and has_todo_projects_config(base_dir):
+            ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
             ext_dir = lookup_external_alias(base_dir, ws_root, cand_proj)
-            cand_dir = ext_dir if ext_dir is not None else (ws_root / cand_proj).resolve()
-            if is_todo_project(cand_dir):
-                base_dir = cand_dir
+            if ext_dir is not None and is_todo_project(ext_dir):
+                base_dir = ext_dir
                 pos = pos[1:]
 
     _sync_upstream(base_dir, commit, no_commit)
@@ -1219,45 +1218,6 @@ def _rewrite_project_tasks_and_deps(
         if changed or dep_changed:
             p.write_text(rewritten, encoding="utf-8")
 
-def _rewrite_orchestrator_deps(
-    tdir: Path,
-    rename_map: dict[str, str],
-    ws_root: Path,
-    commit: bool,
-    no_commit: bool,
-) -> None:
-    t_res = tdir.resolve()
-    orchestrators, _ = discover_orchestrators_for_project(t_res, ws_root)
-    for orch_dir in orchestrators:
-        o_res = orch_dir.resolve()
-        if o_res == t_res:
-            continue
-
-        def _qual_orch(proj_part: str, tid_up: str, _o_res: Path = o_res) -> str | None:
-            if tid_up not in rename_map or rename_map[tid_up] == tid_up:
-                return None
-            r_proj = _resolve_todo_project_entry(proj_part, _o_res, ws_root)
-            return rename_map[tid_up] if r_proj == t_res else None
-
-        orch_changed = False
-        for fname in TASK_FILES:
-            p = o_res / fname
-            if not p.is_file():
-                continue
-            raw = read_if_exists(p)
-            rewritten, dep_changed = _rewrite_depends_text(raw, local_map=None, qualified_checker=_qual_orch)
-            if dep_changed:
-                p.write_text(rewritten, encoding="utf-8")
-                orch_changed = True
-        if orch_changed:
-            summary = ", ".join(f"{o}->{n}" for o, n in rename_map.items() if o != n)
-            _finalize_mutation(
-                o_res,
-                f"Update orchestrator dependencies for renamed tasks ({summary})",
-                commit=commit,
-                no_commit=no_commit,
-            )
-
 def cmd_rename(
     base_dir: Path,
     argv: list[str],
@@ -1344,7 +1304,6 @@ def cmd_rename(
     for tdir, final_pairs, rename_map in resolved_batches:
         ws_root = resolve_workspace_root(tdir, explicit_dir=explicit_dir)
         _rewrite_project_tasks_and_deps(tdir, rename_map, ws_root)
-        _rewrite_orchestrator_deps(tdir, rename_map, ws_root, commit=commit, no_commit=no_commit)
         for old_id, new_id in final_pairs:
             sys.stdout.write(f"{prog}: renamed {old_id} -> {new_id}\n")
         summary = ", ".join(f"{o} -> {n}" for o, n in final_pairs)

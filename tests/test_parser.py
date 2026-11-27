@@ -147,6 +147,7 @@ class TestParser(TodoMdTestCase):
             )
 
         self._run([str(SCRIPT), "add", "F", "Audit task", "--depends", "D1", "-b", "Review body"], cwd=str(proj_a), check=True)
+        (ws / ".todo_projects").write_text("proj_a\n", encoding="utf-8")
         r_f2 = self._run([str(SCRIPT), "proj_a:F2"], cwd=str(ws), check=True)
         self.assertEqual(
             r_f2.stdout.splitlines()[:6],
@@ -344,6 +345,8 @@ class TestParser(TodoMdTestCase):
         self._run([str(SCRIPT), "cancel", "F7", "-m", "canceled"], cwd=str(proj_a), check=True)
 
         (proj_b / ".todo_projects").write_text("proj_a\nproj_b\n", encoding="utf-8")
+        (proj_a / ".todo_projects.local").write_text("proj_a\nproj_b\n", encoding="utf-8")
+        (ws / ".todo_projects").write_text("proj_a\nproj_b\n", encoding="utf-8")
         self._run(
             [str(SCRIPT), "add", "Cross-project dependent task with a lengthy title for workspace views", "--next", "--depends", "proj_a:F2"],
             cwd=str(proj_b),
@@ -565,6 +568,8 @@ class TestParser(TodoMdTestCase):
             d.mkdir(parents=True)
             self._run([str(SCRIPT), "init"], cwd=str(d), check=True)
         (todo_flow / ".todo_projects").write_text("run_block\n", encoding="utf-8")
+        (run_block / ".todo_projects.local").write_text("todo_flow\nrun_block\n", encoding="utf-8")
+        (ws / ".todo_projects").write_text("todo_flow\nrun_block\n", encoding="utf-8")
 
         # run_block: D1 (DONE), F1 (finale after D1), F2 (in cross-project chain), F3 (standalone),
         # D2 (HOLD) -> F4 (held leaf), F5 (canceled)

@@ -446,6 +446,7 @@ class TestCommands(TodoMdTestCase):
         ws_proj.mkdir(parents=True)
         shutil.copy2(self.tmp / "TODO.md", ws_proj / "TODO.md")
         shutil.copy2(self.tmp / "TODO_ARCHIVE.md", ws_proj / "TODO_ARCHIVE.md")
+        (ws_dir / ".todo_projects").write_text("proj\n", encoding="utf-8")
         r_ws_act = self._run(
             [str(SCRIPT), "list", "-w", "active"],
             cwd=str(ws_dir),
@@ -605,6 +606,7 @@ class TestCommands(TodoMdTestCase):
         self.assertNotIn("obsolete", todo_after_f2)
 
         # reopen defaults to NEW and clears closing note; --status and -m customize it
+        (ws / ".todo_projects").write_text("proj\n", encoding="utf-8")
         self._run([str(SCRIPT), "reopen", "proj:F3"], cwd=str(ws), check=True)
         todo_after_f3 = (proj / "TODO.md").read_text(encoding="utf-8")
         self.assertIn("# ⚪ [NEW] F3: Second done\n", todo_after_f3)
@@ -684,6 +686,7 @@ class TestCommands(TodoMdTestCase):
         r_none = self._run([str(SCRIPT), "list", "--prefix", "Z"], cwd=str(proj_a), check=True)
         self.assertIn("No matching tasks (active, prefix=Z)", r_none.stdout)
 
+        (proj_a / ".todo_projects.local").write_text("proj_a\nproj_b\n", encoding="utf-8")
         r_ws_l = self._run([str(SCRIPT), "-w", "list", "--prefix=L"], cwd=str(proj_a), check=True)
         self.assertIn("proj_a:L1", r_ws_l.stdout)
         self.assertIn("proj_b:L1", r_ws_l.stdout)
@@ -802,12 +805,15 @@ class TestCommands(TodoMdTestCase):
             check=True,
         )
 
-        # 1. Single pair rename (<OLD> <NEW_ID>) across archive and dependencies + orchestrator
+        orch_todo_before = (orch / "TODO.md").read_text(encoding="utf-8")
+
+        # 1. Single pair rename (<OLD> <NEW_ID>) across archive and local dependencies
+        # without mutating external orchestrator files (strict one-way boundary)
         r_single = self._run([str(SCRIPT), "rename", "D1", "D5"], cwd=str(child), check=True)
         self.assertIn("renamed D1 -> D5", r_single.stdout)
         self.assertIn("# ✅ [DONE] D5: Archived design", (child / "TODO_ARCHIVE.md").read_text(encoding="utf-8"))
         self.assertIn("- Depends on: D5 -> F1, F2", (child / "TODO.md").read_text(encoding="utf-8"))
-        self.assertIn("- Depends on: child:D5 -> child:F1, child:F2", (orch / "TODO.md").read_text(encoding="utf-8"))
+        self.assertEqual((orch / "TODO.md").read_text(encoding="utf-8"), orch_todo_before)
 
         # 2. Swap cycle (F1=F2 F2=F1) and prefix auto-allocation (F3=B, D5=B) in one batch
         r_swap = self._run([str(SCRIPT), "rename", "F1=F2,F2=F1", "F3=B", "D5=B"], cwd=str(child), check=True)
@@ -817,20 +823,21 @@ class TestCommands(TodoMdTestCase):
         self.assertIn("renamed D5 -> B2", r_swap.stdout)
         child_todo = (child / "TODO.md").read_text(encoding="utf-8")
         child_arch = (child / "TODO_ARCHIVE.md").read_text(encoding="utf-8")
-        orch_todo = (orch / "TODO.md").read_text(encoding="utf-8")
         self.assertIn("F2: First active", child_todo)
         self.assertIn("F1: Second active", child_todo)
         self.assertIn("- Depends on: F2", child_todo)
         self.assertIn("B1: Third active", child_todo)
         self.assertIn("- Depends on: B2 -> F2, F1", child_todo)
         self.assertIn("B2: Archived design", child_arch)
-        self.assertIn("- Depends on: child:B2 -> child:F2, child:F1", orch_todo)
+        self.assertEqual((orch / "TODO.md").read_text(encoding="utf-8"), orch_todo_before)
 
-        # 3. Cross-project <project>:<OLD> rename from workspace root
+        # 3. Cross-project <project>:<OLD> rename from orchestrator with .todo_projects
+        r_no_cfg = self._run([str(SCRIPT), "rename", "child:B1", "L"], cwd=str(ws))
+        self.assertNotEqual(r_no_cfg.returncode, 0, msg=r_no_cfg.stdout)
+        self.assertIn(".todo_projects", r_no_cfg.stderr)
         r_proj = self._run(
             [str(SCRIPT), "rename", "child:B1", "L"],
-            cwd=str(ws),
-            env={**os.environ, "TODO_MD_WORKSPACE": str(ws)},
+            cwd=str(orch),
             check=True,
         )
         self.assertIn("renamed B1 -> L1", r_proj.stdout)
@@ -858,6 +865,11 @@ class TestCommands(TodoMdTestCase):
                 self.assertIn(err_sub, r_err.stderr)
 
         self._run([str(SCRIPT), "check"], cwd=str(child), check=True)
+        self._run(
+            [str(SCRIPT), "edit", "F1", "--depends", "child:D1 -> child:F2, child:F1"],
+            cwd=str(orch),
+            check=True,
+        )
         self._run([str(SCRIPT), "check"], cwd=str(orch), check=True)
 
     def test_batch_edit_and_append(self):

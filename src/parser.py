@@ -768,7 +768,7 @@ def validate_all(base_dir: Path) -> tuple[list[str], int]:
             )
 
     ws_root = _workspace_root_cached(base_dir)
-    is_orchestrator = has_local_todo_projects_config(base_dir)
+    is_orchestrator = has_todo_projects_config(base_dir)
     local_ids = set(seen_ids.keys())
     shared = _ACTIVE_DISCOVERY
     task_cache: dict[Path, dict[str, dict[str, object]]] = (
@@ -815,13 +815,10 @@ def validate_all(base_dir: Path) -> tuple[list[str], int]:
                                 )
                                 continue
                             ext_dir = lookup_external_alias(base_dir, ws_root, proj_name)
-                            if ext_dir is not None and is_todo_project(ext_dir):
-                                target_dir = ext_dir
-                            else:
-                                target_dir = (ws_root / proj_name).resolve()
-                            if not is_todo_project(target_dir):
+                            if ext_dir is None or not is_todo_project(ext_dir):
                                 errors.append(f"TODO.md:{lineno}: task {tid} depends on unknown project in {ref!r}")
                                 continue
+                            target_dir = ext_dir
                             if target_tid not in _proj_task_ids(target_dir):
                                 errors.append(f"TODO.md:{lineno}: task {tid} depends on missing task {ref!r}")
                             elif target_dir == base_dir.resolve() and target_tid == tid:

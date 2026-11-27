@@ -19,11 +19,13 @@
     `{cmd:todo} next <ID>`.
   - Inspect & target selection: pass `-C <dir>` (filesystem directory relative
     to current `PWD`, matching `git -C <dir>`) or `-p <project>` / `--project
-    <name>` (workspace / `.todo_projects` project name or alias) before
-    subcommands (keeping `-p <P>` inside `{cmd:todo} add` for ID prefix, or
-    `<project>:<ID>` on task refs). `{cmd:todo} projects` resolves workspace
-    project names and aliases (including `<project_id>=<path>` in
-    `.todo_projects` and `.todo_projects.local`) to physical directory paths.
+    <name>` (`.todo_projects` project name or alias) before subcommands
+    (keeping `-p <P>` inside `{cmd:todo} add` for ID prefix, or `<project>:<ID>`
+    on task refs; `-w`, `-p <project>`, and `<project>:<ID>` require
+    `.todo_projects`). `{cmd:todo} projects` resolves configured
+    `.todo_projects` and `.todo_projects.local` names and `<project_id>=<path>`
+    aliases to physical directory paths (or lists only the current repository
+    when `.todo_projects` is not configured).
     Core views: `{cmd:todo} [opts] [-w]`, `{cmd:todo} overview [--full] [-w]`,
     `{cmd:todo} projects`, `{cmd:todo} [show] <ID>...`,
     `{cmd:todo} list [active|archive|all|<STATUS>] [<ID>...] [--prefix <P>] [--status <S>] [--ready] [-s <QUERY>] [-l N] [--full]`,
@@ -63,7 +65,8 @@
     chain alongside parallel items must be separated with `;`
     (`"X, Y; A -> B"`). Cross-project `<project>:<ID>` dependencies are allowed
     only in orchestrator repositories with `.todo_projects` (or
-    `.todo_projects.local`); `{cmd:todo} check` rejects them in
-    non-orchestrator repositories. Wire new or refined tasks both upstream
+    `.todo_projects.local` / `TODO_MD_PROJECTS`); `{cmd:todo} check` rejects
+    them in non-orchestrator repositories, and standalone repositories never
+    scan parent directories or mutate external orchestrator files. Wire new or refined tasks both upstream
     (`--depends`) and downstream (`{cmd:todo} edit <ID> --depends ...` on
     existing open tasks or waves).

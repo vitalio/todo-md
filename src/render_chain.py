@@ -15,6 +15,8 @@ def cmd_chain(
     status: frozenset[str] | None = None,
 ) -> int:
     b_res = base_dir.resolve()
+    if workspace:
+        require_todo_projects_config(b_res, "workspace mode (-w/--workspace)")
     row_scoped = status is not None or bool(focus)
     ws_root = _workspace_root_cached(b_res, explicit_dir=explicit_dir)
     is_orch = (not workspace) and is_orchestrator_project(b_res, ws_root, explicit_dir=explicit_dir)
@@ -57,8 +59,15 @@ def cmd_chain(
 
     archived_tasks: list[tuple[Path, str]] = dag.get("archived_tasks", [])  # type: ignore[assignment]
 
+    local_project: Path | None = (
+        b_res if (not workspace and is_todo_project(b_res)) else target_project
+    )
+
     def _is_target_node(u: tuple[Path, str]) -> bool:
         return target_project is None or u[0] == target_project
+
+    def _is_external_node(u: tuple[Path, str]) -> bool:
+        return local_project is not None and u[0] != local_project
 
     has_open_in_scope = bool(topo_order) and (
         target_project is None or any(u[0] == target_project for u in topo_order)
@@ -232,7 +241,7 @@ def cmd_chain(
             row_prefix=row_prefix,
             title=title,
             has_tags=bool(status_tag),
-            is_external=not _is_target_node(u),
+            is_external=_is_external_node(u),
             is_done=(st == "DONE"),
             is_highlighted=_is_highlighted_node(u),
             use_color=use_color,
@@ -634,7 +643,7 @@ def cmd_chain(
                             sys.stdout.write(
                                 _style_chain_header_line(
                                     sub_hdr,
-                                    is_external=not _is_target_node(m_node),
+                                    is_external=_is_external_node(m_node),
                                     is_done=(str(nodes[m_node]["status"]) == "DONE"),
                                     is_highlighted=sub_hl,
                                     use_color=use_color,
@@ -715,7 +724,7 @@ def cmd_chain(
             for k in path:
                 token = _style_task_row(
                     f"{nodes[k]['ref']} ({nodes[k]['status']})",
-                    is_external=not _is_target_node(k),
+                    is_external=_is_external_node(k),
                     is_done=(str(nodes[k]["status"]) == "DONE"),
                     is_highlighted=_is_highlighted_node(k),
                     use_color=use_color,

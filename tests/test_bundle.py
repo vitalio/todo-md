@@ -222,6 +222,7 @@ class TestBundle(TodoMdTestCase):
 
     def test_role_override_on_context_streams(self):
         self._setup_task()
+        (self.tmp / ".todo_projects").write_text(".\n", encoding="utf-8")
         for args, expected_role in (
             (["role=work"], "work"),
             (["overview", "role=work"], "work"),

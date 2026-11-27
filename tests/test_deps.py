@@ -30,8 +30,28 @@ class TestDeps(TodoMdTestCase):
         self.assertNotEqual(r_sub_chk.returncode, 0, msg=r_sub_chk.stderr)
 
         # Add tasks in projects
-        self._run([str(SCRIPT), "add", "proj_a", "Base rule", "--next"], cwd=str(ws), check=True)
+        self._run([str(SCRIPT), "add", "Base rule", "--next"], cwd=str(proj_a), check=True)
         self._run([str(SCRIPT), "add", "Base parent task"], cwd=str(proj_b), check=True)
+
+        # Standalone project without .todo_projects lists only itself (1 project(s))
+        # and rejects -w, -p <project>, and <project>:<ID>
+        r_standalone_projs = self._run([str(SCRIPT), "projects"], cwd=str(proj_b), check=True)
+        self.assertIn("(1 project(s))", r_standalone_projs.stdout)
+        self.assertIn("parent_proj", r_standalone_projs.stdout)
+        self.assertNotIn("proj_a", r_standalone_projs.stdout)
+        self.assertNotIn("sub_proj", r_standalone_projs.stdout)
+        for bad_standalone in (
+            ["-w"],
+            ["-w", "overview"],
+            ["-w", "list"],
+            ["-w", "check"],
+            ["-p", "proj_a", "list"],
+            ["proj_a:F1"],
+        ):
+            with self.subTest(bad_standalone=bad_standalone):
+                r_bad_st = self._run([str(SCRIPT), *bad_standalone], cwd=str(proj_b))
+                self.assertNotEqual(r_bad_st.returncode, 0, msg=r_bad_st.stdout)
+                self.assertIn(".todo_projects", r_bad_st.stderr)
 
         # Cross-project dependency in a non-orchestrator repository is rejected on add, edit, and check
         r_non_orch_add = self._run(
@@ -47,17 +67,24 @@ class TestDeps(TodoMdTestCase):
         self.assertIn("non-orchestrator repository", r_non_orch_chk.stderr)
 
         r_non_orch_edit = self._run(
-            [str(SCRIPT), "edit", "parent_proj/sub_proj:F1", "--depends", "proj_a:F1"],
-            cwd=str(ws),
+            [str(SCRIPT), "edit", "F1", "--depends", "proj_a:F1"],
+            cwd=str(proj_c),
         )
         self.assertNotEqual(r_non_orch_edit.returncode, 0, msg=r_non_orch_edit.stderr)
         self.assertIn("non-orchestrator repository", r_non_orch_edit.stderr)
 
         # Clear cross-project dep on non-orchestrator proj_c -> check passes;
-        # then configure .todo_projects.local on proj_c to allow cross-project dependencies
+        # then configure .todo_projects.local on proj_c (and .todo_projects on ws) to allow cross-project dependencies
         self._run([str(SCRIPT), "edit", "F1", "--depends", ""], cwd=str(proj_c), check=True)
         self._run([str(SCRIPT), "check"], cwd=str(proj_c), check=True)
-        (proj_c / ".todo_projects.local").write_text("proj_a\nparent_proj\nparent_proj/sub_proj\n", encoding="utf-8")
+        (proj_c / ".todo_projects.local").write_text(
+            "../proj_a\n..\n.\n",
+            encoding="utf-8",
+        )
+        (ws / ".todo_projects").write_text(
+            "proj_a\nparent_proj\nparent_proj/sub_proj\n",
+            encoding="utf-8",
+        )
 
         # Missing dependency fails validation immediately on edit in orchestrator
         r_bad_dep = self._run(
@@ -82,8 +109,9 @@ class TestDeps(TodoMdTestCase):
         r_show_ready = self._run([str(SCRIPT), "parent_proj/sub_proj:F1"], cwd=str(ws), check=True)
         self.assertIn("Dependencies (ready): proj_a:F1 ✅ [DONE]", r_show_ready.stdout)
 
-        # Workspace projects listing skips .hidden_proj and node_modules, includes parent_proj and parent_proj/sub_proj and resolved paths
+        # Configured .todo_projects listing includes only configured projects and skips unconfigured .hidden_proj and node_modules
         r_projs = self._run([str(SCRIPT), "projects"], cwd=str(ws), check=True)
+        self.assertIn("(3 project(s))", r_projs.stdout)
         self.assertIn("proj_a", r_projs.stdout)
         self.assertIn(str(proj_a.resolve()), r_projs.stdout)
         self.assertIn("parent_proj", r_projs.stdout)
@@ -92,16 +120,16 @@ class TestDeps(TodoMdTestCase):
         self.assertNotIn(".hidden_proj", r_projs.stdout)
         self.assertNotIn("node_modules", r_projs.stdout)
 
-        # Workspace overview (-w from inside a project, and auto-workspace from ws root)
-        r_ws_flag = self._run([str(SCRIPT), "-w", "overview"], cwd=str(proj_b), check=True)
-        self.assertIn("parent_proj/sub_proj:F1", r_ws_flag.stdout)
+        # Workspace overview (-w from inside configured orchestrator, and auto-workspace from ws root with .todo_projects)
+        r_ws_flag = self._run([str(SCRIPT), "-w", "overview"], cwd=str(proj_c), check=True)
+        self.assertIn("sub_proj:F1", r_ws_flag.stdout)
         r_ws_auto = self._run([str(SCRIPT), "overview"], cwd=str(ws), check=True)
         self.assertIn("## parent_proj/sub_proj", r_ws_auto.stdout)
 
         # Workspace list and check
-        r_ws_list = self._run([str(SCRIPT), "-w", "list", "active"], cwd=str(proj_b), check=True)
-        self.assertIn("parent_proj/sub_proj:F1", r_ws_list.stdout)
-        self._run([str(SCRIPT), "-w", "check"], cwd=str(proj_b), check=True)
+        r_ws_list = self._run([str(SCRIPT), "-w", "list", "active"], cwd=str(proj_c), check=True)
+        self.assertIn("sub_proj:F1", r_ws_list.stdout)
+        self._run([str(SCRIPT), "-w", "check"], cwd=str(proj_c), check=True)
 
     def test_dependency_sequencing_queue_next_id_and_cycles(self):
         ws = self.tmp / "ws"
@@ -197,19 +225,19 @@ class TestDeps(TodoMdTestCase):
         self.assertIn("🔒 blocked by: proj_a:F6, proj_b:F1 · 🔓 unblocks: 1", self._flat_text(r_orch_q.stdout))
         self.assertEqual(self._run([str(SCRIPT), "next-id", "F1"], cwd=str(orch), check=True).stdout.strip(), "proj_a:F6")
         self.assertEqual(
-            self._run([str(SCRIPT), "next-id", "orch:F1"], cwd=str(ws), check=True).stdout.strip(),
+            self._run([str(SCRIPT), "next-id", "orch:F1"], cwd=str(orch), check=True).stdout.strip(),
             "proj_a:F6",
         )
         self.assertEqual((proj_b / "TODO.md").read_text(encoding="utf-8"), proj_b_before)
 
         # Complete proj_a:F6 -> proj_b:F1 is next; complete proj_b:F1 -> proj_b:F2 is next
-        self._run([str(SCRIPT), "done", "proj_a:F6", "-m", "d6"], cwd=str(ws), check=True)
+        self._run([str(SCRIPT), "done", "proj_a:F6", "-m", "d6"], cwd=str(orch), check=True)
         self.assertEqual(self._run([str(SCRIPT), "next-id", "F1"], cwd=str(orch), check=True).stdout.strip(), "proj_b:F1")
-        self._run([str(SCRIPT), "done", "proj_b:F1", "-m", "db1"], cwd=str(ws), check=True)
+        self._run([str(SCRIPT), "done", "proj_b:F1", "-m", "db1"], cwd=str(orch), check=True)
         self.assertEqual(self._run([str(SCRIPT), "next-id", "F1"], cwd=str(orch), check=True).stdout.strip(), "proj_b:F2")
 
         # CANCELED blocker causes next-id to fail non-zero and queue to mark [blocked]
-        self._run([str(SCRIPT), "cancel", "proj_b:F2", "-m", "dropped"], cwd=str(ws), check=True)
+        self._run([str(SCRIPT), "cancel", "proj_b:F2", "-m", "dropped"], cwd=str(orch), check=True)
         r_q_can = self._run([str(SCRIPT), "queue", "F1"], cwd=str(orch))
         self.assertEqual(r_q_can.returncode, 1, msg=r_q_can.stderr)
         self.assertIn("unresolved blocker", r_q_can.stderr)
@@ -379,7 +407,7 @@ class TestDeps(TodoMdTestCase):
             cwd=str(proj_b),
             check=True,
         )
-        r_ws = self._run([str(SCRIPT), "list", "-w"], cwd=str(proj_a), check=True)
+        r_ws = self._run([str(SCRIPT), "list", "-w"], cwd=str(proj_b), check=True)
         ws_rows = self._table_rows(r_ws.stdout)
         self.assertIn("⏳ NEXT", ws_rows["proj_a:F3"])
         self.assertIn("[blocked: F1 (NEXT) -> F2 (NEXT)]", ws_rows["proj_a:F3"])
@@ -387,7 +415,7 @@ class TestDeps(TodoMdTestCase):
         self.assertIn("[blocked: proj_a:F1 (NEXT) -> proj_a:F2 (NEXT) -> proj_a:F3 (NEXT)]", ws_rows["proj_b:F2"])
         self.assertIn("🎯 NEXT", ws_rows["proj_b:F1"])
 
-        r_ws_ready = self._run([str(SCRIPT), "-w", "list", "NEXT", "--ready"], cwd=str(proj_a), check=True)
+        r_ws_ready = self._run([str(SCRIPT), "-w", "list", "NEXT", "--ready"], cwd=str(proj_b), check=True)
         self.assertIn("proj_a:F1", r_ws_ready.stdout)
         self.assertIn("proj_a:F4", r_ws_ready.stdout)
         self.assertIn("proj_b:F1", r_ws_ready.stdout)
@@ -396,7 +424,7 @@ class TestDeps(TodoMdTestCase):
 
         # Completing F1 unblocks F2 -> F2 becomes ready with [deps: DONE] and moves before F3/F5
         self._run([str(SCRIPT), "done", "F1", "-m", "d1"], cwd=str(proj_a), check=True)
-        r_after_done = self._run([str(SCRIPT), "list", "-w"], cwd=str(proj_a), check=True)
+        r_after_done = self._run([str(SCRIPT), "list", "-w"], cwd=str(proj_b), check=True)
         ws_after = self._table_rows(r_after_done.stdout)
         self.assertIn("🎯 NEXT", ws_after["proj_a:F2"])
         self.assertIn("[deps: DONE]", ws_after["proj_a:F2"])
@@ -442,6 +470,7 @@ class TestDeps(TodoMdTestCase):
         self.assertIn("⏳ NEXT", wip_rows["F4"])
         self.assertIn("[blocked: F1 (WIP) -> F2 (NEXT) -> F3 (WIP)]", wip_rows["F4"])
 
+        (wip_ws / ".todo_projects").write_text("alpha\n", encoding="utf-8")
         r_wip_ws = self._run([str(SCRIPT), "list", "-w"], cwd=str(wip_ws), check=True)
         wip_ws_rows = self._table_rows(r_wip_ws.stdout)
         self.assertIn("🔵 WIP", wip_ws_rows["alpha:F1"])
@@ -454,10 +483,11 @@ class TestDeps(TodoMdTestCase):
         ws = self.tmp / "ws_done"
         repo_a = ws / "repo_a"
         repo_b = ws / "repo_b"
-        orch_dir = ws / ".todo_projects"
+        orch_dir = ws / "orch"
         for d in (repo_a, repo_b, orch_dir):
             d.mkdir(parents=True)
             self._run([str(SCRIPT), "init"], cwd=str(d), check=True)
+        (orch_dir / ".todo_projects").write_text("repo_a\nrepo_b\n", encoding="utf-8")
 
         # Local chain in repo_a: F1 and F2 both required for F4; F3 depends only on F1
         self._run([str(SCRIPT), "add", "Prereq 1"], cwd=str(repo_a), check=True)
@@ -466,20 +496,21 @@ class TestDeps(TodoMdTestCase):
         self._run([str(SCRIPT), "add", "Dual waiter", "--depends", "F1, F2"], cwd=str(repo_a), check=True)
         self._run([str(SCRIPT), "add", "Already ready"], cwd=str(repo_a), check=True)
 
-        # Workspace orchestrator task in .todo_projects depending on repo_a:F1 -> repo_b:F1
+        # Workspace orchestrator task in orch depending on repo_a:F1, repo_b:F1
         self._run([str(SCRIPT), "add", "Repo B step"], cwd=str(repo_b), check=True)
+        self._run([str(SCRIPT), "add", "Repo B step 2"], cwd=str(repo_b), check=True)
         self._run(
-            [str(SCRIPT), "add", "Orch release", "--depends", "repo_a:F1, repo_b:F1"],
+            [str(SCRIPT), "add", "Orch release", "--depends", "repo_a:F1, repo_b:F1, repo_b:F2"],
             cwd=str(orch_dir),
             check=True,
         )
 
-        # Completing F1 unblocks local F3, does NOT unblock F4 (still waiting on F2) or F5 (had no deps)
+        # Completing F1 in standalone repo_a unblocks local F3, does NOT unblock F4 or scan parent for orch
         r_done1 = self._run([str(SCRIPT), "done", "F1", "-m", "d1"], cwd=str(repo_a), check=True)
         self.assertIn("Unblocked: F3", r_done1.stdout)
         self.assertNotIn("F4", r_done1.stdout)
         self.assertNotIn("F5", r_done1.stdout)
-        self.assertNotIn(".todo_projects:F1", r_done1.stdout)
+        self.assertNotIn("orch:F1", r_done1.stdout)
 
         # Completing F2 unblocks local F4
         r_done2 = self._run([str(SCRIPT), "done", "F2", "-m", "d2"], cwd=str(repo_a), check=True)
@@ -489,15 +520,29 @@ class TestDeps(TodoMdTestCase):
         r_done3 = self._run([str(SCRIPT), "done", "F3", "-m", "d3"], cwd=str(repo_a), check=True)
         self.assertNotIn("Unblocked:", r_done3.stdout)
 
-        # Completing repo_b:F1 completes all deps for .todo_projects:F1 and reports it
-        r_done_b = self._run([str(SCRIPT), "done", "F1", "-m", "db1"], cwd=str(repo_b), check=True)
-        self.assertIn("Unblocked: .todo_projects:F1", r_done_b.stdout)
+        # Completing repo_b:F1 inside standalone repo_b does not scan parent directories for orch
+        r_done_b_local = self._run([str(SCRIPT), "done", "F1", "-m", "db1"], cwd=str(repo_b), check=True)
+        self.assertNotIn("orch:F1", r_done_b_local.stdout)
+
+        # Completing repo_b:F2 from orchestrator completes all deps for orch:F1 and reports it
+        r_done_b = self._run([str(SCRIPT), "done", "repo_b:F2", "-m", "db2"], cwd=str(orch_dir), check=True)
+        self.assertIn("Unblocked: orch:F1", r_done_b.stdout)
 
     def test_nested_orchestrators_external_alias_and_cycle_safety(self):
         import os
         from unittest import mock
 
         mod = self.todo_md_mod
+        for removed_fn in (
+            "discover_projects",
+            "_scan_projects",
+            "discover_orchestrators_for_project",
+            "_scan_orchestrators_for_project",
+            "_inbound_blocker_items",
+            "_rewrite_orchestrator_deps",
+        ):
+            self.assertFalse(hasattr(mod, removed_fn), f"{removed_fn} must be removed")
+
         ws = (self.tmp / "ws_tiers").resolve()
         home = (self.tmp / "home_tiers").resolve()
         canary = home / "chrome" / "canary"
@@ -508,7 +553,7 @@ class TestDeps(TodoMdTestCase):
         for d in (meta_orch, todo_flow, todo_md_p, run_block, canary):
             d.mkdir(parents=True)
             self._run([str(SCRIPT), "init"], cwd=str(d), check=True)
-        (todo_flow / ".todo_projects").write_text("todo_md\nrun_block\nmeta_orch\n", encoding="utf-8")
+        (todo_flow / ".todo_projects").write_text("todo_md\nrun_block\n", encoding="utf-8")
         (meta_orch / ".todo_projects").write_text("todo_flow\n~/chrome/canary\n", encoding="utf-8")
         with mock.patch.dict(os.environ, {"HOME": str(home)}):
             for key in ("TODO_MD_PROJECTS", "TODO_MD_WORKSPACE", "TODO_MD_CWD"):
@@ -518,11 +563,17 @@ class TestDeps(TodoMdTestCase):
                 {p.name for p in cfg},
                 {"meta_orch", "todo_flow", "todo_md", "run_block", "canary"},
             )
-            orchs, union = mod.discover_orchestrators_for_project(todo_md_p, ws)
-            self.assertTrue({"todo_flow", "meta_orch"} <= {p.name for p in orchs})
-            self.assertIn(canary.resolve(), union)
-            self.assertEqual(mod.resolve_project_dir(todo_md_p, "chrome/canary"), canary.resolve())
-            self.assertEqual(mod.resolve_project_dir(todo_md_p, "canary"), canary.resolve())
+            flow_cfg = mod.read_configured_todo_projects(todo_flow, ws, include_env=False)
+            self.assertEqual(
+                {p.name for p in flow_cfg},
+                {"todo_flow", "todo_md", "run_block"},
+            )
+            self.assertEqual(mod.resolve_project_dir(meta_orch, "chrome/canary"), canary.resolve())
+            self.assertEqual(mod.resolve_project_dir(meta_orch, "canary"), canary.resolve())
+            with self.assertRaises(SystemExit):
+                mod.resolve_project_dir(todo_flow, "chrome/canary")
+            with self.assertRaises(SystemExit):
+                mod.resolve_project_dir(todo_md_p, "chrome/canary")
             self.assertEqual(mod.project_label(canary.resolve(), ws), "chrome/canary")
             self.assertEqual(mod.project_label(todo_md_p, ws), "todo_md")
 
@@ -542,29 +593,27 @@ class TestDeps(TodoMdTestCase):
             check=True,
         )
 
-        r_next = self._run([str(SCRIPT), "next-id", "F1"], cwd=str(todo_md_p))
-        self._assert_ok(["next-id", "F1"], r_next)
-        self.assertEqual(r_next.stdout.strip(), "todo_flow:F1", msg=r_next.stderr)
+        # Child todo_md_p is 100% self-contained (no reverse child-to-orchestrator coupling)
+        r_next_child = self._run([str(SCRIPT), "next-id", "F1"], cwd=str(todo_md_p), check=True)
+        self.assertEqual(r_next_child.stdout.strip(), "F1")
 
-        r_chain = self._run([str(SCRIPT), "chain", "-f", "todo_md:F1"], cwd=str(todo_md_p), check=True)
-        self.assertIn("Next actionable: todo_flow:F1", r_chain.stdout)
+        r_show_child = self._run([str(SCRIPT), "F1"], cwd=str(todo_md_p), check=True)
+        self.assertNotIn("Dependencies (blocked):", r_show_child.stdout)
+        self.assertNotIn("todo_flow:F1", r_show_child.stdout)
 
-        r_show = self._run([str(SCRIPT), "F1"], cwd=str(todo_md_p), check=True)
-        self.assertIn("Dependencies (blocked):", r_show.stdout)
-        self.assertIn("todo_flow:F1", r_show.stdout)
+        r_list_child = self._run([str(SCRIPT), "list", "active"], cwd=str(todo_md_p), check=True)
+        self.assertNotIn("blocked:", self._flat_text(r_list_child.stdout))
 
-        r_list = self._run([str(SCRIPT), "list", "active"], cwd=str(todo_md_p), check=True)
-        self.assertIn("[blocked: todo_flow:F1 (NEXT)]", self._flat_text(r_list.stdout), msg=r_list.stdout)
+        # From orchestrator todo_flow, cross-project stage edges and blockers are surfaced
+        r_orch_next = self._run([str(SCRIPT), "next-id", "F2"], cwd=str(todo_flow), check=True)
+        self.assertEqual(r_orch_next.stdout.strip(), "F1")
 
-        def _md_overview_section() -> str:
-            r_ov = self._run([str(SCRIPT), "overview", "-w"], cwd=str(ws), check=True)
-            body = r_ov.stdout.split("## todo_md ", 1)[1]
-            return self._flat_text(body.split("\n## ", 1)[0])
+        r_orch_chain = self._run([str(SCRIPT), "chain", "-f", "todo_md:F1"], cwd=str(todo_flow), check=True)
+        self.assertIn("🔒 blocked by: F1", self._flat_text(r_orch_chain.stdout))
 
-        ov_blocked = _md_overview_section()
-        self.assertIn("Dependencies (blocked):", ov_blocked)
-        self.assertIn("todo_flow:F1", ov_blocked)
-        self.assertIn("[NEXT]", ov_blocked.split("Dependencies (blocked):", 1)[1])
+        r_ov = self._run([str(SCRIPT), "overview", "-w"], cwd=str(todo_flow), check=True)
+        self.assertIn("## todo_flow ", r_ov.stdout)
+        self.assertIn("## todo_md ", r_ov.stdout)
 
         mod = self.todo_md_mod
         md_tasks = [t for t in mod.collect_all_tasks(todo_md_p) if t["file"] == "TODO.md"]
@@ -572,7 +621,7 @@ class TestDeps(TodoMdTestCase):
         with unittest.mock.patch.object(
             mod, "collect_all_tasks", wraps=mod.collect_all_tasks
         ) as mock_collect:
-            with mod.discovery_session() as cache:
+            with mod.discovery_session():
                 def _query_pass() -> None:
                     for t in md_tasks:
                         mod._task_dag(todo_md_p, t)
@@ -581,8 +630,7 @@ class TestDeps(TodoMdTestCase):
                     for ft in flow_tasks:
                         mod._task_dag(todo_flow, ft)
                     mod.resolve_dependency_statuses(todo_flow, ["F1", "todo_md:F1"])
-                    mod.resolve_dependency_statuses(todo_md_p, ["F1", "todo_flow:F1"])
-                    self.assertIsNone(mod.resolve_top_task_id(todo_md_p))
+                    self.assertEqual(mod.resolve_top_task_id(todo_md_p), "F1")
                     self.assertEqual(mod.resolve_top_task_id(todo_flow), "F1")
                     buf = io.StringIO()
                     with contextlib.redirect_stdout(buf):
@@ -595,16 +643,10 @@ class TestDeps(TodoMdTestCase):
                     self.assertEqual(rc, 0)
 
                 _query_pass()
-                first_scans = dict(cache.scans)
                 first_collects = mock_collect.call_count
-                self.assertEqual(first_scans["projects"], 1)
-                self.assertLessEqual(first_scans["orchestrators"], 2)
                 self.assertEqual(first_collects, 2)
-                self.assertEqual(list(cache.stage_edges.keys()), [ws.resolve()])
-                self.assertIn(todo_flow.resolve(), cache.stage_edges[ws.resolve()])
                 _query_pass()
                 _query_pass()
-                self.assertEqual(cache.scans, first_scans)
                 self.assertEqual(mock_collect.call_count, first_collects)
 
             mock_collect.reset_mock()
@@ -619,13 +661,9 @@ class TestDeps(TodoMdTestCase):
             self.assertEqual(rc, 0)
             self.assertEqual(mock_collect.call_count, 2)
 
-        self._run([str(SCRIPT), "done", "todo_flow:F1", "-m", "done"], cwd=str(ws), check=True)
-        self.assertNotIn("Dependencies (blocked)", _md_overview_section())
-        r_next_done = self._run([str(SCRIPT), "next-id", "F1"], cwd=str(todo_md_p))
-        self._assert_ok(["next-id", "F1"], r_next_done)
-        self.assertEqual(r_next_done.stdout.strip(), "F1")
-        r_show_done = self._run([str(SCRIPT), "F1"], cwd=str(todo_md_p), check=True)
-        self.assertNotIn("Dependencies (blocked)", r_show_done.stdout)
+        self._run([str(SCRIPT), "done", "F1", "-m", "done"], cwd=str(todo_flow), check=True)
+        r_orch_after = self._run([str(SCRIPT), "next-id", "F2"], cwd=str(todo_flow), check=True)
+        self.assertEqual(r_orch_after.stdout.strip(), "todo_md:F1")
 
     def test_alias_path_mapping_in_todo_projects_and_local_and_scoped_projects_view(self):
         ws = (self.tmp / "ws_alias_map").resolve()
@@ -701,17 +739,27 @@ class TestDeps(TodoMdTestCase):
         r_next = self._run([str(SCRIPT), "next-id", "F1"], cwd=str(orch), check=True)
         self.assertEqual(r_next.stdout.strip(), "todo-md:F1")
 
-        # Child checkouts see inbound stage edge from orchestrator
+        # Child checkouts remain self-contained and never scan parent directories for orchestrator
         r_child_next = self._run(
             [str(SCRIPT), "next-id", "B1"],
             cwd=str(ext_checkout),
             env={**os.environ, "TODO_MD_WORKSPACE": str(ws)},
             check=True,
         )
-        self.assertEqual(r_child_next.stdout.strip(), "todo-md:F1")
+        self.assertEqual(r_child_next.stdout.strip(), "B1")
+        r_child_projs = self._run([str(SCRIPT), "projects"], cwd=str(ext_checkout), check=True)
+        self.assertIn("(1 project(s))", r_child_projs.stdout)
+        self.assertIn("rb-custom-dir", r_child_projs.stdout)
+        self.assertNotIn("todo-flow", r_child_projs.stdout)
 
-        # Rename in aliased child rewrites orchestrator dependency using canonical alias
+        # Rename in aliased child does not mutate external orchestrator TODO.md; orchestrator updates its own dep
         self._run([str(SCRIPT), "rename", "todo-md:F1", "F9"], cwd=str(orch), check=True)
+        self.assertIn("Depends on: todo-md:F1 -> run-block:B1", (orch / "TODO.md").read_text(encoding="utf-8"))
+        self._run(
+            [str(SCRIPT), "edit", "F1", "--depends", "todo-md:F9 -> run-block:B1"],
+            cwd=str(orch),
+            check=True,
+        )
         r_show_orch = self._run([str(SCRIPT), "show", "F1"], cwd=str(orch), check=True)
         self.assertIn("Depends on: todo-md:F9 -> run-block:B1", r_show_orch.stdout)
         self.assertNotIn("IDs in use:", r_show_orch.stdout)
@@ -795,12 +843,8 @@ class TestDeps(TodoMdTestCase):
             {"TODO_MD_WORKSPACE": str(ws), "TODO_MD_CWD": str(orch)},
             clear=False,
         ):
-            # 1. Verify alias_maps caching when `discovered` is passed and O(1) alias/display lookups
+            # 1. Verify alias_maps caching and O(1) alias/display lookups
             with (
-                mock.patch.object(mod, "_scan_projects", wraps=mod._scan_projects) as m_scan_proj,
-                mock.patch.object(
-                    mod, "_scan_orchestrators_for_project", wraps=mod._scan_orchestrators_for_project
-                ) as m_scan_orch,
                 mock.patch.object(
                     mod,
                     "read_configured_todo_project_entries",
@@ -809,8 +853,7 @@ class TestDeps(TodoMdTestCase):
                 mock.patch.object(mod, "collect_all_tasks", wraps=mod.collect_all_tasks) as m_collect,
             ):
                 with mod.discovery_session() as cache:
-                    discovered = mod.discover_projects(ws)
-                    alias_map = mod.configured_project_alias_map(orch, ws, discovered=discovered)
+                    alias_map = mod.configured_project_alias_map(orch, ws)
                     self.assertIn((orch.resolve(), ws.resolve()), cache.alias_maps)
                     self.assertEqual(alias_map["proj-a"], proj_a.resolve())
                     self.assertEqual(alias_map["proj-c"], proj_c.resolve())
@@ -822,12 +865,10 @@ class TestDeps(TodoMdTestCase):
                     self.assertEqual(mod.project_display_name(proj_c, ws, orch), "proj-c")
 
                     cfg_calls_after_prime = m_read_cfg.call_count
-                    proj_scans_after_prime = m_scan_proj.call_count
-                    orch_scans_after_prime = m_scan_orch.call_count
 
                     for _ in range(50):
                         self.assertEqual(
-                            mod.configured_project_alias_map(orch, ws, discovered=discovered)["proj-b"],
+                            mod.configured_project_alias_map(orch, ws)["proj-b"],
                             proj_b.resolve(),
                         )
                         self.assertEqual(mod.lookup_external_alias(orch, ws, "proj-a"), proj_a.resolve())
@@ -839,8 +880,6 @@ class TestDeps(TodoMdTestCase):
                         self.assertEqual(mod.project_display_name(proj_c, ws, orch), "proj-c")
 
                     self.assertEqual(m_read_cfg.call_count, cfg_calls_after_prime)
-                    self.assertEqual(m_scan_proj.call_count, proj_scans_after_prime)
-                    self.assertEqual(m_scan_orch.call_count, orch_scans_after_prime)
 
                     # Verify build_execution_chain_dag shares cache.task_maps
                     mod.build_execution_chain_dag(orch)
@@ -849,33 +888,26 @@ class TestDeps(TodoMdTestCase):
                     mod.build_execution_chain_dag(orch)
                     self.assertEqual(m_collect.call_count, collect_after_first_dag)
 
-            # 2. Verify hard timeouts and strict scan budgets across commands
+            # 2. Verify hard timeouts and zero parent/child task leaks across commands
             cases = [
-                ("cmd_check(orch)", lambda: mod.cmd_check(orch), 1, 4),
-                ("cmd_check(proj_a)", lambda: mod.cmd_check(proj_a), 1, 4),
-                ("cmd_workspace_check(ws)", lambda: mod.cmd_workspace_check(ws), 1, 4),
-                ("cmd_chain(orch)", lambda: mod.cmd_chain(orch), 1, 4),
-                ("cmd_chain(proj_a)", lambda: mod.cmd_chain(proj_a), 1, 4),
-                ("cmd_list(orch)", lambda: mod.cmd_list(orch), 1, 4),
-                ("cmd_list(proj_a)", lambda: mod.cmd_list(proj_a), 1, 4),
-                ("cmd_projects(orch)", lambda: mod.cmd_projects(orch), 1, 1),
+                ("cmd_check(orch)", lambda: mod.cmd_check(orch), 4),
+                ("cmd_check(proj_a)", lambda: mod.cmd_check(proj_a), 1),
+                ("cmd_workspace_check(orch)", lambda: mod.cmd_workspace_check(orch), 4),
+                ("cmd_chain(orch)", lambda: mod.cmd_chain(orch), 4),
+                ("cmd_chain(proj_a)", lambda: mod.cmd_chain(proj_a), 1),
+                ("cmd_list(orch)", lambda: mod.cmd_list(orch), 4),
+                ("cmd_list(proj_a)", lambda: mod.cmd_list(proj_a), 1),
+                ("cmd_projects(orch)", lambda: mod.cmd_projects(orch), 0),
+                ("cmd_projects(proj_a)", lambda: mod.cmd_projects(proj_a), 0),
                 (
                     "find_newly_unblocked_tasks(proj_a, F1)",
                     lambda: mod.find_newly_unblocked_tasks(proj_a, "F1"),
-                    1,
                     4,
                 ),
             ]
-            for label, fn, max_proj_scans, max_orch_scans in cases:
+            for label, fn, max_collects in cases:
                 with self.subTest(case=label):
-                    with (
-                        mock.patch.object(mod, "_scan_projects", wraps=mod._scan_projects) as m_sp,
-                        mock.patch.object(
-                            mod,
-                            "_scan_orchestrators_for_project",
-                            wraps=mod._scan_orchestrators_for_project,
-                        ) as m_so,
-                    ):
+                    with mock.patch.object(mod, "collect_all_tasks", wraps=mod.collect_all_tasks) as m_col:
                         out_buf = io.StringIO()
                         err_buf = io.StringIO()
                         with (
@@ -887,20 +919,9 @@ class TestDeps(TodoMdTestCase):
                         if isinstance(res, int):
                             self.assertEqual(res, 0, msg=err_buf.getvalue())
                         self.assertLessEqual(
-                            m_sp.call_count,
-                            max_proj_scans,
-                            msg=f"{label}: _scan_projects called {m_sp.call_count} times",
-                        )
-                        self.assertLessEqual(
-                            m_so.call_count,
-                            max_orch_scans,
-                            msg=f"{label}: _scan_orchestrators_for_project called {m_so.call_count} times",
-                        )
-                        unique_orch_targets = {c.args[0].resolve() for c in m_so.call_args_list}
-                        self.assertEqual(
-                            m_so.call_count,
-                            len(unique_orch_targets),
-                            msg=f"{label}: redundant _scan_orchestrators_for_project calls: {m_so.call_args_list}",
+                            m_col.call_count,
+                            max_collects,
+                            msg=f"{label}: collect_all_tasks called {m_col.call_count} times",
                         )
 
 

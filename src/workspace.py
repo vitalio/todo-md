@@ -15,54 +15,69 @@ def resolve_target_dir(explicit: str | None = None) -> Path:
         return Path(env_cwd).expanduser().resolve()
     return Path.cwd().resolve()
 
+TODO_PROJECTS_FILES = (".todo_projects", ".todo_projects.local")
+
+def has_local_todo_projects_config(directory: Path) -> bool:
+    d_res = directory.resolve()
+    if d_res.name == ".todo_projects" and is_todo_project(d_res):
+        return True
+    for fname in TODO_PROJECTS_FILES:
+        p = d_res / fname
+        if p.is_file() or (fname == ".todo_projects" and p.is_dir() and is_todo_project(p)):
+            return True
+    return False
+
+def has_todo_projects_config(
+    base_dir: Path,
+    include_env: bool = True,
+) -> bool:
+    b_res = base_dir.resolve()
+    if has_local_todo_projects_config(b_res):
+        return True
+    if not include_env:
+        return False
+    return bool(os.environ.get("TODO_MD_PROJECTS", "").strip())
+
+def require_todo_projects_config(
+    base_dir: Path,
+    context: str,
+    include_env: bool = True,
+) -> None:
+    if not has_todo_projects_config(base_dir, include_env=include_env):
+        raise SystemExit(
+            f"{prog_name()}: {context} requires .todo_projects "
+            f"(or .todo_projects.local / TODO_MD_PROJECTS) in {base_dir}"
+        )
+
 def resolve_workspace_root(base_dir: Path, explicit_dir: str | None = None) -> Path:
     env_ws = os.environ.get("TODO_MD_WORKSPACE", "").strip()
-    if explicit_dir:
-        if is_todo_project(base_dir):
-            if env_ws:
-                p = Path(env_ws).expanduser().resolve()
-                if not p.is_dir():
-                    raise SystemExit(f"{prog_name()}: workspace directory not found: {env_ws}")
-                try:
-                    base_dir.resolve().relative_to(p)
-                    return p
-                except ValueError:
-                    pass
-            cur = base_dir
-            while cur.parent != cur and is_todo_project(cur.parent):
-                cur = cur.parent
-            return cur.parent
-        return base_dir
     if env_ws:
         p = Path(env_ws).expanduser().resolve()
         if not p.is_dir():
             raise SystemExit(f"{prog_name()}: workspace directory not found: {env_ws}")
         return p
-    if is_todo_project(base_dir):
-        cur = base_dir
-        while cur.parent != cur and is_todo_project(cur.parent):
-            cur = cur.parent
-        return cur.parent
-    return base_dir
+    b_res = base_dir.resolve()
+    if is_todo_project(b_res) and has_todo_projects_config(
+        b_res, include_env=(explicit_dir is None)
+    ):
+        return b_res.parent if b_res.parent != b_res else b_res
+    return b_res
 
 class _DiscoveryCache:
     def __init__(self) -> None:
         self.ws_roots = {}
-        self.projects = {}
-        self.orchestrators = {}
         self.alias_maps = {}
         self.reverse_alias_maps = {}
         self.external_aliases = {}
+        self.ambiguous_names = {}
         self.display_names = {}
         self.configured_entries = {}
         self.task_maps = {}
-        self.stage_edges = {}
-        self.scans = {"projects": 0, "orchestrators": 0}
 
 _ACTIVE_DISCOVERY = None
 
 class discovery_session:
-    """Share workspace/orchestrator discovery across one render pass."""
+    """Share configured .todo_projects discovery across one render pass."""
 
     def __enter__(self) -> "_DiscoveryCache":
         global _ACTIVE_DISCOVERY
@@ -95,51 +110,6 @@ def _workspace_root_cached(base_dir: Path, explicit_dir: str | None = None) -> P
         cache.ws_roots[key] = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
     return cache.ws_roots[key]
 
-def discover_projects(
-    workspace_root: Path,
-    max_depth: int = WORKSPACE_MAX_DEPTH,
-) -> list[tuple[str, Path]]:
-    cache = _ACTIVE_DISCOVERY
-    if cache is None or max_depth != WORKSPACE_MAX_DEPTH:
-        return _scan_projects(workspace_root, max_depth)
-    key = workspace_root.resolve()
-    if key not in cache.projects:
-        cache.scans["projects"] += 1
-        cache.projects[key] = _scan_projects(workspace_root, max_depth)
-    return list(cache.projects[key])
-
-def _scan_projects(
-    workspace_root: Path,
-    max_depth: int = WORKSPACE_MAX_DEPTH,
-) -> list[tuple[str, Path]]:
-    root = workspace_root.resolve()
-    if not root.is_dir():
-        return []
-    found: list[tuple[str, Path]] = []
-
-    def _walk(cur: Path, depth: int) -> None:
-        if depth > max_depth:
-            return
-        try:
-            entries = sorted(cur.iterdir(), key=lambda p: p.name.lower())
-        except OSError:
-            return
-        for entry in entries:
-            if not entry.is_dir() or entry.is_symlink():
-                continue
-            name = entry.name
-            if name.startswith(".") or name in WORKSPACE_SKIP_DIRS:
-                continue
-            if is_todo_project(entry):
-                rel = entry.relative_to(root).as_posix()
-                found.append((rel, entry))
-            if depth < max_depth:
-                _walk(entry, depth + 1)
-
-    _walk(root, 1)
-    found.sort(key=lambda item: item[0])
-    return found
-
 def _home_dir() -> Path | None:
     try:
         return Path.home().resolve()
@@ -171,7 +141,6 @@ def _split_project_alias_entry(entry: str) -> tuple[str | None, str]:
 def configured_project_alias_map(
     base_dir: Path,
     ws_root: Path | None = None,
-    discovered: list[tuple[str, Path]] | None = None,
 ) -> dict[str, Path]:
     b_res = base_dir.resolve()
     ws_res = (ws_root or _workspace_root_cached(b_res)).resolve()
@@ -179,30 +148,16 @@ def configured_project_alias_map(
     key = (b_res, ws_res)
     if cache is not None and key in cache.alias_maps:
         return dict(cache.alias_maps[key])
-    projs = discovered if discovered is not None else discover_projects(ws_res)
     mapping: dict[str, Path] = {}
-
-    def _collect_from(cfg_dir: Path, include_env: bool) -> None:
-        for alias, p_res in read_configured_todo_project_entries(
-            cfg_dir, ws_res, include_env=include_env, discovered=projs
-        ):
-            if alias and alias not in mapping:
-                mapping[alias] = p_res
-                if "/" in alias:
-                    leaf = alias.rsplit("/", 1)[-1]
-                    if leaf:
-                        mapping.setdefault(leaf, p_res)
-
-    _collect_from(b_res, include_env=True)
-    if ws_res != b_res:
-        _collect_from(ws_res, include_env=True)
-    orchs, _ = discover_orchestrators_for_project(b_res, ws_res)
-    for odir in orchs:
-        _collect_from(odir, include_env=False)
-    if not mapping:
-        for _, pdir in projs:
-            if has_local_todo_projects_config(pdir):
-                _collect_from(pdir, include_env=False)
+    for alias, p_res in read_configured_todo_project_entries(
+        b_res, ws_res, include_env=True
+    ):
+        if alias and alias not in mapping:
+            mapping[alias] = p_res
+            if "/" in alias:
+                leaf = alias.rsplit("/", 1)[-1]
+                if leaf:
+                    mapping.setdefault(leaf, p_res)
     if cache is not None:
         cache.alias_maps[key] = dict(mapping)
     return mapping
@@ -210,7 +165,6 @@ def configured_project_alias_map(
 def _reverse_project_alias_map(
     base_dir: Path,
     ws_root: Path,
-    discovered: list[tuple[str, Path]] | None = None,
 ) -> dict[Path, str]:
     b_res = base_dir.resolve()
     ws_res = ws_root.resolve()
@@ -218,7 +172,7 @@ def _reverse_project_alias_map(
     key = (b_res, ws_res)
     if cache is not None and key in cache.reverse_alias_maps:
         return cache.reverse_alias_maps[key]
-    alias_map = configured_project_alias_map(b_res, ws_res, discovered=discovered)
+    alias_map = configured_project_alias_map(b_res, ws_res)
     rev: dict[Path, str] = {}
     for alias, target in alias_map.items():
         rev.setdefault(target, alias)
@@ -251,21 +205,18 @@ def project_display_name(
         cache.display_names.setdefault((b_res, ws_res), {})[p_res] = label
     return label
 
-def _external_alias_lookup_map(base_dir: Path, ws_root: Path) -> dict[str, Path]:
+def _build_external_alias_maps(
+    base_dir: Path,
+    ws_root: Path,
+) -> tuple[dict[str, Path], dict[str, list[str]]]:
     b_res = base_dir.resolve()
     ws_res = ws_root.resolve()
     cache = _ACTIVE_DISCOVERY
     key = (b_res, ws_res)
     if cache is not None and key in cache.external_aliases:
-        return cache.external_aliases[key]
-    projs = discover_projects(ws_res)
-    alias_map = configured_project_alias_map(b_res, ws_res, discovered=projs)
-    configured: list[Path] = []
-    for cfg_dir in ((b_res, ws_res) if ws_res != b_res else (b_res,)):
-        configured.extend(
-            read_configured_todo_projects(cfg_dir, ws_res, include_env=True, discovered=projs)
-        )
-    configured.extend(discover_orchestrators_for_project(b_res, ws_res)[1])
+        return cache.external_aliases[key], cache.ambiguous_names.get(key, {})
+    alias_map = configured_project_alias_map(b_res, ws_res)
+    configured = read_configured_todo_projects(b_res, ws_res, include_env=True)
     by_key: dict[str, list[Path]] = {}
     seen_projs: set[Path] = set()
     for proj in configured:
@@ -280,9 +231,24 @@ def _external_alias_lookup_map(base_dir: Path, ws_root: Path) -> dict[str, Path]
         k: matches[0] for k, matches in by_key.items() if len(matches) == 1
     }
     lookup.update(alias_map)
+    ambiguous: dict[str, list[str]] = {
+        k: [project_display_name(p, ws_res, b_res) for p in matches]
+        for k, matches in by_key.items()
+        if len(matches) > 1 and k not in alias_map
+    }
     if cache is not None:
         cache.external_aliases[key] = lookup
-    return lookup
+        cache.ambiguous_names[key] = ambiguous
+    return lookup, ambiguous
+
+def _external_alias_lookup_map(base_dir: Path, ws_root: Path) -> dict[str, Path]:
+    return _build_external_alias_maps(base_dir, ws_root)[0]
+
+def _ambiguous_project_matches(base_dir: Path, ws_root: Path, name: str) -> list[str]:
+    norm = name.strip().replace("\\", "/").strip("/")
+    if not norm or ".." in norm.split("/"):
+        return []
+    return _build_external_alias_maps(base_dir, ws_root)[1].get(norm, [])
 
 def lookup_external_alias(base_dir: Path, ws_root: Path, name: str) -> Path | None:
     norm = name.strip().replace("\\", "/").strip("/")
@@ -296,23 +262,23 @@ def resolve_project_dir(
     explicit_dir: str | None = None,
 ) -> Path:
     norm = project_name.strip().replace("\\", "/").strip("/")
-    ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
     if not norm or ".." in norm.split("/"):
         raise SystemExit(f"{prog_name()}: invalid project reference {project_name!r}")
-    alias = lookup_external_alias(base_dir, ws_root, norm)
+    b_res = base_dir.resolve()
+    require_todo_projects_config(b_res, f"cross-project reference {project_name!r}")
+    ws_root = _workspace_root_cached(b_res, explicit_dir=explicit_dir)
+    alias = lookup_external_alias(b_res, ws_root, norm)
     if alias is not None:
         return alias
-    candidate = (ws_root / norm).resolve()
-    inside = True
-    try:
-        candidate.relative_to(ws_root.resolve())
-    except ValueError:
-        inside = False
-    if inside and is_todo_project(candidate):
-        return candidate
-    if not inside:
-        raise SystemExit(f"{prog_name()}: project {project_name!r} escapes workspace {ws_root}")
-    raise SystemExit(f"{prog_name()}: project {norm!r} not found under workspace {ws_root}")
+    ambig = _ambiguous_project_matches(b_res, ws_root, norm)
+    if ambig:
+        matches = ", ".join(ambig)
+        raise SystemExit(
+            f"{prog_name()}: ambiguous project name {project_name!r}; matches: {matches}"
+        )
+    raise SystemExit(
+        f"{prog_name()}: project {norm!r} not found in .todo_projects under {b_res}"
+    )
 
 def resolve_project_selector(selector: str) -> str:
     raw = selector.strip()
@@ -327,50 +293,18 @@ def resolve_project_selector(selector: str) -> str:
     ):
         raise SystemExit(f"{prog_name()}: project not found: {selector}")
 
-    cwd_res = Path.cwd().resolve()
-    probe_bases: list[Path] = [cwd_res]
-    for anc in cwd_res.parents:
-        if is_todo_project(anc):
-            if anc not in probe_bases:
-                probe_bases.append(anc)
-            break
-    env_cwd = os.environ.get("TODO_MD_CWD", "").strip()
-    if env_cwd:
-        p_env_cwd = Path(env_cwd).expanduser().resolve()
-        if p_env_cwd.is_dir() and p_env_cwd not in probe_bases:
-            probe_bases.append(p_env_cwd)
-
-    seen_probes: set[tuple[Path, Path]] = set()
-    for base in probe_bases:
-        ws_root = resolve_workspace_root(base).resolve()
-        probe_key = (base.resolve(), ws_root)
-        if probe_key in seen_probes:
-            continue
-        seen_probes.add(probe_key)
-        ext = lookup_external_alias(base, ws_root, norm)
-        if ext is not None:
-            return str(ext)
-        cand = (ws_root / norm).resolve()
-        try:
-            cand.relative_to(ws_root)
-            if is_todo_project(cand):
-                return str(cand)
-        except ValueError:
-            pass
-        projects = discover_projects(ws_root)
-        exact = [p for rel, p in projects if rel == norm]
-        if exact:
-            return str(exact[0].resolve())
-        if "/" not in norm:
-            by_name = [(rel, p) for rel, p in projects if Path(rel).name == norm]
-            if len(by_name) == 1:
-                return str(by_name[0][1].resolve())
-            if len(by_name) > 1:
-                matches = ", ".join(rel for rel, _ in by_name)
-                raise SystemExit(
-                    f"{prog_name()}: ambiguous project name {selector!r}; matches: {matches}"
-                )
-
+    base = resolve_target_dir(None)
+    require_todo_projects_config(base, f"project selector -p/--project {selector!r}")
+    ws_root = _workspace_root_cached(base).resolve()
+    ext = lookup_external_alias(base, ws_root, norm)
+    if ext is not None:
+        return str(ext)
+    ambig = _ambiguous_project_matches(base, ws_root, norm)
+    if ambig:
+        matches = ", ".join(ambig)
+        raise SystemExit(
+            f"{prog_name()}: ambiguous project name {selector!r}; matches: {matches}"
+        )
     raise SystemExit(f"{prog_name()}: project not found: {selector}")
 
 def resolve_project_or_dir(selector: str) -> str:
@@ -450,8 +384,6 @@ def _normalize_target_refs(
             unscoped_ids.add(tid_up)
     return target_set, unscoped_ids
 
-TODO_PROJECTS_FILES = (".todo_projects", ".todo_projects.local")
-
 def _parse_todo_projects_text(raw_text: str) -> list[str]:
     entries: list[str] = []
     for raw_line in raw_text.splitlines():
@@ -468,14 +400,13 @@ def _parse_todo_projects_text(raw_text: str) -> list[str]:
 def _resolve_todo_project_path(
     target: str,
     config_dir: Path,
-    ws_root: Path,
-    discovered: list[tuple[str, Path]] | None = None,
+    ws_root: Path | None = None,
 ) -> Path | None:
     raw = target.strip()
     if not raw:
         return None
     cfg_res = config_dir.resolve()
-    ws_res = ws_root.resolve()
+    ws_res = (ws_root or _workspace_root_cached(cfg_res)).resolve()
     if raw in (".", "./"):
         return cfg_res if is_todo_project(cfg_res) else None
     p_cand = Path(raw).expanduser()
@@ -490,27 +421,16 @@ def _resolve_todo_project_path(
     for cand in candidates:
         if is_todo_project(cand):
             return cand
-    norm = raw.replace("\\", "/").strip("/")
-    if not norm or ".." in norm.split("/"):
-        return None
-    projs = discovered if discovered is not None else discover_projects(ws_res)
-    for rel, pdir in projs:
-        if rel == norm:
-            return pdir.resolve()
-    if "/" not in norm:
-        by_name = [pdir.resolve() for rel, pdir in projs if Path(rel).name == norm]
-        if len(by_name) == 1:
-            return by_name[0]
     return None
 
 def _resolve_todo_project_entry(
     entry: str,
     config_dir: Path,
-    ws_root: Path,
-    discovered: list[tuple[str, Path]] | None = None,
+    ws_root: Path | None = None,
 ) -> Path | None:
+    ws_res = (ws_root or _workspace_root_cached(config_dir.resolve())).resolve()
     alias, target = _split_project_alias_entry(entry)
-    resolved = _resolve_todo_project_path(target, config_dir, ws_root, discovered=discovered)
+    resolved = _resolve_todo_project_path(target, config_dir, ws_res)
     if resolved is not None:
         return resolved
     if alias is None:
@@ -522,7 +442,7 @@ def _resolve_todo_project_entry(
                     for item in _parse_todo_projects_text(read_if_exists(fpath)):
                         item_alias, item_target = _split_project_alias_entry(item)
                         if item_alias and (item_alias == norm or item_alias.rsplit("/", 1)[-1] == norm):
-                            r = _resolve_todo_project_path(item_target, config_dir, ws_root, discovered=discovered)
+                            r = _resolve_todo_project_path(item_target, config_dir, ws_res)
                             if r is not None:
                                 return r
     return None
@@ -531,7 +451,6 @@ def read_configured_todo_project_entries(
     config_dir: Path,
     ws_root: Path | None = None,
     include_env: bool = True,
-    discovered: list[tuple[str, Path]] | None = None,
     _visited: set[Path] | None = None,
 ) -> list[tuple[str | None, Path]]:
     cfg_res = config_dir.resolve()
@@ -553,12 +472,9 @@ def read_configured_todo_project_entries(
             has_config_source = True
             for item in _parse_todo_projects_text(read_if_exists(fpath)):
                 raw_entries.append((cfg_res, item))
-        elif fname == ".todo_projects" and fpath.is_dir():
+        elif fname == ".todo_projects" and fpath.is_dir() and is_todo_project(fpath):
             has_config_source = True
-            if is_todo_project(fpath):
-                raw_entries.append((fpath.resolve(), "."))
-            for _, sub_dir in discover_projects(fpath):
-                raw_entries.append((fpath.resolve(), str(sub_dir.resolve())))
+            raw_entries.append((fpath.resolve(), "."))
 
     if include_env:
         env_raw = os.environ.get("TODO_MD_PROJECTS", "").strip()
@@ -589,7 +505,6 @@ def read_configured_todo_project_entries(
             cache.configured_entries[cache_key] = []
         return []
 
-    projs = discovered if discovered is not None else discover_projects(ws_res)
     resolved: list[tuple[str | None, Path]] = []
     idx_by_path: dict[Path, int] = {}
 
@@ -614,11 +529,12 @@ def read_configured_todo_project_entries(
         if is_todo_project(src_dir):
             _add(None, src_dir)
         alias, target = _split_project_alias_entry(entry)
-        _add(alias, _resolve_todo_project_path(target, src_dir, ws_res, discovered=projs))
+        _add(alias, _resolve_todo_project_path(target, src_dir, ws_res))
     for _, child in list(resolved):
         if child != cfg_res and has_local_todo_projects_config(child):
+            child_ws = _workspace_root_cached(child)
             for grand_alias, grand in read_configured_todo_project_entries(
-                child, ws_res, include_env=False, discovered=projs, _visited=visited
+                child, child_ws, include_env=False, _visited=visited
             ):
                 _add(grand_alias, grand)
     if cache is not None and _visited is None:
@@ -629,7 +545,6 @@ def read_configured_todo_projects(
     config_dir: Path,
     ws_root: Path | None = None,
     include_env: bool = True,
-    discovered: list[tuple[str, Path]] | None = None,
     _visited: set[Path] | None = None,
 ) -> list[Path]:
     return [
@@ -638,20 +553,9 @@ def read_configured_todo_projects(
             config_dir,
             ws_root=ws_root,
             include_env=include_env,
-            discovered=discovered,
             _visited=_visited,
         )
     ]
-
-def has_local_todo_projects_config(directory: Path) -> bool:
-    d_res = directory.resolve()
-    if d_res.name == ".todo_projects" and is_todo_project(d_res):
-        return True
-    for fname in TODO_PROJECTS_FILES:
-        p = d_res / fname
-        if p.is_file() or (fname == ".todo_projects" and p.is_dir()):
-            return True
-    return False
 
 def is_orchestrator_project(
     base_dir: Path,
@@ -667,164 +571,16 @@ def is_orchestrator_project(
     p_env = Path(env_raw).expanduser()
     if p_env.is_file():
         return p_env.resolve().parent == b_res
-    if explicit_dir is not None:
-        return False
-    ws_res = (ws_root or resolve_workspace_root(b_res)).resolve()
-    projs = discover_projects(ws_res)
-    for _, pdir in projs:
-        p_res = pdir.resolve()
-        if p_res != b_res and has_local_todo_projects_config(p_res):
-            return False
-    configured = read_configured_todo_projects(b_res, ws_res, include_env=True, discovered=projs)
-    cfg_set = set(configured)
-
-    def _has_cross_project_deps(proj_dir: Path) -> bool:
-        for t in parse_tasks_in_text(read_if_exists(proj_dir / "TODO.md"), "TODO.md"):
-            for dep in parse_task_dependencies(str(t["section"])):
-                pm = PROJECT_TASK_RE.match(dep)
-                if pm:
-                    dep_proj = _resolve_todo_project_entry(pm.group(1), proj_dir, ws_res, discovered=projs)
-                    if dep_proj is not None and dep_proj != proj_dir and dep_proj in cfg_set:
-                        return True
-        return False
-
-    for p_res in configured:
-        if p_res == b_res:
-            continue
-        for t in parse_tasks_in_text(read_if_exists(p_res / "TODO.md"), "TODO.md"):
-            for dep in parse_task_dependencies(str(t["section"])):
-                pm = PROJECT_TASK_RE.match(dep)
-                if pm:
-                    dep_proj = _resolve_todo_project_entry(pm.group(1), p_res, ws_res, discovered=projs)
-                    if dep_proj == b_res:
-                        return False
-    if not _has_cross_project_deps(b_res) and any(
-        p_res != b_res and _has_cross_project_deps(p_res) for p_res in configured
-    ):
-        return False
-    return True
-
-def discover_orchestrators_for_project(
-    target_dir: Path,
-    ws_root: Path | None = None,
-) -> tuple[list[Path], list[Path]]:
-    cache = _ACTIVE_DISCOVERY
-    if cache is None:
-        return _scan_orchestrators_for_project(target_dir, ws_root)
-    t_res = target_dir.resolve()
-    ws_res = (ws_root or _workspace_root_cached(t_res)).resolve()
-    key = (t_res, ws_res)
-    if key not in cache.orchestrators:
-        cache.scans["orchestrators"] += 1
-        cache.orchestrators[key] = _scan_orchestrators_for_project(t_res, ws_res)
-    orchestrators, configured = cache.orchestrators[key]
-    return list(orchestrators), list(configured)
-
-def _scan_orchestrators_for_project(
-    target_dir: Path,
-    ws_root: Path | None = None,
-) -> tuple[list[Path], list[Path]]:
-    t_res = target_dir.resolve()
-    ws_res = (ws_root or _workspace_root_cached(t_res)).resolve()
-    projs = discover_projects(ws_res)
-
-    probe_dirs: list[Path] = []
-    seen_probes: set[Path] = set()
-
-    def _add_probe(d: Path) -> None:
-        d_res = d.resolve()
-        if d_res not in seen_probes and d_res.is_dir():
-            seen_probes.add(d_res)
-            probe_dirs.append(d_res)
-
-    _add_probe(ws_res)
-    for anc in t_res.parents:
-        _add_probe(anc)
-        if anc.resolve() == ws_res:
-            break
-    for _, pdir in projs:
-        _add_probe(pdir)
-
-    orchestrators: list[Path] = []
-    configured_union: list[Path] = []
-    seen_orch: set[Path] = set()
-    seen_cfg: set[Path] = set()
-
-    def _add_enclosing_probes(d: Path) -> None:
-        home = _home_dir()
-        for anc in d.parents:
-            _add_probe(anc)
-            if anc.resolve() in (ws_res, home):
-                break
-
-    probe_idx = 0
-    while probe_idx < len(probe_dirs):
-        cand = probe_dirs[probe_idx]
-        probe_idx += 1
-        if not has_local_todo_projects_config(cand):
-            continue
-        cfg_list = read_configured_todo_projects(cand, ws_res, include_env=False, discovered=projs)
-        if t_res in cfg_list:
-            if is_todo_project(cand) and cand not in seen_orch:
-                seen_orch.add(cand)
-                orchestrators.append(cand)
-                _add_enclosing_probes(cand)
-            tp_dir = cand / ".todo_projects"
-            if tp_dir.is_dir() and is_todo_project(tp_dir) and tp_dir.resolve() not in seen_orch:
-                seen_orch.add(tp_dir.resolve())
-                orchestrators.append(tp_dir.resolve())
-            for p in cfg_list:
-                if p not in seen_cfg:
-                    seen_cfg.add(p)
-                    configured_union.append(p)
-
-    env_raw = os.environ.get("TODO_MD_PROJECTS", "").strip()
-    if env_raw:
-        env_cfg = read_configured_todo_projects(ws_res, ws_res, include_env=True, discovered=projs)
-        if t_res in env_cfg:
-            for p in env_cfg:
-                if p not in seen_cfg:
-                    seen_cfg.add(p)
-                    configured_union.append(p)
-                if p != t_res and is_todo_project(p) and p not in seen_orch:
-                    seen_orch.add(p)
-                    orchestrators.append(p)
-
-    return orchestrators, configured_union
+    return explicit_dir is None
 
 def resolve_workspace_chain_projects(
     base_dir: Path,
-    ws_root: Path,
+    ws_root: Path | None = None,
 ) -> list[tuple[str, Path]]:
     b_res = base_dir.resolve()
-    ws_res = ws_root.resolve()
-    all_projs = discover_projects(ws_res)
-
-    configured: list[Path] = []
-    seen: set[Path] = set()
-
-    def _merge(paths: list[Path]) -> None:
-        for p in paths:
-            p_res = p.resolve()
-            if p_res not in seen and is_todo_project(p_res):
-                seen.add(p_res)
-                configured.append(p_res)
-
-    if has_local_todo_projects_config(b_res) or os.environ.get("TODO_MD_PROJECTS", "").strip():
-        if (b_res / "TODO.md").is_file() or (b_res / "TODO_ARCHIVE.md").is_file():
-            _merge([b_res])
-        _merge(read_configured_todo_projects(b_res, ws_res, include_env=True, discovered=all_projs))
-    if not configured and has_local_todo_projects_config(ws_res):
-        _merge(read_configured_todo_projects(ws_res, ws_res, include_env=True, discovered=all_projs))
-    if not configured:
-        for _, pdir in all_projs:
-            if has_local_todo_projects_config(pdir):
-                _merge(read_configured_todo_projects(pdir, ws_res, include_env=False, discovered=all_projs))
-
-    if not configured:
-        return all_projs
-
-    result: list[tuple[str, Path]] = []
-    for p_res in configured:
-        result.append((project_display_name(p_res, ws_res, b_res), p_res))
-    return result
+    ws_res = (ws_root or _workspace_root_cached(b_res)).resolve()
+    entries = read_configured_todo_project_entries(b_res, ws_res, include_env=True)
+    return [
+        (alias if alias else project_display_name(p_res, ws_res, b_res), p_res)
+        for alias, p_res in entries
+    ]

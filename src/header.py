@@ -79,19 +79,6 @@ def prefix_legend_lines() -> list[str]:
     return [
         f"Prefixes: {prefixes}, other A-Z=custom domain",
     ]
-WORKSPACE_SKIP_DIRS = frozenset({
-    "node_modules",
-    "vendor",
-    "dist",
-    "build",
-    "target",
-    "__pycache__",
-    "venv",
-    "env",
-    "Pods",
-    "DerivedData",
-})
-WORKSPACE_MAX_DEPTH = 3
 
 
 def get_embedded_todo_rule() -> str:

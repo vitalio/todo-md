@@ -54,14 +54,14 @@ rules are loaded via `.context.bundle`.
 - `src/header.py` — help tables rendered by `usage_text()` (`-h`/`--help`),
   standard library imports, version placeholder (`__VERSION__`, injected from
   `VERSION` by `build.py`), and task heading regexes.
-- `src/workspace.py` — project and workspace root resolution, `.todo_projects` /
-  `.todo_projects.local` (including `<project_id>=<path>` alias mappings) and
-  orchestrator discovery, and the per-render `discovery_session()` cache
-  (`_discovery_scoped` on `validate_all`, `cmd_check`, `cmd_chain`,
-  `build_execution_chain_dag`, `cmd_projects`, `find_newly_unblocked_tasks`,
-  `cmd_list`, `cmd_show`, `cmd_summary`, `cmd_workspace_*`,
-  `_order_active_tasks`); route new discovery calls through the cached wrappers
-  and never mutate task files inside an active session.
+- `src/workspace.py` — strict one-way `.todo_projects` / `.todo_projects.local`
+  (and `TODO_MD_PROJECTS`, including `<project_id>=<path>` alias mappings)
+  registry resolution without parent or sibling directory scanning, and the
+  per-render `discovery_session()` cache (`_discovery_scoped` on `validate_all`,
+  `cmd_check`, `cmd_chain`, `build_execution_chain_dag`, `cmd_projects`,
+  `find_newly_unblocked_tasks`, `cmd_list`, `cmd_show`, `cmd_summary`,
+  `cmd_workspace_*`, `_order_active_tasks`); route new discovery calls through
+  the cached wrappers and never mutate task files inside an active session.
 - `src/parser.py` — pure `TODO.md` / `TODO_ARCHIVE.md` parsing: task sections,
   dependency clause syntax, prefix matching, ID tracking, search, and the
   structural validator `validate_all()` (`todo check`); no terminal output.
@@ -120,13 +120,16 @@ rules are loaded via `.context.bundle`.
   stages (`,` binds tighter than `->`, e.g. `A, B -> C`), and `;` (or multiple
   `--depends` / `- Depends on:` lines) separates independent branches combined
   with AND.
-- Unified DAG: dependency resolution merges explicit `->` stage edges on the
-  target task with transitive `- Depends on:` edges inside referenced tasks
-  (preserving one-way cross-repo boundaries when orchestrators sequence child
-  tasks). `build_dependency_dag()` also merges inbound stage edges declared
-  in `.todo_projects` orchestrator tasks, so `queue`, `next-id`, `list`, and
-  `show` agree with `chain`; `--ready` ranks tasks by their best parent chain
-  index before local chain counts.
+- Unified DAG & strict one-way boundary: dependency resolution merges explicit
+  `->` stage edges on the target task with transitive `- Depends on:` edges
+  inside referenced tasks. Multi-project scope exists strictly when
+  `.todo_projects`, `.todo_projects.local`, or `TODO_MD_PROJECTS` is configured:
+  child repositories remain 100% self-contained (never scanning parent or
+  sibling directories, discovering enclosing orchestrators, or mutating external
+  orchestrator files), while cross-project blockers and stage edges are
+  inspected from the orchestrator repository (`-w`, `-p <project>`, and
+  `<project>:<ID>` require `.todo_projects`). `--ready` ranks tasks by their
+  best parent chain index before local chain counts.
 - Validation & execution: `todo check` detects syntax errors, missing refs,
   and transitive cycles; `DONE` unblocks while `CANCELED` or `MISSING` blocks;
   `todo queue <ID>` shows the ordered queue and `todo next-id <ID>`

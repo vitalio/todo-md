@@ -1,31 +1,3 @@
-def _inbound_blocker_items(
-    base_dir: Path,
-    task: dict[str, object],
-    own_clauses: list[list[list[str]]],
-    explicit_dir: str | None = None,
-) -> list[str]:
-    dag = _task_dag(base_dir, task, explicit_dir=explicit_dir)
-    if dag is None:
-        return []
-    nodes: dict[tuple[Path, str], dict[str, object]] = dag["nodes"]  # type: ignore[assignment]
-    prereqs: dict[tuple[Path, str], list[tuple[Path, str]]] = dag["prereqs"]  # type: ignore[assignment]
-    root_key: tuple[Path, str] = dag["root"]  # type: ignore[assignment]
-
-    def _norm(ref: str) -> str:
-        return ref.strip().upper().lstrip("~/")
-
-    own = {_norm(ref) for clause in own_clauses for stage in clause for ref in stage}
-    items: list[str] = []
-    for p in prereqs.get(root_key, []):
-        nd = nodes[p]
-        st = str(nd["status"])
-        if st == "DONE" or _norm(str(nd["ref"])) in own:
-            continue
-        emoji = str(nd.get("emoji", ""))
-        label = f"{emoji} [{st}]".strip() if emoji else f"[{st}]"
-        items.append(f"{nd['ref']} {label}")
-    return items
-
 def format_dependency_summary(
     base_dir: Path,
     section_text: str,
@@ -33,12 +5,7 @@ def format_dependency_summary(
     task: dict[str, object] | None = None,
 ) -> str | None:
     clauses, syntax_errors = parse_dependency_clauses(section_text)
-    inbound_items = (
-        _inbound_blocker_items(base_dir, task, clauses, explicit_dir=explicit_dir)
-        if task is not None and not syntax_errors
-        else []
-    )
-    if not clauses and not syntax_errors and not inbound_items:
+    if not clauses and not syntax_errors:
         return None
     flat_refs: list[str] = []
     seen_refs: set[str] = set()
@@ -69,9 +36,6 @@ def format_dependency_summary(
                     item_strs.append(f"{ref} {label}")
             stage_strs.append(", ".join(item_strs))
         clause_strs.append(" -> ".join(stage_strs))
-    if inbound_items:
-        blocked = True
-        clause_strs.append(", ".join(inbound_items))
     if syntax_errors and not clause_strs:
         return f"Dependencies (blocked): [syntax error: {'; '.join(syntax_errors)}]"
     state = "blocked" if blocked else "ready"
@@ -617,6 +581,11 @@ def cmd_list(
 ) -> int:
     mode = (filt or "active").strip().lower()
     tasks = collect_all_tasks(base_dir)
+    if _ACTIVE_DISCOVERY is not None:
+        _ACTIVE_DISCOVERY.task_maps.setdefault(
+            base_dir.resolve(),
+            {str(t["id"]).upper(): t for t in tasks},
+        )
     active_tasks = _order_active_tasks_for_list(
         [t for t in tasks if t["file"] == "TODO.md"],
         base_dir=base_dir,
@@ -744,25 +713,18 @@ def cmd_list(
 @_discovery_scoped
 def cmd_projects(base_dir: Path, explicit_dir: str | None = None) -> int:
     b_res = base_dir.resolve()
-    ws_root = _workspace_root_cached(b_res, explicit_dir=explicit_dir)
-    ws_res = ws_root.resolve()
-    all_projs = discover_projects(ws_res)
-    if has_local_todo_projects_config(b_res) or (
-        explicit_dir is None and bool(os.environ.get("TODO_MD_PROJECTS", "").strip())
-    ):
-        entries = read_configured_todo_project_entries(
-            b_res, ws_res, include_env=True, discovered=all_projs
-        )
-        projects = [
-            (alias if alias else project_label(p_dir, ws_res), p_dir)
-            for alias, p_dir in entries
-        ]
+    if has_todo_projects_config(b_res, include_env=(explicit_dir is None)):
+        ws_root = _workspace_root_cached(b_res, explicit_dir=explicit_dir)
+        ws_res = ws_root.resolve()
+        projects = resolve_workspace_chain_projects(b_res, ws_res)
+        header_root = ws_root
     else:
-        projects = all_projs
+        projects = [(b_res.name, b_res)] if is_todo_project(b_res) else []
+        header_root = b_res
     if not projects:
-        sys.stdout.write(f"No todo_md projects found under {ws_root}\n")
+        sys.stdout.write(f"No todo_md projects found under {header_root}\n")
         return 0
-    sys.stdout.write(f"Workspace: {ws_root} ({len(projects)} project(s))\n")
+    sys.stdout.write(f"Workspace: {header_root} ({len(projects)} project(s))\n")
     term_width = _get_terminal_columns()
     for name, proj_dir in projects:
         p_res = proj_dir.resolve()
@@ -780,8 +742,15 @@ def cmd_projects(base_dir: Path, explicit_dir: str | None = None) -> int:
     return 0
 
 @_discovery_scoped
-def cmd_workspace_summary(workspace_root: Path, full: bool = False) -> int:
-    projects = discover_projects(workspace_root)
+def cmd_workspace_summary(
+    base_dir: Path,
+    full: bool = False,
+    explicit_dir: str | None = None,
+) -> int:
+    b_res = base_dir.resolve()
+    require_todo_projects_config(b_res, "workspace mode (-w/--workspace)")
+    workspace_root = _workspace_root_cached(b_res, explicit_dir=explicit_dir)
+    projects = resolve_workspace_chain_projects(b_res, workspace_root)
     if not projects:
         sys.stdout.write(f"No todo_md projects found under {workspace_root}\n")
         return 0
@@ -822,7 +791,7 @@ def cmd_workspace_summary(workspace_root: Path, full: bool = False) -> int:
 
 @_discovery_scoped
 def cmd_workspace_list(
-    workspace_root: Path,
+    base_dir: Path,
     filt: str | None = None,
     limit: int | None = None,
     full: bool = False,
@@ -833,8 +802,12 @@ def cmd_workspace_list(
     focus: list[tuple[Path, str]] | None = None,
     search: str | None = None,
     highlight_only: bool = False,
+    explicit_dir: str | None = None,
 ) -> int:
-    projects = discover_projects(workspace_root)
+    b_res = base_dir.resolve()
+    require_todo_projects_config(b_res, "workspace mode (-w/--workspace)")
+    workspace_root = _workspace_root_cached(b_res, explicit_dir=explicit_dir)
+    projects = resolve_workspace_chain_projects(b_res, workspace_root)
     if not projects:
         sys.stdout.write(f"No todo_md projects found under {workspace_root}\n")
         return 0
@@ -895,7 +868,7 @@ def cmd_workspace_list(
         ]
 
     if focus:
-        focus_set, focus_unscoped = _normalize_target_refs(workspace_root, focus)
+        focus_set, focus_unscoped = _normalize_target_refs(b_res, focus, explicit_dir=explicit_dir)
         if focus_set or focus_unscoped:
             items = [
                 (name, proj_dir, t)
@@ -944,7 +917,7 @@ def cmd_workspace_list(
         return 0
     term_width = _get_terminal_columns()
     use_color = _use_ansi_color()
-    target_set, unscoped_ids = _normalize_target_refs(workspace_root, active_targets)
+    target_set, unscoped_ids = _normalize_target_refs(b_res, active_targets, explicit_dir=explicit_dir)
     for name, proj_dir, t in items:
         is_blocked, dep_suffix = _ws_dep_info(proj_dir, t)
         st_str = str(t["status"])
@@ -970,8 +943,11 @@ def cmd_workspace_list(
     return 0
 
 @_discovery_scoped
-def cmd_workspace_check(workspace_root: Path) -> int:
-    projects = discover_projects(workspace_root)
+def cmd_workspace_check(base_dir: Path, explicit_dir: str | None = None) -> int:
+    b_res = base_dir.resolve()
+    require_todo_projects_config(b_res, "workspace mode (-w/--workspace)")
+    workspace_root = _workspace_root_cached(b_res, explicit_dir=explicit_dir)
+    projects = resolve_workspace_chain_projects(b_res, workspace_root)
     if not projects:
         sys.stdout.write(f"No todo_md projects found under {workspace_root}\n")
         return 0

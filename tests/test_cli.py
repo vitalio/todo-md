@@ -280,6 +280,22 @@ class TestCli(TodoMdTestCase):
         (proj_a / "mod.py").write_text("x = 1\n", encoding="utf-8")
         env_ws = {**os.environ, "TODO_MD_WORKSPACE": str(ws)}
 
+        # Without .todo_projects, -p <project>, -w, and <project>:<ID> fail explicitly requiring .todo_projects
+        for standalone_cmd in (
+            ["-p", "proj_c", "ids"],
+            ["-w", "list"],
+            ["show", "proj_a:B1"],
+        ):
+            with self.subTest(standalone_cmd=standalone_cmd):
+                r_no_cfg = self._run([str(SCRIPT), *standalone_cmd], cwd=str(proj_c))
+                self.assertNotEqual(r_no_cfg.returncode, 0, msg=r_no_cfg.stdout)
+                self.assertIn(".todo_projects", r_no_cfg.stderr)
+
+        (outside / ".todo_projects").write_text(
+            "proj_a\nparent_proj/sub_proj\nproj_c\ng1/shared\ng2/shared\n",
+            encoding="utf-8",
+        )
+
         # -C <dir> (relative to PWD like git -C) and -p/--project <name> across mutating and read-only subcommands
         self._run(
             [str(SCRIPT), "-C", str(proj_a), "add", "-p", "B", "Bug from -C", "-b", "Body for B1."],
@@ -348,25 +364,26 @@ class TestCli(TodoMdTestCase):
         r_q = self._run([str(SCRIPT), "-p", "sub_proj", "queue", "F1", "--all"], cwd=str(outside), env=env_ws, check=True)
         self.assertIn("proj_a:B1", r_q.stdout)
 
-        # Workspace discovery from sibling project without TODO_MD_WORKSPACE env var (-p project and -C ../proj_a)
+        # Configured .todo_projects discovery without TODO_MD_WORKSPACE env var (-p project and -C ../proj_a)
+        (proj_c / ".todo_projects").write_text("proj_a\nproj_c\n", encoding="utf-8")
         r_sib = self._run([str(SCRIPT), "-p", "proj_a", "ids"], cwd=str(proj_c), check=True)
         self.assertIn("B:1", r_sib.stdout)
         r_sib_c = self._run([str(SCRIPT), "-C", "../proj_a", "ids"], cwd=str(proj_c), check=True)
         self.assertIn("B:1", r_sib_c.stdout)
 
         # Precedence: -C/-p/--project > TODO_MD_CWD > <project>:<ID> > cwd
-        env_cwd_a = {**os.environ, "TODO_MD_WORKSPACE": str(ws), "TODO_MD_CWD": str(proj_a)}
-        r_prec_env = self._run([str(SCRIPT), "ids"], cwd=str(proj_b), env=env_cwd_a, check=True)
-        self.assertIn("B:1", r_prec_env.stdout)
-        self.assertNotIn("F:1", r_prec_env.stdout)
+        env_cwd_b = {**os.environ, "TODO_MD_WORKSPACE": str(ws), "TODO_MD_CWD": str(proj_b)}
+        r_prec_env = self._run([str(SCRIPT), "ids"], cwd=str(proj_a), env=env_cwd_b, check=True)
+        self.assertIn("F:1", r_prec_env.stdout)
+        self.assertNotIn("B:1", r_prec_env.stdout)
 
-        r_prec_cli = self._run([str(SCRIPT), "-p", "sub_proj", "ids"], cwd=str(outside), env=env_cwd_a, check=True)
-        self.assertIn("F:1", r_prec_cli.stdout)
-        self.assertNotIn("B:1", r_prec_cli.stdout)
+        r_prec_cli = self._run([str(SCRIPT), "-p", "proj_a", "ids"], cwd=str(outside), env=env_cwd_b, check=True)
+        self.assertIn("B:1", r_prec_cli.stdout)
+        self.assertNotIn("F:1", r_prec_cli.stdout)
 
-        r_prec_c = self._run([str(SCRIPT), "-C", str(proj_b), "ids"], cwd=str(outside), env=env_cwd_a, check=True)
-        self.assertIn("F:1", r_prec_c.stdout)
-        self.assertNotIn("B:1", r_prec_c.stdout)
+        r_prec_c = self._run([str(SCRIPT), "-C", str(proj_a), "ids"], cwd=str(outside), env=env_cwd_b, check=True)
+        self.assertIn("B:1", r_prec_c.stdout)
+        self.assertNotIn("F:1", r_prec_c.stdout)
 
         r_prec_ref = self._run([str(SCRIPT), "show", "proj_a:B1"], cwd=str(proj_c), check=True)
         self.assertIn("Bug from -C", r_prec_ref.stdout)
@@ -638,11 +655,14 @@ class TestCli(TodoMdTestCase):
         self._run([str(SCRIPT), "done", "todo-md:F1", "-m", "shipped"], cwd=str(orch), check=True)
         self.assertEqual(self._run([str(SCRIPT), "next-id"], cwd=str(orch), check=True).stdout.strip(), "F1")
 
-        # -w / --workspace spans all workspace projects and prints <project>:<ID>
+        # -w / --workspace spans configured .todo_projects from orchestrator and fails in standalone child
         self._run([str(SCRIPT), "add", "B", "Urgent workspace bug", "--status", "WIP"], cwd=str(child_md), check=True)
-        r_ws_nid = self._run([str(SCRIPT), "-w", "next-id"], cwd=str(child_rb), check=True)
+        r_ws_child_err = self._run([str(SCRIPT), "-w", "next-id"], cwd=str(child_rb))
+        self.assertNotEqual(r_ws_child_err.returncode, 0, msg=r_ws_child_err.stdout)
+        self.assertIn(".todo_projects", r_ws_child_err.stderr)
+        r_ws_nid = self._run([str(SCRIPT), "-w", "next-id"], cwd=str(orch), check=True)
         self.assertEqual(r_ws_nid.stdout.strip(), "todo-md:B1")
-        r_ws_top = self._run([str(SCRIPT), "-w", "--top"], cwd=str(child_rb), check=True)
+        r_ws_top = self._run([str(SCRIPT), "-w", "--top"], cwd=str(orch), check=True)
         self.assertEqual(r_ws_top.stdout.strip(), "todo-md:B1")
 
 
