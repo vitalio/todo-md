@@ -665,6 +665,12 @@ class TestCli(TodoMdTestCase):
         r_ws_top = self._run([str(SCRIPT), "-w", "--top"], cwd=str(orch), check=True)
         self.assertEqual(r_ws_top.stdout.strip(), "todo-md:B1")
 
+        # When TODO_MD_PROJECTS is set in the environment, -C <child> -w fails because <child> has no .todo_projects
+        env_proj = {**os.environ, "TODO_MD_PROJECTS": "todo-flow,todo-md,run-block"}
+        r_c_ws_err = self._run([str(SCRIPT), "-C", str(child_rb), "-w", "next-id"], cwd=str(orch), env=env_proj)
+        self.assertNotEqual(r_c_ws_err.returncode, 0, msg=r_c_ws_err.stdout)
+        self.assertIn(".todo_projects", r_c_ws_err.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

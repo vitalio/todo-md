@@ -1,3 +1,13 @@
+# ✅ [DONE] B14: Fix missing-project refs, TODO_MD_PROJECTS scoping, -C/-p unblocks, and unused F89 helpers — *2026-11-28, Fixed missing-project ref formatting, TODO_MD_PROJECTS scoping, -C/-p unblocks, and unused F89 helpers*
+
+- Depends on: F89
+- Bump: `PATCH`
+- In `src/dag.py` (`build_dependency_dag()`, `build_execution_chain_dag()`), format unresolved `<project>:<ID>` references (`__missing_project__`) as `<project>:<ID>` rather than leaking `__missing_project__/<project>:<ID>` or `<orch>/__missing_project__/<project>:<ID>` in `chain`, `next-id`, `list`, and `stderr` diagnostics.
+- In `src/workspace.py` and `src/parser.py`, scope `TODO_MD_PROJECTS` environment resolution strictly to the active root target directory (when `explicit_dir` is not overriding it or when `TODO_MD_PROJECTS` points to a file in `base_dir`) so child repositories validated during `todo -w --check` or targeted via `-C <child>` / `-p <child>` do not inherit orchestrator status from `TODO_MD_PROJECTS`.
+- In `src/dag.py` and `src/commands.py`, pass the active command `base_dir` / `explicit_dir` into `find_newly_unblocked_tasks()` on `todo --done` instead of probing `resolve_target_dir(None)` (`Path.cwd()`), so `-C <orch> --done <child>:<ID>` reports orchestrator unblocks while `-C <child> --done <ID>` from an orchestrator working directory stays isolated to `<child>`.
+- Clean up dead/unused leftovers from `F89`: remove unused `resolve_project_or_dir()` and `_resolve_todo_project_entry()` in `src/workspace.py` (routing `_rewrite_project_tasks_and_deps()` in `src/commands.py` through `lookup_external_alias()` when `has_todo_projects_config(t_res)` is true), and drop unused `task` parameter on `format_dependency_summary()` in `src/render.py` and unused `ws_root` parameter on `is_orchestrator_project()` in `src/workspace.py`.
+- Update unit tests in `tests/test_chain.py`, `tests/test_deps.py`, `tests/test_commands.py`, and `tests/test_cli.py`, and rebuild `./todo` via `python3 build.py`.
+
 # ✅ [DONE] F89: Enforce strict one-way .todo_projects discovery boundary and remove parent directory scanning — *2026-11-27, Enforced strict one-way .todo_projects discovery boundary (v0.53.0)*
 
 - Enforce the strict one-way orchestrator discovery and mutation boundary defined in `todo-flow/docs/adr/0005-orchestrator-standard-and-dependency-boundaries.md`: multi-project scope exists strictly when `.todo_projects`, `.todo_projects.local`, or `TODO_MD_PROJECTS` is configured; a standalone repository without `.todo_projects` never scans parent or sibling directories (`..`), never discovers enclosing orchestrators, and never mutates external orchestrator files.

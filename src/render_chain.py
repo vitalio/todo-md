@@ -16,10 +16,10 @@ def cmd_chain(
 ) -> int:
     b_res = base_dir.resolve()
     if workspace:
-        require_todo_projects_config(b_res, "workspace mode (-w/--workspace)")
+        require_todo_projects_config(b_res, "workspace mode (-w/--workspace)", explicit_dir=explicit_dir)
     row_scoped = status is not None or bool(focus)
     ws_root = _workspace_root_cached(b_res, explicit_dir=explicit_dir)
-    is_orch = (not workspace) and is_orchestrator_project(b_res, ws_root, explicit_dir=explicit_dir)
+    is_orch = (not workspace) and is_orchestrator_project(b_res, explicit_dir=explicit_dir)
     if workspace:
         if not resolve_workspace_chain_projects(b_res, ws_root):
             sys.stdout.write(f"No todo_md projects found under {ws_root}\n")

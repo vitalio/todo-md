@@ -2,7 +2,6 @@ def format_dependency_summary(
     base_dir: Path,
     section_text: str,
     explicit_dir: str | None = None,
-    task: dict[str, object] | None = None,
 ) -> str | None:
     clauses, syntax_errors = parse_dependency_clauses(section_text)
     if not clauses and not syntax_errors:
@@ -62,7 +61,7 @@ def _format_task_for_summary(
         lines[0] = lines[0].replace(f"] {tid}:", f"] {proj_prefix}:{tid}:", 1)
         sec = "\n".join(lines)
     dep_line = (
-        format_dependency_summary(base_dir, str(task["section"]), task=task)
+        format_dependency_summary(base_dir, str(task["section"]))
         if base_dir
         else None
     )
@@ -171,7 +170,7 @@ def cmd_show(base_dir: Path, task_id: str) -> int:
             f"Workdir: {workdir}",
         ]
         headers = "\n".join(header_lines)
-        dep_line = format_dependency_summary(base_dir, section, task=t)
+        dep_line = format_dependency_summary(base_dir, section)
         dep_block = f"\n{dep_line}" if dep_line else ""
         sys.stdout.write(
             f"{headers}\n\n# {t['file']}:{t['line']}\n{section}{dep_block}\n"
@@ -713,7 +712,7 @@ def cmd_list(
 @_discovery_scoped
 def cmd_projects(base_dir: Path, explicit_dir: str | None = None) -> int:
     b_res = base_dir.resolve()
-    if has_todo_projects_config(b_res, include_env=(explicit_dir is None)):
+    if has_todo_projects_config(b_res, explicit_dir=explicit_dir):
         ws_root = _workspace_root_cached(b_res, explicit_dir=explicit_dir)
         ws_res = ws_root.resolve()
         projects = resolve_workspace_chain_projects(b_res, ws_res)
@@ -748,7 +747,7 @@ def cmd_workspace_summary(
     explicit_dir: str | None = None,
 ) -> int:
     b_res = base_dir.resolve()
-    require_todo_projects_config(b_res, "workspace mode (-w/--workspace)")
+    require_todo_projects_config(b_res, "workspace mode (-w/--workspace)", explicit_dir=explicit_dir)
     workspace_root = _workspace_root_cached(b_res, explicit_dir=explicit_dir)
     projects = resolve_workspace_chain_projects(b_res, workspace_root)
     if not projects:
@@ -805,7 +804,7 @@ def cmd_workspace_list(
     explicit_dir: str | None = None,
 ) -> int:
     b_res = base_dir.resolve()
-    require_todo_projects_config(b_res, "workspace mode (-w/--workspace)")
+    require_todo_projects_config(b_res, "workspace mode (-w/--workspace)", explicit_dir=explicit_dir)
     workspace_root = _workspace_root_cached(b_res, explicit_dir=explicit_dir)
     projects = resolve_workspace_chain_projects(b_res, workspace_root)
     if not projects:
@@ -945,7 +944,7 @@ def cmd_workspace_list(
 @_discovery_scoped
 def cmd_workspace_check(base_dir: Path, explicit_dir: str | None = None) -> int:
     b_res = base_dir.resolve()
-    require_todo_projects_config(b_res, "workspace mode (-w/--workspace)")
+    require_todo_projects_config(b_res, "workspace mode (-w/--workspace)", explicit_dir=explicit_dir)
     workspace_root = _workspace_root_cached(b_res, explicit_dir=explicit_dir)
     projects = resolve_workspace_chain_projects(b_res, workspace_root)
     if not projects:
@@ -954,7 +953,8 @@ def cmd_workspace_check(base_dir: Path, explicit_dir: str | None = None) -> int:
     total_tasks = 0
     had_error = False
     for name, proj_dir in projects:
-        errors, count = validate_all(proj_dir)
+        proj_explicit = explicit_dir if proj_dir.resolve() == b_res else str(proj_dir)
+        errors, count = validate_all(proj_dir, explicit_dir=proj_explicit)
         total_tasks += count
         if errors:
             had_error = True
@@ -996,7 +996,7 @@ def resolve_top_task_id(
     b_res = base_dir.resolve()
     ws_root = _workspace_root_cached(b_res, explicit_dir=explicit_dir)
     ws_res = ws_root.resolve()
-    is_orch = (not workspace) and is_orchestrator_project(b_res, ws_res, explicit_dir=explicit_dir)
+    is_orch = (not workspace) and is_orchestrator_project(b_res, explicit_dir=explicit_dir)
     if workspace:
         if not resolve_workspace_chain_projects(b_res, ws_res):
             return None
@@ -1082,7 +1082,7 @@ def cmd_next_id(
     b_res = base_dir.resolve()
     ws_root = _workspace_root_cached(b_res, explicit_dir=explicit_dir)
     ws_res = ws_root.resolve()
-    is_orch = (not workspace) and is_orchestrator_project(b_res, ws_res, explicit_dir=explicit_dir)
+    is_orch = (not workspace) and is_orchestrator_project(b_res, explicit_dir=explicit_dir)
     tdir = (target_dir or base_dir).resolve()
     tid_norm = task_id.strip().upper()
     include_hold = status is not None and status.strip().upper() == "HOLD"

@@ -528,6 +528,40 @@ class TestDeps(TodoMdTestCase):
         r_done_b = self._run([str(SCRIPT), "done", "repo_b:F2", "-m", "db2"], cwd=str(orch_dir), check=True)
         self.assertIn("Unblocked: orch:F1", r_done_b.stdout)
 
+        # Completing via -C <orch> --done <child>:<ID> from outside <orch> reports orchestrator unblocks,
+        # while -C <child> --done <ID> and -p <child> --done <ID> from <orch> stay isolated to <child>
+        self._run([str(SCRIPT), "add", "F", "Child gate 1", "--next"], cwd=str(repo_b), check=True)  # F3
+        self._run([str(SCRIPT), "add", "F", "Child gate 2", "--next"], cwd=str(repo_b), check=True)  # F4
+        self._run(
+            [str(SCRIPT), "add", "F", "Orch wave 2", "--next", "--depends", "repo_b:F3"],
+            cwd=str(orch_dir),
+            check=True,
+        )  # orch:F2
+        self._run(
+            [str(SCRIPT), "add", "F", "Orch wave 3", "--next", "--depends", "repo_b:F4"],
+            cwd=str(orch_dir),
+            check=True,
+        )  # orch:F3
+        r_c_child = self._run(
+            [str(SCRIPT), "-C", str(repo_b), "--done", "F3", "-m", "isolated -C"],
+            cwd=str(orch_dir),
+            check=True,
+        )
+        self.assertNotIn("Unblocked:", r_c_child.stdout)
+        self._run([str(SCRIPT), "reopen", "repo_b:F3", "--status", "NEXT"], cwd=str(orch_dir), check=True)
+        r_p_child = self._run(
+            [str(SCRIPT), "-p", "repo_b", "--done", "F3", "-m", "isolated -p"],
+            cwd=str(orch_dir),
+            check=True,
+        )
+        self.assertNotIn("Unblocked:", r_p_child.stdout)
+        r_c_orch = self._run(
+            [str(SCRIPT), "-C", str(orch_dir), "--done", "repo_b:F4", "-m", "orch -C"],
+            cwd=str(repo_a),
+            check=True,
+        )
+        self.assertIn("Unblocked: orch:F3", r_c_orch.stdout)
+
     def test_nested_orchestrators_external_alias_and_cycle_safety(self):
         import os
         from unittest import mock
@@ -540,6 +574,8 @@ class TestDeps(TodoMdTestCase):
             "_scan_orchestrators_for_project",
             "_inbound_blocker_items",
             "_rewrite_orchestrator_deps",
+            "resolve_project_or_dir",
+            "_resolve_todo_project_entry",
         ):
             self.assertFalse(hasattr(mod, removed_fn), f"{removed_fn} must be removed")
 
@@ -572,6 +608,49 @@ class TestDeps(TodoMdTestCase):
             self.assertEqual(mod.resolve_project_dir(meta_orch, "canary"), canary.resolve())
             with self.assertRaises(SystemExit):
                 mod.resolve_project_dir(todo_flow, "chrome/canary")
+
+            orig_flow_todo = (todo_flow / "TODO.md").read_text(encoding="utf-8")
+            orig_md_todo = (todo_md_p / "TODO.md").read_text(encoding="utf-8")
+            orig_flow_cfg = (todo_flow / ".todo_projects").read_text(encoding="utf-8")
+            try:
+                # Unresolved <project>:<ID> references format as <project>:<ID> without leaking __missing_project__
+                (todo_flow / "TODO.md").write_text(
+                    "# 🎯 [NEXT] F1: Bad ref wave\n- Depends on: ghost_proj:F9\n\n- Body.\n",
+                    encoding="utf-8",
+                )
+                r_ghost_chain = self._run([str(SCRIPT), "chain"], cwd=str(todo_flow), env=os.environ.copy())
+                self.assertIn("ghost_proj:F9", r_ghost_chain.stdout)
+                self.assertNotIn("__missing_project__", r_ghost_chain.stdout)
+                self.assertNotIn("__missing_project__", r_ghost_chain.stderr)
+                r_ghost_list = self._run([str(SCRIPT), "list"], cwd=str(todo_flow), env=os.environ.copy(), check=True)
+                self.assertIn("[blocked: ghost_proj:F9 (MISSING)]", r_ghost_list.stdout)
+                self.assertNotIn("__missing_project__", r_ghost_list.stdout)
+                r_ghost_nid = self._run([str(SCRIPT), "next-id", "F1"], cwd=str(todo_flow), env=os.environ.copy())
+                self.assertNotEqual(r_ghost_nid.returncode, 0)
+                self.assertIn("blocked by ghost_proj:F9 (MISSING)", r_ghost_nid.stderr)
+                self.assertNotIn("__missing_project__", r_ghost_nid.stderr)
+
+                # TODO_MD_PROJECTS scoping: child repositories validated via todo -w --check or -C/-p do not inherit orchestrator status
+                (todo_md_p / "TODO.md").write_text(
+                    "# 🎯 [NEXT] F9: Illegal cross-project dep in child\n- Depends on: run_block:F1\n\n- Body.\n",
+                    encoding="utf-8",
+                )
+                (todo_flow / "TODO.md").write_text("# 🎯 [NEXT] F1: Clean orch task\n\n- Body.\n", encoding="utf-8")
+                (todo_flow / ".todo_projects").unlink()
+                env_with_projects = {**os.environ, "TODO_MD_PROJECTS": "todo_flow,todo_md,run_block"}
+                r_ws_chk = self._run([str(SCRIPT), "-w", "--check"], cwd=str(todo_flow), env=env_with_projects)
+                self.assertNotEqual(r_ws_chk.returncode, 0, msg=r_ws_chk.stdout)
+                self.assertIn("non-orchestrator repository", r_ws_chk.stderr)
+                r_c_chk = self._run([str(SCRIPT), "-C", str(todo_md_p), "--check"], cwd=str(todo_flow), env=env_with_projects)
+                self.assertNotEqual(r_c_chk.returncode, 0, msg=r_c_chk.stdout)
+                self.assertIn("non-orchestrator repository", r_c_chk.stderr)
+                r_p_chk = self._run([str(SCRIPT), "-p", "todo_md", "--check"], cwd=str(todo_flow), env=env_with_projects)
+                self.assertNotEqual(r_p_chk.returncode, 0, msg=r_p_chk.stdout)
+                self.assertIn("non-orchestrator repository", r_p_chk.stderr)
+            finally:
+                (todo_flow / "TODO.md").write_text(orig_flow_todo, encoding="utf-8")
+                (todo_md_p / "TODO.md").write_text(orig_md_todo, encoding="utf-8")
+                (todo_flow / ".todo_projects").write_text(orig_flow_cfg, encoding="utf-8")
             with self.assertRaises(SystemExit):
                 mod.resolve_project_dir(todo_md_p, "chrome/canary")
             self.assertEqual(mod.project_label(canary.resolve(), ws), "chrome/canary")

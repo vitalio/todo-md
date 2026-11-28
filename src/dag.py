@@ -1,3 +1,10 @@
+def _missing_project_name(ndir: Path) -> str | None:
+    parts = ndir.parts
+    if "__missing_project__" in parts:
+        idx = parts.index("__missing_project__")
+        return "/".join(parts[idx + 1 :]) or None
+    return None
+
 def resolve_dependency_statuses(
     base_dir: Path,
     deps: list[str],
@@ -25,7 +32,7 @@ def resolve_dependency_statuses(
             proj_name, tid = pm.group(1).strip().replace("\\", "/").strip("/"), pm.group(2).upper()
             ext_dir = (
                 lookup_external_alias(base_dir, ws_root, proj_name)
-                if has_todo_projects_config(base_dir)
+                if has_todo_projects_config(base_dir, explicit_dir=explicit_dir)
                 else None
             )
             if ext_dir is None or not is_todo_project(ext_dir):
@@ -81,9 +88,10 @@ def build_dependency_dag(
             r_key = (c_res, proj_name)
             cand = ref_dir_cache.get(r_key)
             if cand is None:
+                c_explicit = explicit_dir if c_res == disp_resolved else str(c_res)
                 alias = (
                     lookup_external_alias(c_res, ws_resolved, proj_name)
-                    if has_todo_projects_config(c_res)
+                    if has_todo_projects_config(c_res, explicit_dir=c_explicit)
                     else None
                 )
                 if alias is not None and is_todo_project(alias):
@@ -99,7 +107,10 @@ def build_dependency_dag(
         if cached is not None:
             return cached
         ndir, ntid = node_key
-        if disp_is_proj and ndir == disp_resolved:
+        missing_proj = _missing_project_name(ndir)
+        if missing_proj is not None:
+            res = f"{missing_proj}:{ntid}"
+        elif disp_is_proj and ndir == disp_resolved:
             res = ntid
         else:
             res = f"{project_display_name(ndir, ws_resolved, disp_resolved)}:{ntid}"
@@ -395,11 +406,11 @@ def build_execution_chain_dag(
     ws_resolved = ws_root.resolve()
     cwd_resolved = Path.cwd().resolve()
 
-    is_orch = (not workspace) and is_orchestrator_project(b_res, ws_resolved, explicit_dir=explicit_dir)
+    is_orch = (not workspace) and is_orchestrator_project(b_res, explicit_dir=explicit_dir)
     disp_is_proj = (not workspace) and (b_res == cwd_resolved) and is_todo_project(cwd_resolved)
     disp_resolved = cwd_resolved
 
-    alias_lookup = configured_project_alias_map(b_res, ws_resolved)
+    alias_lookup = configured_project_alias_map(b_res, ws_resolved) if (workspace or is_orch) else {}
     project_lookup: dict[str, Path] = dict(alias_lookup)
 
     seed_dirs: list[Path] = []
@@ -449,17 +460,19 @@ def build_execution_chain_dag(
             r_key = (c_res, proj_name)
             cand = ref_dir_cache.get(r_key)
             if cand is None:
-                if proj_name in alias_lookup:
+                c_explicit = explicit_dir if c_res == b_res else str(c_res)
+                c_has_cfg = has_todo_projects_config(c_res, explicit_dir=c_explicit)
+                if c_res == b_res and proj_name in alias_lookup:
                     cand = alias_lookup[proj_name]
                 else:
                     ext_alias = (
                         lookup_external_alias(c_res, ws_resolved, proj_name)
-                        if has_todo_projects_config(c_res)
+                        if c_has_cfg
                         else None
                     )
                     if ext_alias is not None and is_todo_project(ext_alias):
                         cand = ext_alias
-                    elif (workspace or is_orch) and proj_name in project_lookup:
+                    elif c_has_cfg and (workspace or is_orch) and proj_name in project_lookup:
                         cand = project_lookup[proj_name]
                     else:
                         cand = c_res / "__missing_project__" / proj_name
@@ -472,7 +485,10 @@ def build_execution_chain_dag(
         if cached is not None:
             return cached
         ndir, ntid = node_key
-        if disp_is_proj and ndir == disp_resolved:
+        missing_proj = _missing_project_name(ndir)
+        if missing_proj is not None:
+            res = f"{missing_proj}:{ntid}"
+        elif disp_is_proj and ndir == disp_resolved:
             res = ntid
         else:
             res = f"{project_display_name(ndir, ws_resolved, b_res)}:{ntid}"
@@ -868,12 +884,22 @@ def _is_ready_in_dag(
 def find_newly_unblocked_tasks(
     completed_dir: Path,
     completed_id: str,
+    base_dir: Path | None = None,
+    explicit_dir: str | None = None,
 ) -> list[str]:
     comp_res = completed_dir.resolve()
     comp_tid = completed_id.strip().upper()
-    active_base = resolve_target_dir(None)
-    context_dir = active_base if has_todo_projects_config(active_base) else comp_res
-    ws_res = _workspace_root_cached(context_dir).resolve()
+    active_base = (
+        base_dir.resolve()
+        if base_dir is not None
+        else resolve_target_dir(explicit_dir)
+    )
+    active_has_cfg = has_todo_projects_config(active_base, explicit_dir=explicit_dir)
+    comp_explicit = explicit_dir if comp_res == active_base else str(comp_res)
+    comp_has_cfg = has_todo_projects_config(comp_res, explicit_dir=comp_explicit)
+    context_dir = active_base if active_has_cfg else comp_res
+    context_explicit = explicit_dir if context_dir == active_base else comp_explicit
+    ws_res = _workspace_root_cached(context_dir, explicit_dir=context_explicit).resolve()
 
     candidate_dirs: list[Path] = []
     seen_dirs: set[Path] = set()
@@ -885,10 +911,12 @@ def find_newly_unblocked_tasks(
             candidate_dirs.append(p_res)
 
     _add_project(comp_res)
-    if has_todo_projects_config(comp_res):
-        for p_cfg in read_configured_todo_projects(comp_res, _workspace_root_cached(comp_res)):
+    if comp_has_cfg:
+        for p_cfg in read_configured_todo_projects(
+            comp_res, _workspace_root_cached(comp_res, explicit_dir=comp_explicit)
+        ):
             _add_project(p_cfg)
-    if has_todo_projects_config(active_base):
+    if active_has_cfg:
         active_cfg = read_configured_todo_projects(active_base, ws_res)
         if comp_res == active_base or comp_res in active_cfg:
             _add_project(active_base)
@@ -906,8 +934,13 @@ def find_newly_unblocked_tasks(
         todo_path = proj_dir / "TODO.md"
         if not todo_path.is_file():
             continue
-        proj_has_cfg = has_todo_projects_config(proj_dir)
-        proj_ws = _workspace_root_cached(proj_dir).resolve() if proj_has_cfg else proj_dir
+        proj_explicit = explicit_dir if proj_dir == active_base else str(proj_dir)
+        proj_has_cfg = has_todo_projects_config(proj_dir, explicit_dir=proj_explicit)
+        proj_ws = (
+            _workspace_root_cached(proj_dir, explicit_dir=proj_explicit).resolve()
+            if proj_has_cfg
+            else proj_dir
+        )
         for t in parse_tasks_in_text(read_if_exists(todo_path), "TODO.md"):
             tid = str(t["id"]).upper()
             if proj_dir == comp_res and tid == comp_tid:
@@ -937,7 +970,7 @@ def find_newly_unblocked_tasks(
                         break
             if not references_completed:
                 continue
-            resolved = resolve_dependency_statuses(proj_dir, deps)
+            resolved = resolve_dependency_statuses(proj_dir, deps, explicit_dir=proj_explicit)
             if resolved and all(st == "DONE" for _, st, _ in resolved):
                 label = _format_unblocked_ref(proj_dir, tid)
                 if label not in seen_refs:

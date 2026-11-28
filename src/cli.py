@@ -395,14 +395,14 @@ def _quest_log(
     use_ws = workspace
     ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
     if not use_ws and not is_todo_project(base_dir) and not (base_dir / "TODO.md").is_file():
-        if has_todo_projects_config(base_dir):
+        if has_todo_projects_config(base_dir, explicit_dir=explicit_dir):
             use_ws = True
     matched_refs: list[tuple[Path, str]] = list(filter_refs)
     search = o["search"]
     if search is not None:
         include_archive = bool(o["include_done"]) or o["archive"] is not None
         b_res = base_dir.resolve()
-        is_orch = (not use_ws) and is_orchestrator_project(b_res, ws_root, explicit_dir=explicit_dir)
+        is_orch = (not use_ws) and is_orchestrator_project(b_res, explicit_dir=explicit_dir)
         if use_ws or is_orch:
             search_projects = resolve_workspace_chain_projects(base_dir, ws_root)
         else:
@@ -480,7 +480,7 @@ def _render_overview(base_dir: Path, explicit_dir: str | None, workspace: bool, 
     if workspace:
         return cmd_workspace_summary(base_dir, full=full, explicit_dir=explicit_dir)
     if not is_todo_project(base_dir) and not (base_dir / "TODO.md").is_file():
-        if has_todo_projects_config(base_dir):
+        if has_todo_projects_config(base_dir, explicit_dir=explicit_dir):
             return cmd_workspace_summary(base_dir, full=full, explicit_dir=explicit_dir)
     return cmd_summary(base_dir, full=full)
 
@@ -641,7 +641,7 @@ def main(argv: list[str] | None = None) -> int:
                     args.pop(0)
     base_dir = resolve_target_dir(explicit_dir)
     if workspace:
-        require_todo_projects_config(base_dir, "workspace mode (-w/--workspace)")
+        require_todo_projects_config(base_dir, "workspace mode (-w/--workspace)", explicit_dir=explicit_dir)
     bundle.role, args = _extract_session_role(prog, args)
     if args and args[0] in ("projects", "--projects"):
         return cmd_projects(base_dir, explicit_dir=explicit_dir)
@@ -682,6 +682,8 @@ def main(argv: list[str] | None = None) -> int:
             note=note,
             commit=commit,
             no_commit=no_commit,
+            base_dir=base_dir,
+            explicit_dir=explicit_dir,
         )
     if args[0] in ("add", "--add"):
         return cmd_add(base_dir, args[1:], commit=commit, no_commit=no_commit, explicit_dir=explicit_dir)
@@ -700,7 +702,16 @@ def main(argv: list[str] | None = None) -> int:
         if not raw_ids:
             raise SystemExit(f"{prog}: usage: {prog} done <ID>... [-m NOTE]")
         targets = [resolve_project_task_ref(base_dir, ref, explicit_dir=explicit_dir) for ref in raw_ids]
-        return cmd_transition_batch(targets, new_status="DONE", dest_file="TODO_ARCHIVE.md", note=note, commit=commit, no_commit=no_commit)
+        return cmd_transition_batch(
+            targets,
+            new_status="DONE",
+            dest_file="TODO_ARCHIVE.md",
+            note=note,
+            commit=commit,
+            no_commit=no_commit,
+            base_dir=base_dir,
+            explicit_dir=explicit_dir,
+        )
     if args[0] in ("cancel", "canceled", "--cancel"):
         pos, note = _parse_note_arg(args[1:])
         bad_flags = [p for p in pos if p.startswith("-")]
@@ -710,7 +721,16 @@ def main(argv: list[str] | None = None) -> int:
         if not raw_ids:
             raise SystemExit(f"{prog}: usage: {prog} cancel <ID>... [-m REASON]")
         targets = [resolve_project_task_ref(base_dir, ref, explicit_dir=explicit_dir) for ref in raw_ids]
-        return cmd_transition_batch(targets, new_status="CANCELED", dest_file="TODO_ARCHIVE.md", note=note, commit=commit, no_commit=no_commit)
+        return cmd_transition_batch(
+            targets,
+            new_status="CANCELED",
+            dest_file="TODO_ARCHIVE.md",
+            note=note,
+            commit=commit,
+            no_commit=no_commit,
+            base_dir=base_dir,
+            explicit_dir=explicit_dir,
+        )
     if args[0] == "status" or (
         args[0] == "--status" and len(args) > 1 and _collect_task_refs([args[1]]) is not None
     ):
@@ -727,7 +747,18 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit(f"{prog}: usage: {prog} status <ID>... <STATUS> [-m NOTE] [--reopen]")
         targets = [resolve_project_task_ref(base_dir, ref, explicit_dir=explicit_dir) for ref in raw_ids]
         st_up = pos[-1].upper()
-        return cmd_transition_batch(targets, new_status=st_up, dest_file=None, note=note, promote_top=(st_up in ("WIP", "NEXT")), reopen=reopen, commit=commit, no_commit=no_commit)
+        return cmd_transition_batch(
+            targets,
+            new_status=st_up,
+            dest_file=None,
+            note=note,
+            promote_top=(st_up in ("WIP", "NEXT")),
+            reopen=reopen,
+            commit=commit,
+            no_commit=no_commit,
+            base_dir=base_dir,
+            explicit_dir=explicit_dir,
+        )
     if args[0] in ("reopen", "--reopen"):
         return cmd_reopen(base_dir, args[1:], commit=commit, no_commit=no_commit, explicit_dir=explicit_dir)
     if args[0] in ("queue", "--queue"):
@@ -825,17 +856,28 @@ def main(argv: list[str] | None = None) -> int:
         if not raw_ids:
             raise SystemExit(f"{prog}: usage: {prog} next <ID>... [-m NOTE] [--reopen]")
         targets = [resolve_project_task_ref(base_dir, ref, explicit_dir=explicit_dir) for ref in raw_ids]
-        return cmd_transition_batch(targets, new_status="NEXT", dest_file="TODO.md", note=note, promote_top=True, reopen=reopen, commit=commit, no_commit=no_commit)
+        return cmd_transition_batch(
+            targets,
+            new_status="NEXT",
+            dest_file="TODO.md",
+            note=note,
+            promote_top=True,
+            reopen=reopen,
+            commit=commit,
+            no_commit=no_commit,
+            base_dir=base_dir,
+            explicit_dir=explicit_dir,
+        )
     if args[0] in ("ids", "--ids"):
         return cmd_ids(base_dir)
     if args[0] in ("check", "--check"):
         if workspace or (
             not is_todo_project(base_dir)
             and not (base_dir / "TODO.md").is_file()
-            and has_todo_projects_config(base_dir)
+            and has_todo_projects_config(base_dir, explicit_dir=explicit_dir)
         ):
             return cmd_workspace_check(base_dir, explicit_dir=explicit_dir)
-        return cmd_check(base_dir)
+        return cmd_check(base_dir, explicit_dir=explicit_dir)
     if args[0] in ("init", "--init"):
         return cmd_init(base_dir, argv=args[1:], commit=commit, no_commit=no_commit)
     if args[0] in ("list", "--list") or (args[0] == "-l" and not (len(args) > 1 and args[1].isdigit())):
@@ -916,7 +958,7 @@ def main(argv: list[str] | None = None) -> int:
         if workspace or (
             not is_todo_project(base_dir)
             and not (base_dir / "TODO.md").is_file()
-            and has_todo_projects_config(base_dir)
+            and has_todo_projects_config(base_dir, explicit_dir=explicit_dir)
         ):
             return cmd_workspace_list(
                 base_dir,

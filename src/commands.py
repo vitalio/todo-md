@@ -1,9 +1,9 @@
 @_discovery_scoped
-def cmd_check(base_dir: Path) -> int:
+def cmd_check(base_dir: Path, explicit_dir: str | None = None) -> int:
     if not (base_dir / "TODO.md").is_file():
         sys.stderr.write(f"{prog_name()}: no TODO.md found in {base_dir} (run '{prog_name()} init' to create one)\n")
         return 1
-    errors, count = validate_all(base_dir)
+    errors, count = validate_all(base_dir, explicit_dir=explicit_dir)
     if errors:
         for e in errors:
             sys.stderr.write(f"ERROR: {e}\n")
@@ -317,6 +317,8 @@ def cmd_transition(
     commit: bool = False,
     no_commit: bool = False,
     sync: bool = True,
+    context_dir: Path | None = None,
+    explicit_dir: str | None = None,
 ) -> int:
     target = task_id.strip().upper()
     if new_status and new_status not in VALID_STATUSES:
@@ -446,7 +448,12 @@ def cmd_transition(
         promote_id=(target if promote_top and dest_file == "TODO.md" else None),
     )
     if rc == 0 and final_status == "DONE":
-        unblocked = find_newly_unblocked_tasks(base_dir, tid)
+        unblocked = find_newly_unblocked_tasks(
+            base_dir,
+            tid,
+            base_dir=context_dir,
+            explicit_dir=explicit_dir,
+        )
         if unblocked:
             sys.stdout.write(f"Unblocked: {', '.join(unblocked)}\n")
     return rc
@@ -461,6 +468,8 @@ def cmd_transition_batch(
     require_archived: bool = False,
     commit: bool = False,
     no_commit: bool = False,
+    base_dir: Path | None = None,
+    explicit_dir: str | None = None,
 ) -> int:
     if new_status and new_status not in VALID_STATUSES:
         raise SystemExit(f"{prog_name()}: invalid status {new_status!r}; expected one of {', '.join(VALID_STATUSES)}")
@@ -483,6 +492,8 @@ def cmd_transition_batch(
             commit=commit,
             no_commit=no_commit,
             sync=False,
+            context_dir=base_dir,
+            explicit_dir=explicit_dir,
         )
         if rc != 0:
             return rc
@@ -545,6 +556,8 @@ def cmd_reopen(
         require_archived=True,
         commit=commit,
         no_commit=no_commit,
+        base_dir=base_dir,
+        explicit_dir=explicit_dir,
     )
 
 def _resolve_body_arg(body: str | list[str] | None) -> str | None:
@@ -739,7 +752,7 @@ def cmd_add(
 
     if len(pos) >= 2 and not re.fullmatch(r"[A-Za-z](?:\d+)?", pos[0].strip()):
         cand_proj = pos[0].strip().replace("\\", "/").strip("/")
-        if cand_proj and ".." not in cand_proj.split("/") and has_todo_projects_config(base_dir):
+        if cand_proj and ".." not in cand_proj.split("/") and has_todo_projects_config(base_dir, explicit_dir=explicit_dir):
             ws_root = resolve_workspace_root(base_dir, explicit_dir=explicit_dir)
             ext_dir = lookup_external_alias(base_dir, ws_root, cand_proj)
             if ext_dir is not None and is_todo_project(ext_dir):
@@ -1188,9 +1201,9 @@ def _rewrite_project_tasks_and_deps(
     t_res = tdir.resolve()
 
     def _qual_self(proj_part: str, tid_up: str) -> str | None:
-        if tid_up not in rename_map:
+        if tid_up not in rename_map or not has_todo_projects_config(t_res):
             return None
-        r_proj = _resolve_todo_project_entry(proj_part, t_res, ws_root)
+        r_proj = lookup_external_alias(t_res, ws_root, proj_part)
         return rename_map[tid_up] if r_proj == t_res else None
 
     for fname in TASK_FILES:

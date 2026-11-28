@@ -687,7 +687,10 @@ def validate_task_section_markdown(
 
 
 @_discovery_scoped
-def validate_all(base_dir: Path) -> tuple[list[str], int]:
+def validate_all(
+    base_dir: Path,
+    explicit_dir: str | None = None,
+) -> tuple[list[str], int]:
     errors: list[str] = []
     seen_ids: dict[str, str] = {}
     has_archive = (base_dir / "TODO_ARCHIVE.md").is_file()
@@ -767,8 +770,8 @@ def validate_all(base_dir: Path) -> tuple[list[str], int]:
                 )
             )
 
-    ws_root = _workspace_root_cached(base_dir)
-    is_orchestrator = has_todo_projects_config(base_dir)
+    ws_root = _workspace_root_cached(base_dir, explicit_dir=explicit_dir)
+    is_orchestrator = has_todo_projects_config(base_dir, explicit_dir=explicit_dir)
     local_ids = set(seen_ids.keys())
     shared = _ACTIVE_DISCOVERY
     task_cache: dict[Path, dict[str, dict[str, object]]] = (
@@ -832,7 +835,13 @@ def validate_all(base_dir: Path) -> tuple[list[str], int]:
                         else:
                             errors.append(f"TODO.md:{lineno}: task {tid} has invalid dependency reference {ref!r}")
             if clauses:
-                dag = build_dependency_dag(base_dir, base_dir, tid, stop_at_done=False)
+                dag = build_dependency_dag(
+                    base_dir,
+                    base_dir,
+                    tid,
+                    explicit_dir=explicit_dir,
+                    stop_at_done=False,
+                )
                 if dag["cycle"]:
                     errors.append(
                         f"TODO.md:{lineno}: task {tid} has dependency cycle: {' -> '.join(dag['cycle'])}"

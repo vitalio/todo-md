@@ -870,6 +870,16 @@ class TestCommands(TodoMdTestCase):
             cwd=str(orch),
             check=True,
         )
+        # Self-qualified <orch>:<ID> dependency inside orchestrator with .todo_projects is rewritten on rename
+        (orch / ".todo_projects").write_text("orch\nchild\n", encoding="utf-8")
+        self._run([str(SCRIPT), "add", "D", "Orch design"], cwd=str(orch), check=True)
+        self._run(
+            [str(SCRIPT), "edit", "F1", "--depends", "orch:D1 -> child:D1 -> child:F2, child:F1"],
+            cwd=str(orch),
+            check=True,
+        )
+        self._run([str(SCRIPT), "rename", "D1", "D2"], cwd=str(orch), check=True)
+        self.assertIn("- Depends on: orch:D2 -> child:D1 -> child:F2, child:F1", (orch / "TODO.md").read_text(encoding="utf-8"))
         self._run([str(SCRIPT), "check"], cwd=str(orch), check=True)
 
     def test_batch_edit_and_append(self):

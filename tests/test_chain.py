@@ -1115,6 +1115,17 @@ class TestChain(TodoMdTestCase):
         self.assertIn("run_block:F1", r_env_orch.stdout)
         self.assertNotIn("unlisted_proj", r_env_orch.stdout)
 
+        # Child repositories targeted via -C or -p do not inherit orchestrator status from TODO_MD_PROJECTS
+        for child_flag in (["-C", str(run_block)], ["-p", "run_block"]):
+            r_child_scoped = self._run(
+                [str(SCRIPT), *child_flag, "chain"],
+                cwd=str(todo_flow),
+                env=env_projects,
+                check=True,
+            )
+            self.assertNotIn("todo_md:F1", r_child_scoped.stdout)
+            self.assertNotIn("todo_flow:", r_child_scoped.stdout)
+
     def test_root_anchored_chains_quest_momentum_also_in_and_all_done_tasks(self):
         mod = self.todo_md_mod
         ws = self.tmp / "ws_f52"
