@@ -1,3 +1,31 @@
+# ✅ [DONE] D6: Design repo-exclusive parallel execution lanes and critical-path metrics in Quest-Log — *2026-11-28, Specified repo-exclusive parallel lanes and critical-path step metrics in F93*
+
+- Depends on: F59 -> F60 -> F61 -> B6 -> F72 -> F83 -> D5 -> F84
+- Depends on: B8
+- Depends on: F89 -> B14
+- Model parallel task execution under the repo-exclusivity invariant (at most one active task per repository at a time):
+  - Compute parallel wavefront width (`threads: <K>`) across ready tasks by grouping ready tasks by repository and selecting the top-ranked actionable task per repository as a parallel execution lane (`Lane 1..K`).
+  - Compute parallel critical-path steps for chains and orchestrator waves as `max(dag_depth, max_repo_open_count)` and surface parallelism metrics on chain headers and `todo -r` (`--ready`) in `src/chains.py` and `src/render_chain.py`.
+
+# ✅ [DONE] D3: Design explicit HOLD task review workflow and reverse dependency visibility — *2026-11-28, Specified reverse dependency visibility (Blocks: ...) and HOLD review workflow in F92*
+
+- Depends on: F89 -> B14
+- Specify how `HOLD` tasks expose downstream blocked dependents (`Blocks: ...` in `show` / `list HOLD`, including cross-project references when run from an orchestrator with `.todo_projects`) so reviewers see what unblocks when a `HOLD` condition is met.
+- Design an opt-in, explicitly invoked workflow (and any supporting CLI filter/command or bundle/rule trigger) for auditing `HOLD` tasks against repository/environment state without running automatically on unrelated agent turns.
+- Define status transition rules when a `HOLD` condition is satisfied (`NEW` vs `NEXT`) versus still waiting (updating notes in place).
+- Preserve the strict one-way dependency boundary (`todo-flow/docs/adr/0005-orchestrator-standard-and-dependency-boundaries.md`): child repositories remain self-contained without scanning parent directories for enclosing orchestrators; cross-project reverse dependency visibility (`Blocks: ...`) is surfaced when inspecting from the orchestrator repository.
+- Target files for downstream implementation: `src/dag.py`, `src/render.py`, `src/commands.py`, `src/cli.py`, `src/header.py`, `agents/todo.md`, `README.md`, `tests/test_deps.py`, `tests/test_commands.py`.
+
+# ✅ [DONE] D2: Design standalone task file mode (-F / --file) for shortlists and ad-hoc task files — *2026-11-28, Specified -F/--file standalone file-pair resolution and auto-creation in F91*
+
+- Depends on: F55, F75
+- Depends on: F89 -> B14
+- Explore and specify `-F <path>` / `--file <path>` support across `todo` subcommands (`overview`, `list`, `show`, `next-id`, `queue`, `files`, `check`, `add`, `edit`, `append`, `status`, `next`) so `todo` can inspect and manipulate any Markdown task file (such as a temporary shortlist generated during planning or dispatch) outside a repository's `TODO.md` (keeping `-f` reserved for `--filter`).
+- Define behavior when `TODO_ARCHIVE.md` is absent beside the target file: allow read/check and in-file status mutations without requiring an archive file, and specify explicit error or `--archive <path>` handling for `done` / `cancel` / `archive`.
+- Define interaction and precedence with `-C <dir|project>` (`F20`), `TODO_MD_CWD`, positional `.md` paths, and cross-project `<project>:<ID>` dependency lookups via `TODO_MD_WORKSPACE` when inspecting a shortlist in `/tmp` or another directory.
+- Shortlist/chain export workflow: evaluate supporting an exported or agent-generated shortlist Markdown file (e.g. a custom prioritized sequence or `chain` snapshot) that users can inspect, filter, and step through with `todo -F <path>` while resolving `<project>:<ID>` references against `TODO_MD_WORKSPACE`.
+- Target files for downstream implementation: `src/cli.py`, `src/workspace.py`, `src/parser.py`, `src/render.py`, `src/commands.py`, `src/header.py`, `agents/todo.md`, `README.md`, `tests/test_cli.py`, `tests/test_parser.py`, `tests/test_commands.py`.
+
 # ✅ [DONE] B14: Fix missing-project refs, TODO_MD_PROJECTS scoping, -C/-p unblocks, and unused F89 helpers — *2026-11-28, Fixed missing-project ref formatting, TODO_MD_PROJECTS scoping, -C/-p unblocks, and unused F89 helpers*
 
 - Depends on: F89

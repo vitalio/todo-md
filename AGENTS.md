@@ -45,9 +45,27 @@ rules are loaded via `.context.bundle`.
 - Keep `_parse_quest_log_args()` and `_quest_log()` in `src/cli.py` as the single
   parser for the default view, `chain`, `queue`, and `search`; do not re-implement
   flag parsing per entry point.
-- Unlock feedback loop: closing a quest (`todo done <ID>`) should report
-  newly unlocked downstream quests (`Unblocked: ...`) so the next playable
-  step is obvious without manually re-scanning the backlog.
+- Unlock feedback loop & reverse dependency visibility: closing a quest
+  (`todo --done <ID>`) reports newly unlocked downstream quests (`Unblocked: ...`),
+  while task cards (`--show`, `--overview`, `-B`) and `HOLD` views surface
+  reverse open dependents (`Blocks (N open[, M transitive]): <ref> <emoji> [<STATUS>], ...`
+  and `[blocks: ...]` in list view) so reviewers immediately see what unblocks
+  when a task or `HOLD` condition is resolved.
+- Explicit `HOLD` review workflow: never audit `HOLD` tasks automatically on
+  unrelated turns; trigger `HOLD` reviews explicitly via `todo HOLD` /
+  `todo HOLD -B` (which renders full task cards with `Blocks: ...` in the
+  bundle prompt), transitioning satisfied tasks to `🎯 [NEXT]` (`--promote`)
+  when fully scoped or `⚪ [NEW]` (`--status <ID> NEW`) when planning is needed,
+  and updating waiting notes in place (`--status <ID> HOLD -m ...`) otherwise.
+- Repo-exclusive parallel lanes & critical-path metrics: model parallel task
+  execution under the repo-exclusivity invariant (at most one active task per
+  repository at a time). Group ready tasks by repository (`proj_dir.resolve()`)
+  so each repository's top-ranked ready task (or active `WIP` task) forms a
+  parallel execution lane (`Lane 1..K`, wavefront width `threads = K`) while
+  remaining ready tasks in the same repository queue behind it (`[⏳ repo #N]`).
+  Compute chain critical-path steps as `max(dag_depth, max_repo_open_count)`
+  and surface lane/step metrics progressively in Quest-Log headers (when
+  `threads > 1` or `steps < open_count`) and `-r` / `--ready`.
 
 ## Architecture & Module Boundaries
 
@@ -56,12 +74,18 @@ rules are loaded via `.context.bundle`.
   `VERSION` by `build.py`), and task heading regexes.
 - `src/workspace.py` — strict one-way `.todo_projects` / `.todo_projects.local`
   (and `TODO_MD_PROJECTS`, including `<project_id>=<path>` alias mappings)
-  registry resolution without parent or sibling directory scanning, and the
-  per-render `discovery_session()` cache (`_discovery_scoped` on `validate_all`,
-  `cmd_check`, `cmd_chain`, `build_execution_chain_dag`, `cmd_projects`,
-  `find_newly_unblocked_tasks`, `cmd_list`, `cmd_show`, `cmd_summary`,
-  `cmd_workspace_*`, `_order_active_tasks`); route new discovery calls through
-  the cached wrappers and never mutate task files inside an active session.
+  registry resolution without parent or sibling directory scanning, standalone
+  task file pair resolution (`-F <path>` / `--file <path>`, pairing `TODO.md`
+  with `TODO_ARCHIVE.md` and arbitrary `<stem>.md` files with sibling
+  `<stem>_ARCHIVE.md`, auto-creating the active and archive files on `--init`,
+  `--add`, and archiving mutations while keeping read/check archive-optional
+  and skipping Git auto-commit outside tracked repository `TODO*.md` files),
+  and the per-render `discovery_session()` cache (`_discovery_scoped` on
+  `validate_all`, `cmd_check`, `cmd_chain`, `build_execution_chain_dag`,
+  `cmd_projects`, `find_newly_unblocked_tasks`, `cmd_list`, `cmd_show`,
+  `cmd_summary`, `cmd_workspace_*`, `_order_active_tasks`); route new discovery
+  calls through the cached wrappers and never mutate task files inside an
+  active session.
 - `src/parser.py` — pure `TODO.md` / `TODO_ARCHIVE.md` parsing: task sections,
   dependency clause syntax, prefix matching, ID tracking, search, and the
   structural validator `validate_all()` (`todo check`); no terminal output.

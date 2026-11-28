@@ -28,34 +28,6 @@
   - **Grouped `-h` / `--help` layout & docs sync**:
     - Update `src/header.py` (`usage_text()`) to group `--<cmd>` signatures into `View & Search Commands:`, `Task Lifecycle Commands:`, and `Repository & System Commands:` with a unified shared description column (`HELP_MAX_LEFT`), and update `agents/todo.md`, `README.md`, `AGENTS.md`, and `tests/test_*.py`.
 
-# 🎯 [NEXT] D2: Design standalone task file mode (-F / --file) for shortlists and ad-hoc task files
-
-- Depends on: F55, F75
-- Depends on: F89 -> B14
-- Explore and specify `-F <path>` / `--file <path>` support across `todo` subcommands (`overview`, `list`, `show`, `next-id`, `queue`, `files`, `check`, `add`, `edit`, `append`, `status`, `next`) so `todo` can inspect and manipulate any Markdown task file (such as a temporary shortlist generated during planning or dispatch) outside a repository's `TODO.md` (keeping `-f` reserved for `--filter`).
-- Define behavior when `TODO_ARCHIVE.md` is absent beside the target file: allow read/check and in-file status mutations without requiring an archive file, and specify explicit error or `--archive <path>` handling for `done` / `cancel` / `archive`.
-- Define interaction and precedence with `-C <dir|project>` (`F20`), `TODO_MD_CWD`, positional `.md` paths, and cross-project `<project>:<ID>` dependency lookups via `TODO_MD_WORKSPACE` when inspecting a shortlist in `/tmp` or another directory.
-- Shortlist/chain export workflow: evaluate supporting an exported or agent-generated shortlist Markdown file (e.g. a custom prioritized sequence or `chain` snapshot) that users can inspect, filter, and step through with `todo -F <path>` while resolving `<project>:<ID>` references against `TODO_MD_WORKSPACE`.
-- Target files for downstream implementation: `src/cli.py`, `src/workspace.py`, `src/parser.py`, `src/render.py`, `src/commands.py`, `src/header.py`, `agents/todo.md`, `README.md`, `tests/test_cli.py`, `tests/test_parser.py`, `tests/test_commands.py`.
-
-# 🎯 [NEXT] D3: Design explicit HOLD task review workflow and reverse dependency visibility
-
-- Depends on: F89 -> B14
-- Specify how `HOLD` tasks expose downstream blocked dependents (`Blocks: ...` in `show` / `list HOLD`, including cross-project references when run from an orchestrator with `.todo_projects`) so reviewers see what unblocks when a `HOLD` condition is met.
-- Design an opt-in, explicitly invoked workflow (and any supporting CLI filter/command or bundle/rule trigger) for auditing `HOLD` tasks against repository/environment state without running automatically on unrelated agent turns.
-- Define status transition rules when a `HOLD` condition is satisfied (`NEW` vs `NEXT`) versus still waiting (updating notes in place).
-- Preserve the strict one-way dependency boundary (`todo-flow/docs/adr/0005-orchestrator-standard-and-dependency-boundaries.md`): child repositories remain self-contained without scanning parent directories for enclosing orchestrators; cross-project reverse dependency visibility (`Blocks: ...`) is surfaced when inspecting from the orchestrator repository.
-- Target files for downstream implementation: `src/dag.py`, `src/render.py`, `src/commands.py`, `src/cli.py`, `src/header.py`, `agents/todo.md`, `README.md`, `tests/test_deps.py`, `tests/test_commands.py`.
-
-# 🎯 [NEXT] D6: Design repo-exclusive parallel execution lanes and critical-path metrics in Quest-Log
-
-- Depends on: F59 -> F60 -> F61 -> B6 -> F72 -> F83 -> D5 -> F84
-- Depends on: B8
-- Depends on: F89 -> B14
-- Model parallel task execution under the repo-exclusivity invariant (at most one active task per repository at a time):
-  - Compute parallel wavefront width (`threads: <K>`) across ready tasks by grouping ready tasks by repository and selecting the top-ranked actionable task per repository as a parallel execution lane (`Lane 1..K`).
-  - Compute parallel critical-path steps for chains and orchestrator waves as `max(dag_depth, max_repo_open_count)` and surface parallelism metrics on chain headers and `todo -r` (`--ready`) in `src/chains.py` and `src/render_chain.py`.
-
 # 🎯 [NEXT] F90: Remove legacy todo_md binary migration shims and output strings
 
 - Depends on: F88
@@ -65,6 +37,55 @@
   - `src/render.py` & `src/render_chain.py`: replace `"No todo_md projects found under ..."` with `"No todo projects found under ..."`.
   - `tests/`: remove legacy `todo_md` binary cutover assertions in `tests/test_cli.py` and clean up stale `todo_md` / `run_block` fixture directory names and comments across `tests/test_*.py`.
 - Rebuild `./todo` via `python3 build.py` and verify `python3 -m unittest` passes.
+
+# 🎯 [NEXT] F93: Implement repo-exclusive parallel execution lanes and critical-path metrics in Quest-Log
+
+- Depends on: D6
+- Depends on: F88 -> F90
+- Bump: `MINOR`
+- Implement repo-exclusive parallel execution lanes (`Lane 1..K`, `threads: K`) and chain critical-path step metrics (`steps = max(dag_depth, max_repo_open_count)`) in `src/chains.py`, `src/render_chain.py`, and `src/render.py`:
+  - **Repo-exclusive lane model (`src/chains.py`)**:
+    - Group active ready tasks (and active `WIP` tasks) by resolved repository path (`proj_dir.resolve()`) in global `plan_execution_chains()` rank order.
+    - Assign the top-ranked actionable task per repository (or the repository's active `WIP` task) to parallel execution lane `Lane 1..K` (`wavefront_threads = K`), and assign subsequent ready tasks in the same repository their per-repository queue position (`repo_queue_pos = 2, 3, ...`).
+    - For each execution chain `comp_open`, compute `dag_depth` (longest directed open-node path length along `act_prereqs` within `comp_open`), `max_repo_open_count` (maximum open tasks belonging to a single repository in `comp_open`), and `critical_path_steps = max(dag_depth, max_repo_open_count)`.
+  - **Progressive Quest-Log rendering (`src/render_chain.py`, `src/render.py`)**:
+    - Overall progress header: when `wavefront_threads > 1` (multi-repository workspace/orchestrator views with parallel ready lanes), surface `🧵 <K> lanes` inside the `🟢 <ready> ready (...)` segment.
+    - Chain headers: when `critical_path_steps < open_count` (indicating parallel compression within the chain), render `<pct>% · <done>/<total> · ⚡ <steps> steps · Chain <N> -> <root_ref>: <root_title>:` (omitting redundant step counts in single-lane linear chains where `steps == open_count`).
+    - Ready view (`todo -r` / `--ready`): annotate each repository's primary lane task with `[🧵 Lane <1..K>]` and same-repository queued ready tasks with `[⏳ repo #<pos>]` when multiple ready tasks or multiple lanes exist.
+- Update `agents/todo.md`, `README.md`, and add unit tests in `tests/test_chain.py`.
+
+# 🎯 [NEXT] F92: Implement reverse dependency visibility (Blocks: ...) and explicit HOLD review workflow
+
+- Depends on: D3
+- Depends on: F88 -> F90
+- Bump: `MINOR`
+- Implement reverse dependency visibility (`Blocks: ...`) and explicit `HOLD` review support across `src/dag.py`, `src/render.py`, `src/bundle.py`, `src/header.py`, `agents/todo.md`, and `README.md`:
+  - **Reverse dependency summary (`src/dag.py`, `src/render.py`)**:
+    - Add `format_blocked_dependents_summary(base_dir, task_id, explicit_dir=...)` backed by the cached `build_execution_chain_dag()` in `discovery_session()`.
+    - Collect open downstream dependents (excluding satisfied/terminal `DONE`, `CANCELED`, and `REVIEW` tasks) both locally and across `.todo_projects` when invoked from an orchestrator (preserving the strict one-way boundary where child repositories never scan parent directories).
+    - In task cards (`--show` / `todo <ID>`, `--overview`, and full-card `-B` prompts), render `Blocks (<N> open): <ref> <emoji> [<STATUS>], ...` (or `Blocks (<N> direct, <M> transitive): <ref> <emoji> [<STATUS>], ...` when transitive open dependents exceed direct open dependents) immediately below `Dependencies (...):` (or standalone when the task has no prerequisites of its own).
+    - In flat table views (`-l` / `--list`, e.g. `todo HOLD -l`), append a compact `[blocks: <ref1>, <ref2>]` suffix on `HOLD` rows that block open tasks.
+  - **Explicit `HOLD` review bundle & workflow (`src/bundle.py`, `agents/todo.md`)**:
+    - In `src/bundle.py`, include `HOLD` filter bundles (`todo HOLD -B`, `todo <project> HOLD -B`) among full-card bundle modes (alongside `<ID>...`, `REVIEW`, `--next`, `--last`) so `todo HOLD -B` emits every held task's full Markdown section, waiting note, `Dependencies:`, and `Blocks:` summary in the bundle prompt.
+    - Document the explicit `HOLD` review contract and transition rules in `agents/todo.md` and `README.md`: promote satisfied, fully scoped tasks to `🎯 [NEXT]` (`--promote <ID> -m ...`), move satisfied unscoped tasks to `⚪ [NEW]` (`--status <ID> NEW -m ...`), or update waiting notes in place (`--status <ID> HOLD -m ...`).
+- Add unit tests in `tests/test_deps.py`, `tests/test_commands.py`, and `tests/test_bundle.py`.
+
+# 🎯 [NEXT] F91: Implement standalone task file mode (-F / --file) and automatic active/archive file creation
+
+- Depends on: D2
+- Depends on: F88 -> F90
+- Bump: `MINOR`
+- Implement `-F <path>` / `--file <path>` and automatic active/archive task file creation across `src/workspace.py`, `src/parser.py`, `src/dag.py`, `src/render.py`, `src/render_chain.py`, `src/commands.py`, `src/cli.py`, and `src/header.py`:
+  - **Canonical file-pair resolution (`src/workspace.py`)**:
+    - Without `-F`: resolve `(base_dir / "TODO.md", base_dir / "TODO_ARCHIVE.md")` under `PWD` or `-C <dir>` (`TODO_MD_CWD`).
+    - With `-F <path>` / `--file <path>`: require explicit `-F` / `--file` (never guess positional `.md` arguments). If `<path>` is an existing directory (or ends with `/`), resolve `(<path>/TODO.md, <path>/TODO_ARCHIVE.md)`; if `<path>` is a file named `TODO.md` (case-insensitive), pair it with sibling `TODO_ARCHIVE.md`; for any other filename `<stem>.md` (or `<name>`), pair it with sibling `<stem>_ARCHIVE.md` (or `<name>_ARCHIVE.md`) in the same parent directory.
+    - When `-F <path>` is combined with `-C <dir>` (or `TODO_MD_PROJECTS`), resolve cross-project `<project>:<ID>` dependency references against the configured `.todo_projects` registry of `-C <dir>` / `TODO_MD_PROJECTS` while reading and mutating the `-F <path>` task file pair (preserving the strict one-way discovery boundary from `F89`).
+  - **Automatic file creation & archive-optional reads (`src/commands.py`, `src/parser.py`)**:
+    - On first use via `--init` or `--add` (both in default directory mode and `-F <path>` mode), automatically create parent directories if needed and initialize both the active task file and its paired archive file if they do not exist yet.
+    - On archiving transitions (`--done` moving a `REVIEW` / `D*` / `L*` task or `--done --archive`, and `--cancel`), automatically create the paired archive file (`TODO_ARCHIVE.md` or `<stem>_ARCHIVE.md`) beside the active file if absent and move the task section there.
+    - Allow all read-only views, `--check`, and in-file mutations (`--edit`, `--append`, `--rename`, `--status`, `--promote`, and first-step `--done` transitioning to `🔎 [REVIEW]`) to succeed even when the paired archive file does not exist on disk (treating the archive as empty without creating an empty file on read-only operations).
+    - Skip Git `_sync_upstream()` and `_git_commit_todo()` auto-commit hooks when operating on a `-F <path>` file outside a Git work tree or non-standard filename unless explicitly tracked.
+- Update `src/header.py` (`-h` / `--help`), `agents/todo.md`, `README.md`, and add unit tests in `tests/test_cli.py`, `tests/test_parser.py`, and `tests/test_commands.py`.
 
 # ⏸️ [HOLD] P1: JSON output mode (`--json`) — *Defer machine-readable JSON output until an external client or dashboard is needed*
 
